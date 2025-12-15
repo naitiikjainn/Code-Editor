@@ -10,7 +10,7 @@ import codeRoutes from "./routes/code.js";
 
 const app = express();
 app.use(cors({
-    origin: ["http://localhost:5173", "https://code-editor-phi-two.vercel.app/"], // Replace with your ACTUAL Vercel URL
+    origin: ["http://localhost:5173", "https://code-editor-33js86cj4-naitik-jains-projects.vercel.app/"], // Replace with your ACTUAL Vercel URL
     credentials: true
 }));
 app.use(express.json());
