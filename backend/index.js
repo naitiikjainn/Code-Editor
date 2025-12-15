@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import connectDB from "./db.js";
 import dotenv from "dotenv";
 dotenv.config();
 import aiRoutes from "./routes/ai.js";
@@ -9,7 +10,7 @@ import codeRoutes from "./routes/code.js";
 const app = express();
 app.use(cors());
 app.use(express.json());
-
+connectDB();
 app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
 app.get("/health", (_, res) => {
