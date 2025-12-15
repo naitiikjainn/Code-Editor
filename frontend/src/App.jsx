@@ -4,7 +4,7 @@ import Preview from "./components/Preview";
 import AIButton from "./components/AIButton";
 import AIPanel from "./components/AIPanel";
 import ConsolePanel from "./components/ConsolePanel";
-
+import ShareModal from "./components/ShareModal";
 export default function App() {
   // --- STATE MANAGEMENT ---
   const [language, setLanguage] = useState("web"); // Options: "web", "cpp", "java", "python"
@@ -30,7 +30,8 @@ export default function App() {
   const [activeCode, setActiveCode] = useState({ html, css, js });
   const [isAutoRun, setIsAutoRun] = useState(true);
   const [input, setInput] = useState(""); 
-
+const [shareModalOpen, setShareModalOpen] = useState(false);
+const [shareUrl, setShareUrl] = useState("");
   // --- EFFECTS ---
 
   // Auto-Run Logic (Only for Web)
@@ -114,7 +115,43 @@ export default function App() {
         setLogs(prev => [...prev, { type: "error", message: "Server Error." }]);
     }
   }
+async function handleShare() {
+    let bodyData;
 
+    if (language === "web") {
+        bodyData = {
+            language: "web",
+            code: { html, css, js } 
+        };
+    } else {
+        bodyData = {
+            language,
+            code: language === "cpp" ? cppCode : (language === "java" ? javaCode : pythonCode),
+            stdin: input
+        };
+    }
+
+    try {
+        const res = await fetch("http://localhost:5000/api/share/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(bodyData),
+        });
+        
+        const data = await res.json();
+        
+        if (data.id) {
+            // ✅ SUCCESS: Open the Modal instead of Alert
+            const url = `${window.location.origin}/share/${data.id}`;
+            setShareUrl(url);
+            setShareModalOpen(true);
+        } else {
+            setLogs(prev => [...prev, { type: "error", message: "Failed to generate share link." }]);
+        }
+    } catch (e) {
+        setLogs(prev => [...prev, { type: "error", message: "Network Error: Could not share code." }]);
+    }
+  }
   return (
     <>
       <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "#1e1e1e" }}>
@@ -152,7 +189,17 @@ export default function App() {
                         Auto-Run
                     </label>
                 )}
-
+                {/* NEW SHARE BUTTON */}
+                <button 
+                    onClick={handleShare}
+                    style={{
+                        background: "#444", color: "white", border: "1px solid #666",
+                        borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600",
+                        cursor: "pointer", display: "flex", alignItems: "center", gap: "6px"
+                    }}
+                >
+                    🔗 Share
+                </button>
                 <button 
                     onClick={handleRun}
                     style={{
@@ -263,6 +310,11 @@ export default function App() {
           Show Console
         </button>
       )}
+      <ShareModal 
+        isOpen={shareModalOpen} 
+        onClose={() => setShareModalOpen(false)} 
+        url={shareUrl} 
+      />
     </>
   );
 }
