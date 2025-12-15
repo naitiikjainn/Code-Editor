@@ -5,7 +5,9 @@ import AIButton from "./components/AIButton";
 import AIPanel from "./components/AIPanel";
 import ConsolePanel from "./components/ConsolePanel";
 import ShareModal from "./components/ShareModal";
+import { useParams } from "react-router-dom";
 export default function App() {
+  const { id } = useParams();
   // --- STATE MANAGEMENT ---
   const [language, setLanguage] = useState("web"); // Options: "web", "cpp", "java", "python"
 
@@ -33,7 +35,41 @@ export default function App() {
 const [shareModalOpen, setShareModalOpen] = useState(false);
 const [shareUrl, setShareUrl] = useState("");
   // --- EFFECTS ---
+  // LOAD SHARED CODE LOGIC
+  useEffect(() => {
+    if (id) {
+      // If we have an ID, fetch the code
+      fetch(`http://localhost:5000/api/share/${id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            alert("Code not found!");
+            return;
+          }
 
+          // 1. Set Language
+          setLanguage(data.language);
+
+          // 2. Set Code based on language
+          if (data.language === "web") {
+            setHtml(data.code.html);
+            setCss(data.code.css);
+            setJs(data.code.js);
+            setActiveCode(data.code); // Update preview immediately
+          } else if (data.language === "cpp") {
+            setCppCode(data.code);
+            setInput(data.stdin || "");
+          } else if (data.language === "java") {
+            setJavaCode(data.code);
+            setInput(data.stdin || "");
+          } else if (data.language === "python") {
+            setPythonCode(data.code);
+            setInput(data.stdin || "");
+          }
+        })
+        .catch(err => console.error("Error loading code:", err));
+    }
+  }, [id]); // Run this whenever the ID changes
   // Auto-Run Logic (Only for Web)
   useEffect(() => {
     if (!isAutoRun || language !== "web") return;
