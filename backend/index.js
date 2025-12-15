@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import connectDB from "./db.js";
+import shareRoutes from "./routes/share.js";
 import dotenv from "dotenv";
 dotenv.config();
 import aiRoutes from "./routes/ai.js";
@@ -13,6 +14,7 @@ app.use(express.json());
 connectDB();
 app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
+app.use("/api/share", shareRoutes);
 app.get("/health", (_, res) => {
   res.send("Backend running");
 });
