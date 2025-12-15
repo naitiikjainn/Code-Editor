@@ -6,8 +6,11 @@ import AIPanel from "./components/AIPanel";
 import ConsolePanel from "./components/ConsolePanel";
 import ShareModal from "./components/ShareModal";
 import { useParams } from "react-router-dom";
+import { API_URL } from "./config"; // Make sure you created this file!
+
 export default function App() {
   const { id } = useParams();
+
   // --- STATE MANAGEMENT ---
   const [language, setLanguage] = useState("web"); // Options: "web", "cpp", "java", "python"
 
@@ -19,8 +22,6 @@ export default function App() {
   // C++ / Java / Python State
   const [cppCode, setCppCode] = useState(`#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Hello from C++!" << endl;\n    return 0;\n}`);
   const [javaCode, setJavaCode] = useState(`public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello from Java!");\n    }\n}`);
-  
-  // ✅ FIXED: Added Python default code
   const [pythonCode, setPythonCode] = useState(`print("Hello from Python!")`);
 
   // General State
@@ -32,14 +33,20 @@ export default function App() {
   const [activeCode, setActiveCode] = useState({ html, css, js });
   const [isAutoRun, setIsAutoRun] = useState(true);
   const [input, setInput] = useState(""); 
-const [shareModalOpen, setShareModalOpen] = useState(false);
-const [shareUrl, setShareUrl] = useState("");
+  
+  // UI States
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+
   // --- EFFECTS ---
-  // LOAD SHARED CODE LOGIC
+
+  // 1. LOAD SHARED CODE or RESET LOGIC
   useEffect(() => {
     if (id) {
-      // If we have an ID, fetch the code
-      fetch(`http://localhost:5000/api/share/${id}`)
+      // If ID exists, fetch the code
+      fetch(`${API_URL}/api/share/${id}`)
         .then(res => res.json())
         .then(data => {
           if (data.error) {
@@ -47,15 +54,15 @@ const [shareUrl, setShareUrl] = useState("");
             return;
           }
 
-          // 1. Set Language
+          // Set Language
           setLanguage(data.language);
 
-          // 2. Set Code based on language
+          // Set Code based on language
           if (data.language === "web") {
             setHtml(data.code.html);
             setCss(data.code.css);
             setJs(data.code.js);
-            setActiveCode(data.code); // Update preview immediately
+            setActiveCode(data.code); 
           } else if (data.language === "cpp") {
             setCppCode(data.code);
             setInput(data.stdin || "");
@@ -68,8 +75,20 @@ const [shareUrl, setShareUrl] = useState("");
           }
         })
         .catch(err => console.error("Error loading code:", err));
+    } else {
+      // ✅ RESET STATE (User went back to Home)
+      setLanguage("web");
+      setHtml("<h2>Hello User</h2>");
+      setCss("body { text-align: center; font-family: sans-serif; }");
+      setJs("console.log('Hello from JS!');");
+      setCppCode(`#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Hello from C++!" << endl;\n    return 0;\n}`);
+      setJavaCode(`public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello from Java!");\n    }\n}`);
+      setPythonCode(`print("Hello from Python!")`);
+      setInput("");
+      setLogs([]);
     }
-  }, [id]); // Run this whenever the ID changes
+  }, [id]); 
+
   // Auto-Run Logic (Only for Web)
   useEffect(() => {
     if (!isAutoRun || language !== "web") return;
@@ -96,7 +115,6 @@ const [shareUrl, setShareUrl] = useState("");
 
   async function askAI(prompt) {
     try {
-        // ✅ FIXED: Now includes pythonCode in the logic
         const currentCode = language === "web" 
             ? { html, css, js } 
             : { 
@@ -104,7 +122,7 @@ const [shareUrl, setShareUrl] = useState("");
                 lang: language 
               };
 
-        const res = await fetch("http://localhost:5000/api/ai/assist", {
+        const res = await fetch(`${API_URL}/api/ai/assist`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt, code: currentCode }),
@@ -122,14 +140,14 @@ const [shareUrl, setShareUrl] = useState("");
 
     setLogs([{ type: "info", message: `Compiling ${language.toUpperCase()}...` }]);
     setConsoleOpen(true);
+    setIsRunning(true); // ✅ Start Loading
 
     try {
-        const res = await fetch("http://localhost:5000/api/code/execute", {
+        const res = await fetch(`${API_URL}/api/code/execute`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
                 language, 
-                // ✅ FIXED: Now sends pythonCode if language is 'python'
                 code: language === "cpp" ? cppCode : (language === "java" ? javaCode : pythonCode),
                 stdin: input 
             }),
@@ -150,8 +168,13 @@ const [shareUrl, setShareUrl] = useState("");
     } catch (err) {
         setLogs(prev => [...prev, { type: "error", message: "Server Error." }]);
     }
+    finally {
+      setIsRunning(false); // ✅ Stop Loading
+    }
   }
-async function handleShare() {
+
+  async function handleShare() {
+    setIsSharing(true); // ✅ Start Loading
     let bodyData;
 
     if (language === "web") {
@@ -168,7 +191,7 @@ async function handleShare() {
     }
 
     try {
-        const res = await fetch("http://localhost:5000/api/share/generate", {
+        const res = await fetch(`${API_URL}/api/share/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(bodyData),
@@ -177,7 +200,6 @@ async function handleShare() {
         const data = await res.json();
         
         if (data.id) {
-            // ✅ SUCCESS: Open the Modal instead of Alert
             const url = `${window.location.origin}/share/${data.id}`;
             setShareUrl(url);
             setShareModalOpen(true);
@@ -186,8 +208,11 @@ async function handleShare() {
         }
     } catch (e) {
         setLogs(prev => [...prev, { type: "error", message: "Network Error: Could not share code." }]);
+    } finally {
+        setIsSharing(false); // ✅ Stop Loading
     }
   }
+
   return (
     <>
       <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "#1e1e1e" }}>
@@ -225,26 +250,35 @@ async function handleShare() {
                         Auto-Run
                     </label>
                 )}
-                {/* NEW SHARE BUTTON */}
+
+                {/* SHARE BUTTON with Loading State */}
                 <button 
                     onClick={handleShare}
+                    disabled={isSharing}
                     style={{
                         background: "#444", color: "white", border: "1px solid #666",
                         borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600",
-                        cursor: "pointer", display: "flex", alignItems: "center", gap: "6px"
+                        cursor: isSharing ? "not-allowed" : "pointer", 
+                        display: "flex", alignItems: "center", gap: "6px",
+                        opacity: isSharing ? 0.7 : 1
                     }}
                 >
-                    🔗 Share
+                    {isSharing ? "⏳..." : "🔗 Share"}
                 </button>
+
+                {/* RUN BUTTON with Loading State */}
                 <button 
                     onClick={handleRun}
+                    disabled={isRunning}
                     style={{
                         background: "#238636", color: "white", border: "1px solid rgba(240,246,252,0.1)",
                         borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600",
-                        cursor: "pointer", display: "flex", alignItems: "center", gap: "6px"
+                        cursor: isRunning ? "not-allowed" : "pointer", 
+                        display: "flex", alignItems: "center", gap: "6px",
+                        opacity: isRunning ? 0.7 : 1
                     }}
                 >
-                    ▶ Run
+                    {isRunning ? "⏳ Running..." : "▶ Run"}
                 </button>
             </div>
         </div>
@@ -260,7 +294,6 @@ async function handleShare() {
             // C++ / Java / Python Props
             cppCode={cppCode} setCppCode={setCppCode}
             javaCode={javaCode} setJavaCode={setJavaCode}
-            // ✅ FIXED: Passed Python Props
             pythonCode={pythonCode} setPythonCode={setPythonCode}
           />
         </div>
@@ -268,7 +301,6 @@ async function handleShare() {
        {/* BOTTOM PANEL AREA */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
           
-          {/* --- CASE 1: WEB DEVELOPMENT (Stacked) --- */}
           {language === "web" ? (
              <>
                <div style={{ flex: 1, overflow: "hidden" }}>
@@ -283,11 +315,7 @@ async function handleShare() {
                />
              </>
           ) : (
-             
-             /* --- CASE 2: C++ / JAVA / PYTHON (Side-by-Side) --- */
              <div style={{ display: "flex", height: "100%", width: "100%" }}>
-                
-                {/* LEFT: INPUT BOX */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: "1px solid #333", background: "#1e1e1e" }}>
                    <div style={{ padding: "8px 16px", background: "#252526", color: "#ccc", fontSize: "12px", fontWeight: "bold", borderBottom: "1px solid #333" }}>
                       INPUT
@@ -310,7 +338,6 @@ async function handleShare() {
                    />
                 </div>
 
-                {/* RIGHT: OUTPUT CONSOLE */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                     {consoleOpen ? (
                         <ConsolePanel
@@ -331,11 +358,9 @@ async function handleShare() {
                         </div>
                     )}
                 </div>
-
              </div>
           )}
         </div>
-         
       </div>
 
       <AIButton onClick={() => setAiOpen(true)} />
