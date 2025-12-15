@@ -5,18 +5,18 @@ import AIButton from "./components/AIButton";
 import AIPanel from "./components/AIPanel";
 import ConsolePanel from "./components/ConsolePanel";
 import ShareModal from "./components/ShareModal";
-import AuthModal from "./components/AuthModal"; // ✅ IMPORT AUTH MODAL
-import { useParams } from "react-router-dom";
+import AuthModal from "./components/AuthModal";
+import { useParams, useNavigate } from "react-router-dom"; 
 import { API_URL } from "./config"; 
 import io from "socket.io-client";
-import { useAuth } from "./context/AuthContext"; // ✅ IMPORT AUTH CONTEXT
+import { useAuth } from "./context/AuthContext";
 
-// Initialize Socket
 const socket = io(API_URL);
 
 export default function App() {
   const { id } = useParams();
-  const { user, logout } = useAuth(); // ✅ GET USER INFO
+  const navigate = useNavigate(); 
+  const { user, logout } = useAuth();
 
   // --- STATE ---
   const [language, setLanguage] = useState("web"); 
@@ -27,7 +27,6 @@ export default function App() {
   const [javaCode, setJavaCode] = useState(`public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello from Java!");\n    }\n}`);
   const [pythonCode, setPythonCode] = useState(`print("Hello from Python!")`);
 
-  // UI State
   const [activeCode, setActiveCode] = useState({ html, css, js });
   const [isAutoRun, setIsAutoRun] = useState(true);
   const [input, setInput] = useState(""); 
@@ -35,36 +34,86 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [consoleOpen, setConsoleOpen] = useState(true);
   
-  // Modals & Loading
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false); // ✅ AUTH MODAL STATE
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [isRunning, setIsRunning] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false); 
+
+  const [activeUsers, setActiveUsers] = useState([]); 
+  const [typingUser, setTypingUser] = useState("");   
+  const [remoteCursors, setRemoteCursors] = useState({}); 
 
   // --- SOCKETS ---
   useEffect(() => {
-    if (id) {
-        socket.emit("join_room", id);
+    if (id && user) { 
+        socket.emit("join_room", { roomId: id, username: user.username });
         
-        const handleReceiveCode = (code) => {
-            if (code.language === "web") {
-                if (code.html !== undefined) setHtml(code.html);
-                if (code.css !== undefined) setCss(code.css);
-                if (code.js !== undefined) setJs(code.js);
-            } else {
-                if (language === "cpp") setCppCode(code);
-                if (language === "java") setJavaCode(code);
-                if (language === "python") setPythonCode(code);
+        // RECEIVER LOGIC (FIXED)
+        const handleReceiveCode = (payload) => {
+             // Debug log to verify data arrival
+             console.log("📨 Received update:", payload);
+
+             // payload = { language: "cpp", code: "..." }
+             if (payload.language === "web") {
+                 const data = payload.code;
+                 if (data.html !== undefined) setHtml(data.html);
+                 if (data.css !== undefined) setCss(data.css);
+                 if (data.js !== undefined) setJs(data.js);
+             } else {
+                 // FIX: specific checks based on INCOMING language, not local state
+                 if (payload.language === "cpp") setCppCode(payload.code);
+                 if (payload.language === "java") setJavaCode(payload.code);
+                 if (payload.language === "python") setPythonCode(payload.code);
+             }
+        };
+
+        const handleRoomUsers = (users) => setActiveUsers(users);
+        
+        const handleTyping = (username) => {
+            setTypingUser(`${username} is typing...`);
+            setTimeout(() => setTypingUser(""), 2000);
+        };
+
+        const handleCursorUpdate = ({ username, position }) => {
+            if (username !== user.username) {
+                setRemoteCursors(prev => ({ ...prev, [username]: { position } }));
             }
         };
-        socket.on("receive_code", handleReceiveCode);
-        return () => socket.off("receive_code", handleReceiveCode);
-    }
-  }, [id, language]);
+        const handleSyncRunStart = ({ username }) => { 
+            setConsoleOpen(true); setIsRunning(true); setLogs([{ type: "info", message: `🚀 ${username} started execution...` }]); 
+        };
+        const handleSyncRunComplete = ({ logs }) => { 
+            setIsRunning(false); setLogs(prev => [...prev, ...logs]); 
+        };
+        const handleUserLeft = ({ username }) => {
+            setRemoteCursors(prev => { const n = {...prev}; delete n[username]; return n; });
+            setActiveUsers(prev => prev.filter(u => u !== username));
+        };
 
-  // Handle Code Changes (Broadcast)
+        // Attach Listeners
+        socket.on("receive_code", handleReceiveCode);
+        socket.on("room_users", handleRoomUsers);
+        socket.on("user_typing", handleTyping);
+        socket.on("cursor_update", handleCursorUpdate);
+        socket.on("sync_run_start", handleSyncRunStart);
+        socket.on("sync_run_complete", handleSyncRunComplete);
+        socket.on("user_left", handleUserLeft);
+
+        return () => {
+            socket.off("receive_code", handleReceiveCode);
+            socket.off("room_users", handleRoomUsers);
+            socket.off("user_typing", handleTyping);
+            socket.off("cursor_update", handleCursorUpdate);
+            socket.off("sync_run_start", handleSyncRunStart);
+            socket.off("sync_run_complete", handleSyncRunComplete);
+            socket.off("user_left", handleUserLeft);
+        };
+    }
+  }, [id, user]); // Dependency array is SAFE (Removed 'language')
+
   const handleCodeChange = (type, value) => {
+      // 1. Update Local State as usual
       if (type === "html") setHtml(value);
       if (type === "css") setCss(value);
       if (type === "js") setJs(value);
@@ -72,12 +121,21 @@ export default function App() {
       if (type === "java") setJavaCode(value);
       if (type === "python") setPythonCode(value);
 
-      if (id) {
-          let payload = value;
+      // 2. Broadcast to Room
+      if (id && user) {
+          // FIX: Send an object with language AND code
+          let payload = {
+              language: language, 
+              code: value
+          };
+
+          // Special structure for Web
           if (language === "web") {
-              payload = { html, css, js, [type]: value, language: "web" };
+              payload.code = { html, css, js, [type]: value };
           }
+
           socket.emit("code_change", { roomId: id, code: payload });
+          socket.emit("typing", { roomId: id, username: user.username });
       }
   };
 
@@ -87,7 +145,7 @@ export default function App() {
       fetch(`${API_URL}/api/share/${id}`)
         .then(res => res.json())
         .then(data => {
-          if (data.error) return alert("Code not found!");
+          if (data.error) return alert("Room not found!");
           setLanguage(data.language);
           if (data.language === "web") {
             setHtml(data.code.html); setCss(data.code.css); setJs(data.code.js); setActiveCode(data.code); 
@@ -103,53 +161,94 @@ export default function App() {
     }
   }, [id]); 
 
-  // Auto-Run (Web)
-  useEffect(() => {
-    if (!isAutoRun || language !== "web") return;
-    const timeout = setTimeout(() => setActiveCode({ html, css, js }), 1000);
-    return () => clearTimeout(timeout);
-  }, [html, css, js, isAutoRun, language]);
-
-  // Actions
-  async function handleRun() {
-    // 🔒 NEW: Check if user is logged in
+  // --- HANDLERS ---
+  
+  // NEW: CREATE ROOM FUNCTION
+  async function handleCreateRoom() {
     if (!user) {
-        // alert("Please login to run code!"); // Optional: Remove if you just want the modal
-        setAuthModalOpen(true); // Open the Login Popup
-        return; // 🛑 STOP execution here
+        setAuthModalOpen(true);
+        return;
     }
-    if (language === "web") { setActiveCode({ html, css, js }); return; } 
-    setLogs([{ type: "info", message: `Compiling ${language.toUpperCase()}...` }]);
-    setConsoleOpen(true); setIsRunning(true); 
-    try {
-        const res = await fetch(`${API_URL}/api/code/execute`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ language, code: language === "cpp" ? cppCode : (language === "java" ? javaCode : pythonCode), stdin: input }),
-        });
-        const data = await res.json();
-        setLogs(prev => [...prev, { type: data.run?.code === 0 ? "log" : "error", message: data.run?.output || "Execution failed." }]);
-    } catch (err) { setLogs(prev => [...prev, { type: "error", message: "Server Error." }]); }
-    finally { setIsRunning(false); }
-  }
-
-  async function handleShare() {
-    if (!user) {
-        setAuthModalOpen(true); // Open Login Popup
-        return; // 🛑 STOP execution
-    }
-    setIsSharing(true); 
+    
+    setIsCreatingRoom(true);
+    
     const bodyData = language === "web" ? { language: "web", code: { html, css, js } } 
         : { language, code: language === "cpp" ? cppCode : (language === "java" ? javaCode : pythonCode), stdin: input };
+
     try {
         const res = await fetch(`${API_URL}/api/share/generate`, {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bodyData),
         });
         const data = await res.json();
+        
         if (data.id) {
-            setShareUrl(`${window.location.origin}/share/${data.id}`); setShareModalOpen(true);
+            // Redirect to the Room URL
+            window.location.href = `/share/${data.id}`;
         }
-    } catch (e) { alert("Error sharing code"); }
-    finally { setIsSharing(false); }
+    } catch (e) { alert("Error creating room"); }
+    finally { setIsCreatingRoom(false); }
+  }
+
+  async function handleRun() {
+    if (!user) { setAuthModalOpen(true); return; }
+
+    // Case 1: Web (Just sync the active code state)
+    if (language === "web") { 
+        setActiveCode({ html, css, js }); 
+        return; 
+    } 
+
+    // Case 2: C++/Java/Python
+    setConsoleOpen(true);
+    setIsRunning(true);
+    setLogs([{ type: "info", message: "Compiling..." }]);
+
+    //1. Tell others we are starting
+    if (id) {
+        socket.emit("sync_run_trigger", { roomId: id, username: user.username });
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/code/execute`, {
+            method: "POST", 
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                language, 
+                code: language === "cpp" ? cppCode : (language === "java" ? javaCode : pythonCode), 
+                stdin: input 
+            }),
+        });
+        const data = await res.json();
+        
+        // Prepare logs
+        const newLogs = [
+             { type: data.run?.code === 0 ? "log" : "error", message: data.run?.output || "Execution finished." }
+        ];
+
+        setLogs(prev => [...prev, ...newLogs]);
+
+        //2. Send the result to others
+        if (id) {
+            socket.emit("sync_run_result", { roomId: id, logs: newLogs });
+        }
+
+    } catch (err) { 
+        const errorLog = [{ type: "error", message: "Server Error." }];
+        setLogs(prev => [...prev, ...errorLog]);
+        
+        // Broadcast error too
+        if (id) socket.emit("sync_run_result", { roomId: id, logs: errorLog });
+    }
+    finally { 
+        setIsRunning(false); 
+    }
+  }
+
+  // Helper to Copy Link (If already in a room)
+  function handleCopyLink() {
+      const url = window.location.href;
+      setShareUrl(url);
+      setShareModalOpen(true);
   }
 
   return (
@@ -160,35 +259,61 @@ export default function App() {
         <div style={{ height: "50px", background: "#111", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", borderBottom: "1px solid #333" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
                 <span style={{ fontWeight: "bold", color: "#fff", fontSize: "18px" }}>🚀 CodePlay</span>
-                <select value={language} onChange={(e) => setLanguage(e.target.value)} style={{ background: "#222", color: "white", border: "1px solid #444", padding: "4px 8px", borderRadius: "4px" }}>
+                
+                {/* NAVBAR FIX: Fixed Select Element */}
+                <select 
+                    value={language} 
+                    onChange={(e) => { setLanguage(e.target.value); setLogs([]); }}
+                    style={{ background: "#222", color: "white", border: "1px solid #444", padding: "6px 12px", borderRadius: "4px", outline: "none", cursor: "pointer" }}
+                >
                     <option value="web">🌐 HTML/JS</option>
                     <option value="cpp">⚙️ C++</option>
                     <option value="java">☕ Java</option>
                     <option value="python">🐍 Python</option>
                 </select>
+
+                {/* USER AVATARS */}
+                {activeUsers.length > 0 && (
+                  <div style={{ display: "flex", gap: "-5px", marginLeft: "10px" }}>
+                    {activeUsers.map((name, i) => (
+                      <div key={i} title={name} style={{ width: "24px", height: "24px", borderRadius: "50%", background: `hsl(${i * 60}, 70%, 50%)`, color: "#fff", fontSize: "10px", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #111" }}>
+                        {name[0].toUpperCase()}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {typingUser && <span style={{ color: "#aaa", fontSize: "12px", fontStyle: "italic" }}>{typingUser}</span>}
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                
-                {/* ✅ AUTH BUTTONS */}
                 {user ? (
                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                       <span style={{ color: "#4caf50", fontWeight: "bold", fontSize: "14px" }}>● {user.username}</span>
                       <button onClick={logout} style={{ background: "none", border: "1px solid #444", color: "#888", padding: "4px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Logout</button>
                    </div>
                 ) : (
-                   <button 
-                     onClick={() => setAuthModalOpen(true)}
-                     style={{ background: "#007acc", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}
-                   >
-                     👤 Login
-                   </button>
+                   <button onClick={() => setAuthModalOpen(true)} style={{ background: "#007acc", color: "white", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>👤 Login</button>
                 )}
 
-                <button onClick={handleShare} disabled={isSharing} style={{ background: "#444", color: "white", border: "1px solid #666", borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600", cursor: "pointer", opacity: isSharing ? 0.7 : 1 }}>
-                    {isSharing ? "⏳..." : "🔗 Share"}
-                </button>
-                <button onClick={handleRun} disabled={isRunning} style={{ background: "#238636", color: "white", border: "1px solid #666", borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600", cursor: "pointer", opacity: isRunning ? 0.7 : 1 }}>
+                {/* NEW BUTTONS: Create Room vs Invite */}
+                {!id ? (
+                     <button 
+                        onClick={handleCreateRoom}
+                        disabled={isCreatingRoom}
+                        style={{ background: "#8e44ad", color: "white", border: "1px solid #9b59b6", borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+                    >
+                        {isCreatingRoom ? "Creating..." : "➕ Create Room"}
+                    </button>
+                ) : (
+                    <button 
+                        onClick={handleCopyLink}
+                        style={{ background: "#444", color: "white", border: "1px solid #666", borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+                    >
+                        🔗 Invite
+                    </button>
+                )}
+
+                <button onClick={handleRun} disabled={isRunning} style={{ background: "#238636", color: "white", border: "1px solid rgba(240,246,252,0.1)", borderRadius: "6px", padding: "6px 16px", fontSize: "14px", fontWeight: "600", cursor: "pointer", opacity: isRunning ? 0.7 : 1 }}>
                     {isRunning ? "⏳..." : "▶ Run"}
                 </button>
             </div>
@@ -204,10 +329,14 @@ export default function App() {
             cppCode={cppCode} setCppCode={(val) => handleCodeChange("cpp", val)}
             javaCode={javaCode} setJavaCode={(val) => handleCodeChange("java", val)}
             pythonCode={pythonCode} setPythonCode={(val) => handleCodeChange("python", val)}
+            socket={socket}
+            roomId={id}
+            username={user?.username} 
+            remoteCursors={remoteCursors}
           />
         </div>
 
-       {/* PREVIEW / CONSOLE */}
+       {/* OUTPUT */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
           {language === "web" ? (
              <>
@@ -229,16 +358,10 @@ export default function App() {
       </div>
 
       <AIButton onClick={() => setAiOpen(true)} />
-      <AIPanel open={aiOpen} onClose={() => setAiOpen(false)} onAsk={async (p) => { 
-          // Simplified AI call for brevity - assume external func or inline fetch
-          return "AI Response Placeholder"; 
-      }} /> 
-      
+      <AIPanel open={aiOpen} onClose={() => setAiOpen(false)} onAsk={async (p) => { return "AI Placeholder"; }} /> 
       {!consoleOpen && <button onClick={() => setConsoleOpen(true)} style={{ position: "fixed", bottom: "10px", left: "10px", zIndex: 50 }}>Show Console</button>}
-      
-      {/* MODALS */}
       <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)} url={shareUrl} />
-      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} /> {/* ✅ ADDED AUTH MODAL */}
+      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
     </>
   );
 }

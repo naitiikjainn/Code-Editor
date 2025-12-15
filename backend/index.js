@@ -31,25 +31,64 @@ const io = new Server(server, {
     methods: ["GET", "POST"]
   }
 });
+// TRACK USERS: Map<socketId, username>
+const userMap = new Map();
 
-// 3. SOCKET LOGIC (The "Chat Room" for Code)
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
-  // Join a specific "Room" (based on the Share ID)
-  socket.on("join_room", (roomId) => {
+  // 1. JOIN ROOM with USERNAME
+  socket.on("join_room", ({ roomId, username }) => {
     socket.join(roomId);
-    console.log(`User ${socket.id} joined room: ${roomId}`);
+    socket.roomId = roomId; // <--- STORE ROOM ID
+      socket.username = username; // <--- STORE USERNAME
+    // Save username
+    userMap.set(socket.id, username);
+    console.log(`User ${username} (${socket.id}) joined room: ${roomId}`);
+
+    // Get all users in this room
+    const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+    const users = clients.map(clientId => userMap.get(clientId)).filter(name => name);
+
+    // Tell everyone (including sender) who is in the room
+    io.to(roomId).emit("room_users", users);
   });
 
-  // Listen for code changes and broadcast to others in the room
+  // 2. CODE CHANGE (Existing)
   socket.on("code_change", ({ roomId, code }) => {
-    // Send to everyone in the room EXCEPT the sender
     socket.to(roomId).emit("receive_code", code);
   });
 
-  socket.on("disconnect", () => {
+  // 3. TYPING INDICATOR (New)
+  socket.on("typing", ({ roomId, username }) => {
+    socket.to(roomId).emit("user_typing", username);
+  });
+  socket.on("cursor_move", ({ roomId, username, position }) => {
+    // position = { fileType: "cpp", lineNumber: 10, column: 5 }
+    // Broadcast to everyone else in the room
+    socket.to(roomId).emit("cursor_update", { username, position });
+  });
+  socket.on("sync_run_trigger", ({ roomId, username }) => {
+    // Tell everyone else execution has started
+    socket.to(roomId).emit("sync_run_start", { username });
+  });
+
+  // 6. SYNC RUN: COMPLETE
+  socket.on("sync_run_result", ({ roomId, logs }) => {
+    // Send the execution output to everyone else
+    socket.to(roomId).emit("sync_run_complete", { logs });
+  });
+  // 4. DISCONNECT
+socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
+
+    // 1. Notify others that user left (to remove their cursor)
+    if (socket.roomId && socket.username) {
+        socket.to(socket.roomId).emit("user_left", { username: socket.username });
+    }
+
+    // 2. Clean up memory
+    userMap.delete(socket.id);
   });
 });
 
