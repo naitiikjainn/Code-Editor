@@ -15,11 +15,11 @@ const socket = io(API_URL);
 
 export default function App() {
   const { id } = useParams();
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   // --- STATE ---
-  const [language, setLanguage] = useState("web"); 
+  const [language, setLanguage] = useState("web");
   const [html, setHtml] = useState("<h2>Hello User</h2>");
   const [css, setCss] = useState("body { text-align: center; font-family: sans-serif; }");
   const [js, setJs] = useState("console.log('Hello from JS!');");
@@ -41,10 +41,8 @@ export default function App() {
   const [isCreatingRoom, setIsCreatingRoom] = useState(false); 
 
   const [activeUsers, setActiveUsers] = useState([]); 
-  const [typingUser, setTypingUser] = useState("");   
+  const [typingUser, setTypingUser] = useState("");
   const [remoteCursors, setRemoteCursors] = useState({}); 
-
-// In frontend/src/App.jsx
 
   // 1. CLEANER SOCKET EFFECT (Only Chat & Room Logic)
   useEffect(() => {
@@ -56,8 +54,6 @@ export default function App() {
             setTypingUser(`${username} is typing...`);
             setTimeout(() => setTypingUser(""), 2000);
         };
-        // Note: We keep cursor_update for now if you want simple cursors, 
-        // but Yjs handles cursors better. You can remove this too if using Yjs cursors.
         
         const handleSyncRunStart = ({ username }) => { 
             setConsoleOpen(true);
@@ -83,7 +79,6 @@ export default function App() {
         };
     }
   }, [id, user]);
-
 
   // 2. SIMPLIFIED CHANGE HANDLER (Only updates Local State for the "Run" button)
   const handleCodeChange = (type, value) => {
@@ -122,11 +117,11 @@ export default function App() {
         })
         .catch(err => console.error(err));
     }
-  }, [id]); 
+  }, [id]);
 
   // --- HANDLERS ---
   
-  // NEW: CREATE ROOM FUNCTION
+  // CREATE ROOM FUNCTION
   async function handleCreateRoom() {
     if (!user) {
         setAuthModalOpen(true);
@@ -135,7 +130,8 @@ export default function App() {
     
     setIsCreatingRoom(true);
     
-    const bodyData = language === "web" ? { language: "web", code: { html, css, js } } 
+    const bodyData = language === "web" ?
+        { language: "web", code: { html, css, js } } 
         : { language, code: language === "cpp" ? cppCode : (language === "java" ? javaCode : pythonCode), stdin: input };
 
     try {
@@ -157,7 +153,7 @@ export default function App() {
 
     // Case 1: Web (Just sync the active code state)
     if (language === "web") { 
-        setActiveCode({ html, css, js }); 
+        setActiveCode({ html, css, js });
         return; 
     } 
 
@@ -187,7 +183,6 @@ export default function App() {
         const newLogs = [
              { type: data.run?.code === 0 ? "log" : "error", message: data.run?.output || "Execution finished." }
         ];
-
         setLogs(prev => [...prev, ...newLogs]);
 
         //2. Send the result to others
@@ -203,7 +198,7 @@ export default function App() {
         if (id) socket.emit("sync_run_result", { roomId: id, logs: errorLog });
     }
     finally { 
-        setIsRunning(false); 
+        setIsRunning(false);
     }
   }
 
@@ -214,6 +209,31 @@ export default function App() {
       setShareModalOpen(true);
   }
 
+  // --- NEW AI HANDLER (Connected to Backend) ---
+  async function handleAskAI(userPrompt) {
+    // 1. Gather the correct code based on the current language
+    let codeContext = {};
+    if (language === "web") {
+        codeContext = { html, css, js };
+    } else {
+        const val = language === "cpp" ? cppCode : (language === "java" ? javaCode : pythonCode);
+        codeContext = { [language]: val };
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/ai/assist`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: userPrompt, code: codeContext })
+        });
+        const data = await res.json();
+        return data.result || "AI is thinking but returned silence...";
+    } catch (error) {
+        console.error("AI Request Failed:", error);
+        return "Error: Could not reach the AI server. Check connection.";
+    }
+  }
+
   return (
     <>
       <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "#1e1e1e" }}>
@@ -221,6 +241,7 @@ export default function App() {
         {/* HEADER */}
         <div style={{ height: "50px", background: "#111", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", borderBottom: "1px solid #333" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+        
                 <span style={{ fontWeight: "bold", color: "#fff", fontSize: "18px" }}>🚀 CodePlay</span>
                 
                 {/* NAVBAR FIX: Fixed Select Element */}
@@ -299,7 +320,7 @@ export default function App() {
           />
         </div>
 
-       {/* OUTPUT */}
+        {/* OUTPUT */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
           {language === "web" ? (
              <>
@@ -321,7 +342,10 @@ export default function App() {
       </div>
 
       <AIButton onClick={() => setAiOpen(true)} />
-      <AIPanel open={aiOpen} onClose={() => setAiOpen(false)} onAsk={async (p) => { return "AI Placeholder"; }} /> 
+      
+      {/* CONNECTED AI HANDLER */}
+      <AIPanel open={aiOpen} onClose={() => setAiOpen(false)} onAsk={handleAskAI} /> 
+      
       {!consoleOpen && <button onClick={() => setConsoleOpen(true)} style={{ position: "fixed", bottom: "10px", left: "10px", zIndex: 50 }}>Show Console</button>}
       <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)} url={shareUrl} />
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
