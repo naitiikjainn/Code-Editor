@@ -11,22 +11,24 @@ export default function Editors({
   const editorRefs = useRef({});
   const decorationsRef = useRef({}); 
   
-  // 1. REFS: Store latest props so we don't have stale closures
+  // 1. REFS
   const propsRef = useRef({ socket, roomId, username });
   const remoteCursorsRef = useRef(remoteCursors);
+  
+  // FLAG: This prevents the "Infinite Loop"
+  const isRemoteUpdate = useRef(false);
 
   useEffect(() => {
     propsRef.current = { socket, roomId, username };
-    remoteCursorsRef.current = remoteCursors; // Keep this fresh
+    remoteCursorsRef.current = remoteCursors;
   }, [socket, roomId, username, remoteCursors]);
 
 
-  // --- 2. CORE LOGIC: RENDER CURSORS ---
-  // We extract this so we can call it manually after text updates
+  // --- 2. RENDER CURSORS ---
   const renderRemoteCursors = (editor, fileType) => {
     if (!editor) return;
 
-    const currentCursors = remoteCursorsRef.current; // Use Ref for latest data
+    const currentCursors = remoteCursorsRef.current;
     const relevantCursors = Object.entries(currentCursors)
       .filter(([remoteUser, data]) => {
           return data.position.fileType === fileType && remoteUser !== propsRef.current.username;
@@ -41,53 +43,56 @@ export default function Editors({
         options: {
           className: `cursor-${user}`, 
           hoverMessage: { value: `${user}` },
-          stickiness: 1 // NeverGrowsWhenTypingAtEdges
+          stickiness: 1 
         }
       };
     });
 
     const previousIds = decorationsRef.current[fileType] || [];
-    // This atomic swap prevents flashing
     const newIds = editor.deltaDecorations(previousIds, newDecorationsData);
     decorationsRef.current[fileType] = newIds;
   };
 
 
-  // --- 3. CORE LOGIC: UPDATE TEXT SAFELY ---
+  // --- 3. UPDATE TEXT SAFELY (Without Triggering Loop) ---
   const updateEditorContent = (editor, newText, fileType) => {
     if (!editor) return;
     const currentText = editor.getValue();
     if (currentText === newText) return;
 
-    // STEP A: Save YOUR cursor position (so you don't jump)
+    // A. Raise the Flag: "This is a computer update, not a human"
+    isRemoteUpdate.current = true;
+
+    // B. Save cursor
     const myCursorPosition = editor.getPosition();
     
-    // STEP B: Clear Remote Cursors (PREVENTS "JUMP TO END" BUG)
-    // If we don't do this, Monaco pushes the cursors to the bottom of the file
-    // because it thinks they are part of the text being replaced.
+    // C. Remove Remote Cursors (Fixes "Jump to End" bug)
     const currentDecorationIds = decorationsRef.current[fileType] || [];
     editor.deltaDecorations(currentDecorationIds, []); 
-    decorationsRef.current[fileType] = []; // Clear our track record
+    decorationsRef.current[fileType] = [];
 
-    // STEP C: Apply Text Edit
+    // D. Apply Text Edit
     const fullRange = editor.getModel().getFullModelRange();
     editor.pushUndoStop();
     editor.executeEdits('socket-update', [
       {
         range: fullRange,
         text: newText,
-        forceMoveMarkers: false // Don't try to move markers, we just cleared them!
+        forceMoveMarkers: false 
       }
     ]);
     editor.pushUndoStop();
 
-    // STEP D: Restore Remote Cursors (Put them back where they belong)
+    // E. Restore Remote Cursors
     renderRemoteCursors(editor, fileType);
 
-    // STEP E: Restore YOUR cursor
+    // F. Restore Local Cursor
     if (myCursorPosition) {
         editor.setPosition(myCursorPosition);
     }
+
+    // G. Lower the Flag: "Okay, humans can type now"
+    isRemoteUpdate.current = false;
   };
 
 
@@ -107,24 +112,22 @@ export default function Editors({
   }, [html, css, js, cppCode, javaCode, pythonCode, language]);
 
 
-  // --- 5. LISTEN FOR CURSOR UPDATES (Standard Move) ---
+  // --- 5. LISTEN FOR CURSOR UPDATES ---
   useEffect(() => {
     Object.keys(editorRefs.current).forEach((fileType) => {
       renderRemoteCursors(editorRefs.current[fileType], fileType);
     });
-  }, [remoteCursors]); // If only cursors change, just re-render them
+  }, [remoteCursors]); 
 
 
-  // --- 6. HANDLE MOUNT & YOUR CURSOR EVENTS ---
+  // --- 6. HANDLE MOUNT & CURSOR EVENTS ---
   const handleEditorDidMount = useCallback((editor, fileType) => {
     editorRefs.current[fileType] = editor;
-    
-    // Initial Render
     renderRemoteCursors(editor, fileType);
 
     editor.onDidChangeCursorPosition((e) => {
       const { socket, roomId, username } = propsRef.current;
-      const allowedReasons = [3, 4, 5]; // Explicit movements only
+      const allowedReasons = [3, 4, 5]; 
 
       if (socket && roomId && username && allowedReasons.includes(e.reason)) {
         const position = {
@@ -137,7 +140,19 @@ export default function Editors({
     });
   }, []);
 
-  // --- 7. CSS GENERATOR ---
+  // --- 7. HELPER: WRAPPER TO STOP LOOP ---
+  // This function checks the flag before notifying the parent
+  const handleEditorChange = (value, setter) => {
+      if (isRemoteUpdate.current) {
+          // STOP! This change came from the socket.
+          // Do NOT call setHtml/setCppCode, because App.jsx already has the new data.
+          // If we call it, App.jsx will emit 'code_change' back to server -> LOOP.
+          return;
+      }
+      setter(value);
+  };
+
+  // --- 8. CSS GENERATOR ---
   const generateCursorStyles = () => {
     let styles = "";
     Object.keys(remoteCursors).forEach((user) => {
@@ -176,15 +191,15 @@ export default function Editors({
             height="100%" 
             language={language === "cpp" ? "cpp" : language === "java" ? "java" : "python"} 
             theme="vs-dark"
-            
-            // Uncontrolled Mode (We handle updates manually in updateEditorContent)
             defaultValue={language === "cpp" ? cppCode : language === "java" ? javaCode : pythonCode} 
             
+            // USE THE WRAPPER FUNCTION HERE
             onChange={(val) => {
-              if (language === "cpp") setCppCode(val);
-              if (language === "java") setJavaCode(val);
-              if (language === "python") setPythonCode(val);
+              if (language === "cpp") handleEditorChange(val, setCppCode);
+              if (language === "java") handleEditorChange(val, setJavaCode);
+              if (language === "python") handleEditorChange(val, setPythonCode);
             }}
+            
             onMount={(editor) => handleEditorDidMount(editor, language === "cpp" ? "cpp" : language === "java" ? "java" : "python")}
             options={editorOptions}
           />
@@ -198,7 +213,8 @@ export default function Editors({
             <div style={headerStyle}>HTML</div>
             <Editor 
                 height="100%" defaultLanguage="html" theme="vs-dark" 
-                defaultValue={html} onChange={setHtml} 
+                defaultValue={html} 
+                onChange={(val) => handleEditorChange(val, setHtml)} 
                 onMount={(e) => handleEditorDidMount(e, "html")} options={editorOptions} 
             />
          </div>
@@ -206,7 +222,8 @@ export default function Editors({
             <div style={headerStyle}>CSS</div>
             <Editor 
                 height="100%" defaultLanguage="css" theme="vs-dark" 
-                defaultValue={css} onChange={setCss} 
+                defaultValue={css} 
+                onChange={(val) => handleEditorChange(val, setCss)} 
                 onMount={(e) => handleEditorDidMount(e, "css")} options={editorOptions} 
             />
          </div>
@@ -214,7 +231,8 @@ export default function Editors({
             <div style={headerStyle}>JS</div>
             <Editor 
                 height="100%" defaultLanguage="javascript" theme="vs-dark" 
-                defaultValue={js} onChange={setJs} 
+                defaultValue={js} 
+                onChange={(val) => handleEditorChange(val, setJs)} 
                 onMount={(e) => handleEditorDidMount(e, "js")} options={editorOptions} 
             />
          </div>
