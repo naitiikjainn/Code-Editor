@@ -30,48 +30,53 @@ app.use(cors({
 // 1. CREATE HTTP SERVER
 const server = http.createServer(app);
 
-// 2. SETUP SOCKET.IO (Manual Attach Mode)
-// destroyingUpgrade: false prevents Socket.io from killing other connections
-const io = new SocketIOServer(server, {
+// 2. SETUP SOCKET.IO (Detached Mode)
+// We do NOT pass 'server' here. We handle upgrades manually below.
+const io = new SocketIOServer({
   cors: { origin: "*", methods: ["GET", "POST"] },
-  destroyUpgrade: false, 
-  path: '/socket.io/' // Explicit path
+  path: '/socket.io/'
+});
+
+// Attach Socket.io to the HTTP server for standard polling, but handle WebSockets manually
+io.attach(server, {
+  destroyUpgrade: false // Important: Don't kill other non-socket.io upgrades
 });
 
 // 3. SETUP YJS WEBSOCKET SERVER
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
-  console.log(" Yjs Connection Established:", req.url);
+  console.log("Yjs Connected:", req.url);
   setupWSConnection(ws, req);
 });
 
-// 4. THE TRAFFIC COP (Handle All Upgrades Manually)
+// 4. THE ULTIMATE TRAFFIC COP
 server.on('upgrade', (request, socket, head) => {
   const url = request.url;
-  console.log(`📡 Incoming Upgrade: ${url}`);
 
-  // CASE A: Socket.io Traffic
+  // ROUTE 1: Socket.io
   if (url.startsWith('/socket.io/')) {
-    console.log(" Routing to Socket.io");
-    // We let the Socket.io engine handle it
-    // Note: Since we attached io to server, it usually handles this internaly,
-    // but this listener ensures we can see it happening.
-    return; 
+    // Let the Socket.io engine handle it
+    // Note: io.engine.handleUpgrade isn't exposed directly in v4 easily, 
+    // but io.attach() above handles it. We just need to ignore it here 
+    // or ensure we don't destroy it.
+    // Since we used io.attach(server), Socket.io ALREADY handled this.
+    // We just return to avoid double-handling.
+    return;
   }
 
-  // CASE B: Yjs/Code Collaboration Traffic
+  // ROUTE 2: Yjs (Code Collaboration)
   if (url.startsWith('/codeplay-')) {
-    console.log(" Routing to Yjs (Collaboration)");
+    console.log(`Routing to Yjs: ${url}`);
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
     return;
   }
 
-  // CASE C: Unknown
-  console.log(" Unknown WebSocket Request. Destroying.");
-  socket.destroy();
+  // ROUTE 3: Unknown -> Destroy
+  // Only destroy if it's clearly not meant for Socket.io (which might handle other paths)
+  // socket.destroy(); 
 });
 
 // --- API ROUTES ---

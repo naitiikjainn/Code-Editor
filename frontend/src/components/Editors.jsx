@@ -64,15 +64,20 @@ export default function Editors({
         docRef.current = doc;
 
         const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
-        const wsUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+// In v1.5.4, the room name is part of the URL, not a separate argument
+const wsUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+const modeSuffix = language === "web" ? "web" : language;
+const roomName = `codeplay-${roomId}-${modeSuffix}`; 
 
-        // Unique Room for each Mode
-        const modeSuffix = language === "web" ? "web" : language;
-        const roomName = `codeplay-${roomId}-${modeSuffix}`; 
+console.log(`🔌 Connecting to: ${wsUrl}/${roomName}`);
 
-        console.log(`🔌 Connecting to: ${roomName}`);
-        
-        const provider = new WebsocketProvider(wsUrl, roomName, doc);
+// Passing roomName as the second argument works, but let's be explicit
+const provider = new WebsocketProvider(
+    wsUrl, 
+    roomName, 
+    doc,
+    { connect: true } // Explicitly connect
+);
         providerRef.current = provider;
 
         // User Awareness
