@@ -30,53 +30,45 @@ app.use(cors({
 // 1. CREATE HTTP SERVER
 const server = http.createServer(app);
 
-// 2. SETUP SOCKET.IO (Detached Mode)
-// We do NOT pass 'server' here. We handle upgrades manually below.
+// 2. SETUP SOCKET.IO (COMPLETELY DETACHED)
+// We do NOT call .attach(). We handle the upgrade manually below.
 const io = new SocketIOServer({
   cors: { origin: "*", methods: ["GET", "POST"] },
   path: '/socket.io/'
-});
-
-// Attach Socket.io to the HTTP server for standard polling, but handle WebSockets manually
-io.attach(server, {
-  destroyUpgrade: false // Important: Don't kill other non-socket.io upgrades
 });
 
 // 3. SETUP YJS WEBSOCKET SERVER
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
-  console.log("Yjs Connected:", req.url);
+  console.log(" Yjs Connected:", req.url);
   setupWSConnection(ws, req);
 });
 
-// 4. THE ULTIMATE TRAFFIC COP
+// 4. THE SINGLE TRAFFIC COP (Handles ALL Upgrades)
 server.on('upgrade', (request, socket, head) => {
   const url = request.url;
-
-  // ROUTE 1: Socket.io
+  
+  // CASE A: Socket.io Traffic
   if (url.startsWith('/socket.io/')) {
-    // Let the Socket.io engine handle it
-    // Note: io.engine.handleUpgrade isn't exposed directly in v4 easily, 
-    // but io.attach() above handles it. We just need to ignore it here 
-    // or ensure we don't destroy it.
-    // Since we used io.attach(server), Socket.io ALREADY handled this.
-    // We just return to avoid double-handling.
+    // Manually pass the request to Socket.io's engine
+    io.engine.handleUpgrade(request, socket, head, (ws) => {
+      io.engine.emit('connection', ws, request);
+    });
     return;
   }
 
-  // ROUTE 2: Yjs (Code Collaboration)
+  // CASE B: Yjs (Code Collaboration)
   if (url.startsWith('/codeplay-')) {
-    console.log(`Routing to Yjs: ${url}`);
+    console.log(` Routing to Yjs: ${url}`);
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
     return;
   }
 
-  // ROUTE 3: Unknown -> Destroy
-  // Only destroy if it's clearly not meant for Socket.io (which might handle other paths)
-  // socket.destroy(); 
+  // CASE C: Unknown -> Destroy to prevent hanging
+  socket.destroy();
 });
 
 // --- API ROUTES ---
@@ -90,6 +82,8 @@ app.get("/", (req, res) => res.send("API & Collaboration Server is running..."))
 // --- SOCKET.IO EVENTS ---
 const userMap = new Map();
 io.on("connection", (socket) => {
+  // Bind the socket to the io instance manually if needed, 
+  // but usually io.on('connection') fires via the engine.emit above.
   console.log(" Chat Connected:", socket.id);
 
   socket.on("join_room", ({ roomId, username }) => {

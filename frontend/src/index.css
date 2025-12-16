@@ -55,8 +55,12 @@ body {
 
 .yRemoteSelectionHead {
     position: absolute;
-    border-left: 2px solid orange; /* ONLY Left Border = Vertical Line */
+    border-left: 2px solid orange; /* Vertical Bar */
     height: 100%;
+    
+    /* FIX: Ensure visibility on empty lines */
+    min-height: 1.2em; 
+    
     box-sizing: border-box;
     z-index: 10;
 }

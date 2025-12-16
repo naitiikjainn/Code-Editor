@@ -64,14 +64,15 @@ export default function Editors({
     docRef.current = doc;
 
     const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
+    
+    // FIX: Robust URL cleaning
     const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
     
     const modeSuffix = language === "web" ? "web" : language;
     const roomName = `codeplay-${roomId}-${modeSuffix}`; 
 
-    console.log(` Attempting Yjs Connect: ${baseUrl}/${roomName}`);
+    console.log(` Connecting: ${baseUrl}/${roomName}`);
 
-    // Standard initialization for y-websocket@1.5.4
     const provider = new WebsocketProvider(
         baseUrl, 
         roomName, 

@@ -1,61 +1,5 @@
 
 ==================================================
-FILE: debug-project.js
-==================================================
-import fs from 'fs';
-import path from 'path';
-
-// IGNORE these folders/files so the output isn't too huge
-const IGNORE = ['.git', 'node_modules', 'dist', 'build', 'package-lock.json', '.env', 'assets'];
-const EXTENSIONS = ['.js', '.jsx', '.css', '.json', '.html'];
-
-function getAllFiles(dirPath, arrayOfFiles) {
-  const files = fs.readdirSync(dirPath);
-  arrayOfFiles = arrayOfFiles || [];
-
-  files.forEach(function(file) {
-    if (IGNORE.includes(file)) return;
-    
-    const fullPath = path.join(dirPath, file);
-    
-    if (fs.statSync(fullPath).isDirectory()) {
-      arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
-    } else {
-      // Only include specific code extensions
-      if (EXTENSIONS.includes(path.extname(file))) {
-        arrayOfFiles.push(fullPath);
-      }
-    }
-  });
-
-  return arrayOfFiles;
-}
-
-// Run the dumper
-console.log("--- START OF PROJECT DUMP ---");
-
-['frontend', 'backend'].forEach(folder => {
-    try {
-        const folderPath = path.join(process.cwd(), folder);
-        if (fs.existsSync(folderPath)) {
-            const files = getAllFiles(folderPath);
-            files.forEach(filePath => {
-                const relativePath = path.relative(process.cwd(), filePath);
-                const content = fs.readFileSync(filePath, 'utf8');
-                console.log(`\n\n================================================================`);
-                console.log(`FILE: ${relativePath}`);
-                console.log(`================================================================`);
-                console.log(content);
-            });
-        }
-    } catch (e) {
-        console.error(`Could not read ${folder}:`, e.message);
-    }
-});
-
-console.log("\n--- END OF PROJECT DUMP ---");
-
-==================================================
 FILE: backend\db.js
 ==================================================
 import mongoose from "mongoose";
@@ -63,9 +7,9 @@ import mongoose from "mongoose";
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
-    console.log("✅ MongoDB Connected");
+    console.log(" MongoDB Connected");
   } catch (err) {
-    console.error("❌ MongoDB Connection Error:", err);
+    console.error("MongoDB Connection Error:", err);
     process.exit(1); // Stop server if DB fails
   }
 };
@@ -85,14 +29,12 @@ import shareRoutes from "./routes/share.js";
 import authRoutes from "./routes/auth.js";
 import http from "http"; 
 import { Server as SocketIOServer } from "socket.io"; 
-import { WebSocketServer } from 'ws';
-
-// --- FIX START: LOAD Y-WEBSOCKET DIRECTLY ---
+import { WebSocketServer } from 'ws'; 
 import { createRequire } from 'module';
+
+// Load Y-Websocket Utils
 const require = createRequire(import.meta.url);
-// Now we can load the specific file from the library without copying it!
 const { setupWSConnection } = require('y-websocket/bin/utils');
-// --- FIX END ---
 
 dotenv.config();
 connectDB();
@@ -109,26 +51,53 @@ app.use(cors({
 // 1. CREATE HTTP SERVER
 const server = http.createServer(app);
 
-// 2. SETUP SOCKET.IO (Chat & Room Logic)
-const io = new SocketIOServer(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+// 2. SETUP SOCKET.IO (Detached Mode)
+// We do NOT pass 'server' here. We handle upgrades manually below.
+const io = new SocketIOServer({
+  cors: { origin: "*", methods: ["GET", "POST"] },
+  path: '/socket.io/'
 });
 
-// 3. SETUP YJS WEBSOCKET SERVER (Code Collaboration)
+// Attach Socket.io to the HTTP server for standard polling, but handle WebSockets manually
+io.attach(server, {
+  destroyUpgrade: false // Important: Don't kill other non-socket.io upgrades
+});
+
+// 3. SETUP YJS WEBSOCKET SERVER
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
+  console.log("Yjs Connected:", req.url);
   setupWSConnection(ws, req);
 });
 
-// 4. HANDLE UPGRADE REQUESTS
+// 4. THE ULTIMATE TRAFFIC COP
 server.on('upgrade', (request, socket, head) => {
-  if (request.url.startsWith('/socket.io/')) {
-    return; 
+  const url = request.url;
+
+  // ROUTE 1: Socket.io
+  if (url.startsWith('/socket.io/')) {
+    // Let the Socket.io engine handle it
+    // Note: io.engine.handleUpgrade isn't exposed directly in v4 easily, 
+    // but io.attach() above handles it. We just need to ignore it here 
+    // or ensure we don't destroy it.
+    // Since we used io.attach(server), Socket.io ALREADY handled this.
+    // We just return to avoid double-handling.
+    return;
   }
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit('connection', ws, request);
-  });
+
+  // ROUTE 2: Yjs (Code Collaboration)
+  if (url.startsWith('/codeplay-')) {
+    console.log(`Routing to Yjs: ${url}`);
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+    return;
+  }
+
+  // ROUTE 3: Unknown -> Destroy
+  // Only destroy if it's clearly not meant for Socket.io (which might handle other paths)
+  // socket.destroy(); 
 });
 
 // --- API ROUTES ---
@@ -137,14 +106,12 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
 app.use("/api/share", shareRoutes);
 
-app.get("/", (req, res) => {
-  res.send("API & Collaboration Server is running...");
-});
+app.get("/", (req, res) => res.send("API & Collaboration Server is running..."));
 
-// --- SOCKET.IO EVENTS (Chat) ---
+// --- SOCKET.IO EVENTS ---
 const userMap = new Map();
 io.on("connection", (socket) => {
-  console.log("Chat User connected:", socket.id);
+  console.log(" Chat Connected:", socket.id);
 
   socket.on("join_room", ({ roomId, username }) => {
     socket.join(roomId);
@@ -170,7 +137,7 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT} (API + Collab)`);
+  console.log(` Server running on port ${PORT} (API + Collab)`);
 });
 
 ==================================================
@@ -196,6 +163,7 @@ FILE: backend\package.json
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
     "socket.io": "^4.8.1",
+    "ws": "^8.18.3",
     "y-websocket": "^1.5.4"
   }
 }
@@ -560,7 +528,7 @@ FILE: frontend\package.json
     "react-syntax-highlighter": "^16.1.0",
     "socket.io-client": "^4.8.1",
     "y-monaco": "^0.1.6",
-    "y-websocket": "^3.0.0",
+    "y-websocket": "^1.5.4",
     "yjs": "^13.6.27"
   },
   "devDependencies": {
@@ -966,9 +934,9 @@ FILE: frontend\src\index.css
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: dark; /* Force dark mode preference */
+  color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #1e1e1e; /* Match your editor theme */
+  background-color: #1e1e1e;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -976,17 +944,15 @@ FILE: frontend\src\index.css
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* RESET BODY - CRITICAL FIX */
+/* RESET BODY */
 body {
   margin: 0;
   padding: 0;
-  /* REMOVED: display: flex; place-items: center; */
   width: 100vw;
   height: 100vh;
-  overflow: hidden; /* Prevent global scrollbars */
+  overflow: hidden;
 }
 
-/* Ensure the React Root fills the screen */
 #root {
   width: 100%;
   height: 100%;
@@ -994,7 +960,7 @@ body {
   flex-direction: column;
 }
 
-/* Optional: Make scrollbars look like VS Code */
+/* Scrollbars */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -1009,119 +975,40 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #555; 
 }
+
 /* =========================================
-   YJS REMOTE CURSOR STYLES
-   (Required to see other users)
+   YJS REMOTE CURSOR STYLES (Clean Vertical Bar)
    ========================================= */
 
 .yRemoteSelection {
-    background-color: rgb(250, 129, 0, 0.5); /* Default highlight color */
+    background-color: rgba(250, 129, 0, 0.3);
 }
 
 .yRemoteSelectionHead {
     position: absolute;
-    border-left: 2px solid orange; /* The vertical blinking line */
-    border-top: 2px solid orange;
-    border-bottom: 2px solid orange;
+    border-left: 2px solid orange; /* ONLY Left Border = Vertical Line */
     height: 100%;
     box-sizing: border-box;
+    z-index: 10;
 }
 
+/* The Name Tag */
 .yRemoteSelectionHead::after {
     position: absolute;
-    content: ' ';
-    border: 3px solid orange;
-    border-radius: 4px;
-    left: -4px;
-    top: -5px;
-}
-
-/* THE NAME TAG (User's Name above cursor) */
-.yRemoteSelectionHead::before {
-    position: absolute;
-    content: attr(data-name); /* Pulls the name from the dataset */
+    content: attr(data-name);
     font-size: 10px;
-    background-color: orange; /* Background matches cursor */
+    background-color: orange;
     color: white;
     padding: 2px 6px;
     border-radius: 4px;
-    top: -20px; /* Positions it above the line */
+    top: -20px;
     left: -2px;
     white-space: nowrap;
-    z-index: 10;
+    pointer-events: none;
     font-family: 'Roboto', sans-serif;
     font-weight: bold;
-    pointer-events: none; /* Let clicks pass through */
-    opacity: 0;
-    transition: opacity 0.2s;
+    z-index: 20;
 }
-
-/* Show name only when hovering near the cursor (Optional - remove to always show) */
-.yRemoteSelectionHead:hover::before {
-    opacity: 1;
-}
-
-/* FORCE NAME TO ALWAYS SHOW (If you prefer that) */
-/* .yRemoteSelectionHead::before {
-    opacity: 1 !important; 
-} 
-*//* =========================================
-   YJS REMOTE CURSOR STYLES
-   (Required to see other users)
-   ========================================= */
-
-.yRemoteSelection {
-    background-color: rgb(250, 129, 0, 0.5); /* Default highlight color */
-}
-
-.yRemoteSelectionHead {
-    position: absolute;
-    border-left: 2px solid orange; /* The vertical blinking line */
-    border-top: 2px solid orange;
-    border-bottom: 2px solid orange;
-    height: 100%;
-    box-sizing: border-box;
-}
-
-.yRemoteSelectionHead::after {
-    position: absolute;
-    content: ' ';
-    border: 3px solid orange;
-    border-radius: 4px;
-    left: -4px;
-    top: -5px;
-}
-
-/* THE NAME TAG (User's Name above cursor) */
-.yRemoteSelectionHead::before {
-    position: absolute;
-    content: attr(data-name); /* Pulls the name from the dataset */
-    font-size: 10px;
-    background-color: orange; /* Background matches cursor */
-    color: white;
-    padding: 2px 6px;
-    border-radius: 4px;
-    top: -20px; /* Positions it above the line */
-    left: -2px;
-    white-space: nowrap;
-    z-index: 10;
-    font-family: 'Roboto', sans-serif;
-    font-weight: bold;
-    pointer-events: none; /* Let clicks pass through */
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-/* Show name only when hovering near the cursor (Optional - remove to always show) */
-.yRemoteSelectionHead:hover::before {
-    opacity: 1;
-}
-
-/* FORCE NAME TO ALWAYS SHOW (If you prefer that) */
-/* .yRemoteSelectionHead::before {
-    opacity: 1 !important; 
-} 
-*/
 
 ==================================================
 FILE: frontend\src\main.jsx
@@ -1688,6 +1575,15 @@ import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
 import { API_URL } from "../config"; 
 
+// 1. MOVE OPTIONS OUTSIDE to prevent re-renders on every keystroke
+const COMMON_OPTIONS = { 
+  minimap: { enabled: false }, 
+  fontSize: 14, 
+  automaticLayout: true, 
+  wordWrap: "on",
+  scrollBeyondLastLine: false // Fixes "scrolling too far" feel
+};
+
 const getRandomColor = () => {
     const colors = ['#ff0055', '#0099ff', '#22cc88', '#ffaa00', '#9900ff', '#00ccff'];
     return colors[Math.floor(Math.random() * colors.length)];
@@ -1703,10 +1599,9 @@ export default function Editors({
   const bindingsRef = useRef([]);
   const [isSynced, setIsSynced] = useState(false);
 
-  // --- CLEANUP FUNCTION ---
+  // --- CLEANUP ---
   const cleanupYjs = useCallback(() => {
     if (providerRef.current) {
-        console.log("🧹 Disconnecting Yjs...");
         providerRef.current.disconnect();
         providerRef.current.destroy();
     }
@@ -1716,95 +1611,67 @@ export default function Editors({
     setIsSynced(false);
   }, []);
 
-  // --- FIX 1: STRICT LIFECYCLE MANAGEMENT ---
-  // This ensures we fully disconnect the old language before connecting the new one.
+  // --- LIFECYCLE ---
   useEffect(() => {
-      // 1. Mount (Connect)
-      // Logic is handled inside handleMount, but we need to ensure we clean up on unmount.
-      
-      return () => {
-          // 2. Unmount (Disconnect)
-          cleanupYjs();
-      };
-  }, [cleanupYjs, language, roomId]); // Re-run if language or room changes
+    return () => cleanupYjs();
+  }, [cleanupYjs, language, roomId]);
 
-  // --- FIX 2: USERNAME UPDATE WATCHER ---
+  // --- USERNAME UPDATE ---
   useEffect(() => {
     if (providerRef.current && username && username !== "Anonymous") {
         const awareness = providerRef.current.awareness;
         const currentUser = awareness.getLocalState()?.user;
-        
         if (currentUser && currentUser.name !== username) {
-            console.log("👤 User recognized:", username);
-            awareness.setLocalStateField('user', {
-                ...currentUser,
-                name: username
-            });
+            awareness.setLocalStateField('user', { ...currentUser, name: username });
         }
     }
   }, [username, isSynced]);
 
-  // --- MOUNT & CONNECT ---
+  // --- MOUNT HANDLER ---
   const handleMount = useCallback((editor, monaco, fileType) => {
-    // 1. Initialize Yjs Doc (If not already valid for this language)
     if (!docRef.current) {
-        const doc = new Y.Doc();
-        docRef.current = doc;
+    const doc = new Y.Doc();
+    docRef.current = doc;
 
-        const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
-        const wsUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
-        
-        // UNIQUE ROOM NAME PER LANGUAGE MODE
-        // This isolates C++ code from Web code completely.
-        const roomName = `codeplay-${roomId}`; 
-        
-        console.log(`🔌 Connecting to Room: ${roomName}`);
-        
-        const provider = new WebsocketProvider(
-            wsUrl, 
-            roomName, 
-            doc
-        );
-        providerRef.current = provider;
-        
-        // User Setup
-        const myColor = getRandomColor();
+    const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
+    const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+    
+    const modeSuffix = language === "web" ? "web" : language;
+    const roomName = `codeplay-${roomId}-${modeSuffix}`; 
+
+    console.log(` Attempting Yjs Connect: ${baseUrl}/${roomName}`);
+
+    // Standard initialization for y-websocket@1.5.4
+    const provider = new WebsocketProvider(
+        baseUrl, 
+        roomName, 
+        doc,
+        { connect: true } 
+    );
+    providerRef.current = provider;
+
+        // User Awareness
         provider.awareness.setLocalStateField('user', {
             name: username || "Anonymous",
-            color: myColor
+            color: getRandomColor()
         });
 
-        // Sync Listener
-        provider.on('sync', (synced) => {
-            console.log("✅ Yjs Synced:", synced);
-            setIsSynced(synced);
-        });
+        provider.on('sync', (synced) => setIsSynced(synced));
 
-        // CSS Injection
+        // Inject Dynamic Cursor Colors
         provider.awareness.on('update', () => {
             const states = provider.awareness.getStates();
             let styleContent = "";
             states.forEach((state, clientId) => {
                 if (state.user) {
                     const { name, color } = state.user;
+                    // UPDATED CSS GENERATION (Removed border-top/bottom)
                     styleContent += `
-                        .yRemoteSelection-${clientId} { background-color: ${color}50; }
-                        .yRemoteSelectionHead-${clientId} { border-color: ${color}; }
+                        .yRemoteSelection-${clientId} { background-color: ${color}33; }
+                        .yRemoteSelectionHead-${clientId} { border-left-color: ${color}; }
                         .yRemoteSelectionHead-${clientId}::after {
                             content: "${name}";
-                            position: absolute;
-                            top: -20px;
-                            left: -2px;
                             background: ${color};
-                            color: white;
-                            font-size: 10px;
-                            padding: 2px 6px;
-                            border-radius: 4px;
-                            white-space: nowrap;
-                            pointer-events: none;
-                            z-index: 100;
-                            font-family: sans-serif;
-                            font-weight: bold;
                         }
                     `;
                 }
@@ -1822,13 +1689,10 @@ export default function Editors({
     const doc = docRef.current;
     const provider = providerRef.current;
     
-    // 2. Select Text Field based on Language
-    // web -> html-code, css-code...
-    // cpp -> cpp-code
     const textFieldName = language === "web" ? `${fileType}-code` : `${language}-code`;
     const yText = doc.getText(textFieldName);
 
-    // 3. SEED CONTENT (Only if empty & synced)
+    // Initial Seed
     const initContent = () => {
         if (yText.toString().length === 0) { 
             let initialValue = "";
@@ -1841,25 +1705,18 @@ export default function Editors({
                 if (language === "java") initialValue = javaCode;
                 if (language === "python") initialValue = pythonCode;
             }
-
-            if (initialValue) {
-                console.log(`🌱 Seeding ${textFieldName}`);
-                doc.transact(() => yText.insert(0, initialValue));
-            }
+            if (initialValue) doc.transact(() => yText.insert(0, initialValue));
         }
     };
 
-    if (provider.synced) {
-        initContent();
-    } else {
-        provider.once('synced', initContent);
-    }
+    if (provider.synced) initContent();
+    else provider.once('synced', initContent);
 
-    // 4. Bind Editor
+    // Bind Editor
     const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), provider.awareness);
     bindingsRef.current.push(binding);
 
-    // 5. Update Local State
+    // Update Local State
     editor.onDidChangeModelContent(() => {
         const val = editor.getValue();
         if (language === "cpp") setCppCode(val);
@@ -1872,15 +1729,13 @@ export default function Editors({
 
   }, [roomId, language, username]); 
 
-  const commonOptions = { minimap: { enabled: false }, fontSize: 14, automaticLayout: true, wordWrap: "on" };
-
-  // Helper
+  // Helper Renderer
   const renderEditor = (ft) => (
       <Editor 
         height="100%" 
-        defaultLanguage={language === "web" ? (ft === "js" ? "javascript" : ft) : (language === "cpp" ? "cpp" : language === "java" ? "java" : "python")}
+        defaultLanguage={language === "web" ? (ft === "js" ? "javascript" : ft) : language}
         theme="vs-dark" 
-        options={commonOptions}
+        options={COMMON_OPTIONS} // <--- USE THE EXTERNAL CONSTANT
         defaultValue="" 
         onMount={(e, m) => handleMount(e, m, ft)} 
       />
