@@ -83,9 +83,16 @@ import aiRoutes from "./routes/ai.js";
 import codeRoutes from "./routes/code.js";
 import shareRoutes from "./routes/share.js";
 import authRoutes from "./routes/auth.js";
-// 1. IMPORT SOCKET LIBRARIES
 import http from "http"; 
-import { Server } from "socket.io"; 
+import { Server as SocketIOServer } from "socket.io"; 
+import { WebSocketServer } from 'ws';
+
+// --- FIX START: LOAD Y-WEBSOCKET DIRECTLY ---
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+// Now we can load the specific file from the library without copying it!
+const { setupWSConnection } = require('y-websocket/bin/utils');
+// --- FIX END ---
 
 dotenv.config();
 connectDB();
@@ -93,96 +100,77 @@ connectDB();
 const app = express();
 app.use(express.json());
 
-// Allow requests from your Vercel frontend
 app.use(cors({
-  origin: "*", // Allow all origins for easier development
+  origin: "*", 
   methods: ["GET", "POST"],
   credentials: true
 }));
 
-// 2. CREATE HTTP SERVER & SOCKET SERVER
-const server = http.createServer(app); // Wrap Express app
-const io = new Server(server, {
-  cors: {
-    origin: "*", // Allow all connections
-    methods: ["GET", "POST"]
+// 1. CREATE HTTP SERVER
+const server = http.createServer(app);
+
+// 2. SETUP SOCKET.IO (Chat & Room Logic)
+const io = new SocketIOServer(server, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
+});
+
+// 3. SETUP YJS WEBSOCKET SERVER (Code Collaboration)
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', (ws, req) => {
+  setupWSConnection(ws, req);
+});
+
+// 4. HANDLE UPGRADE REQUESTS
+server.on('upgrade', (request, socket, head) => {
+  if (request.url.startsWith('/socket.io/')) {
+    return; 
   }
-});
-// TRACK USERS: Map<socketId, username>
-const userMap = new Map();
-
-io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-
-  // 1. JOIN ROOM with USERNAME
-  socket.on("join_room", ({ roomId, username }) => {
-    socket.join(roomId);
-    socket.roomId = roomId; // <--- STORE ROOM ID
-      socket.username = username; // <--- STORE USERNAME
-    // Save username
-    userMap.set(socket.id, username);
-    console.log(`User ${username} (${socket.id}) joined room: ${roomId}`);
-
-    // Get all users in this room
-    const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-    const users = clients.map(clientId => userMap.get(clientId)).filter(name => name);
-
-    // Tell everyone (including sender) who is in the room
-    io.to(roomId).emit("room_users", users);
-  });
-
-  // 2. CODE CHANGE (Existing)
-  socket.on("code_change", ({ roomId, code }) => {
-    socket.to(roomId).emit("receive_code", code);
-  });
-
-  // 3. TYPING INDICATOR (New)
-  socket.on("typing", ({ roomId, username }) => {
-    socket.to(roomId).emit("user_typing", username);
-  });
-  socket.on("cursor_move", ({ roomId, username, position }) => {
-    // position = { fileType: "cpp", lineNumber: 10, column: 5 }
-    // Broadcast to everyone else in the room
-    socket.to(roomId).emit("cursor_update", { username, position });
-  });
-  socket.on("sync_run_trigger", ({ roomId, username }) => {
-    // Tell everyone else execution has started
-    socket.to(roomId).emit("sync_run_start", { username });
-  });
-
-  // 6. SYNC RUN: COMPLETE
-  socket.on("sync_run_result", ({ roomId, logs }) => {
-    // Send the execution output to everyone else
-    socket.to(roomId).emit("sync_run_complete", { logs });
-  });
-  // 4. DISCONNECT
-socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
-
-    // 1. Notify others that user left (to remove their cursor)
-    if (socket.roomId && socket.username) {
-        socket.to(socket.roomId).emit("user_left", { username: socket.username });
-    }
-
-    // 2. Clean up memory
-    userMap.delete(socket.id);
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
   });
 });
 
-// Routes
+// --- API ROUTES ---
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
 app.use("/api/share", shareRoutes);
 
 app.get("/", (req, res) => {
-  res.send("API is running...");
+  res.send("API & Collaboration Server is running...");
 });
 
-// 4. IMPORTANT: LISTEN WITH 'server', NOT 'app'
+// --- SOCKET.IO EVENTS (Chat) ---
+const userMap = new Map();
+io.on("connection", (socket) => {
+  console.log("Chat User connected:", socket.id);
+
+  socket.on("join_room", ({ roomId, username }) => {
+    socket.join(roomId);
+    socket.roomId = roomId;
+    socket.username = username;
+    userMap.set(socket.id, username);
+    const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+    const users = clients.map(clientId => userMap.get(clientId)).filter(name => name);
+    io.to(roomId).emit("room_users", users);
+  });
+
+  socket.on("typing", ({ roomId, username }) => socket.to(roomId).emit("user_typing", username));
+  socket.on("sync_run_trigger", ({ roomId, username }) => socket.to(roomId).emit("sync_run_start", { username }));
+  socket.on("sync_run_result", ({ roomId, logs }) => socket.to(roomId).emit("sync_run_complete", { logs }));
+
+  socket.on("disconnect", () => {
+    if (socket.roomId && socket.username) {
+        socket.to(socket.roomId).emit("user_left", { username: socket.username });
+    }
+    userMap.delete(socket.id);
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT} (API + Collab)`);
 });
 
 ==================================================
@@ -191,23 +179,24 @@ FILE: backend\package.json
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@hocuspocus/server": "^3.4.3",
     "bcryptjs": "^3.0.3",
+    "concurrently": "^9.2.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "y-websocket": "^1.5.4"
   }
 }
 
@@ -563,12 +552,16 @@ FILE: frontend\package.json
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "monaco-editor": "^0.55.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.10.1",
     "react-syntax-highlighter": "^16.1.0",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "y-monaco": "^0.1.6",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -675,97 +668,60 @@ export default function App() {
   const [typingUser, setTypingUser] = useState("");   
   const [remoteCursors, setRemoteCursors] = useState({}); 
 
-  // --- SOCKETS ---
+// In frontend/src/App.jsx
+
+  // 1. CLEANER SOCKET EFFECT (Only Chat & Room Logic)
   useEffect(() => {
     if (id && user) { 
         socket.emit("join_room", { roomId: id, username: user.username });
         
-        // RECEIVER LOGIC (FIXED)
-        const handleReceiveCode = (payload) => {
-             // Debug log to verify data arrival
-             console.log("📨 Received update:", payload);
-
-             // payload = { language: "cpp", code: "..." }
-             if (payload.language === "web") {
-                 const data = payload.code;
-                 if (data.html !== undefined) setHtml(data.html);
-                 if (data.css !== undefined) setCss(data.css);
-                 if (data.js !== undefined) setJs(data.js);
-             } else {
-                 // FIX: specific checks based on INCOMING language, not local state
-                 if (payload.language === "cpp") setCppCode(payload.code);
-                 if (payload.language === "java") setJavaCode(payload.code);
-                 if (payload.language === "python") setPythonCode(payload.code);
-             }
-        };
-
         const handleRoomUsers = (users) => setActiveUsers(users);
-        
         const handleTyping = (username) => {
             setTypingUser(`${username} is typing...`);
             setTimeout(() => setTypingUser(""), 2000);
         };
-
-        const handleCursorUpdate = ({ username, position }) => {
-            if (username !== user.username) {
-                setRemoteCursors(prev => ({ ...prev, [username]: { position } }));
-            }
-        };
+        // Note: We keep cursor_update for now if you want simple cursors, 
+        // but Yjs handles cursors better. You can remove this too if using Yjs cursors.
+        
         const handleSyncRunStart = ({ username }) => { 
-            setConsoleOpen(true); setIsRunning(true); setLogs([{ type: "info", message: `🚀 ${username} started execution...` }]); 
+            setConsoleOpen(true);
+            setIsRunning(true); 
+            setLogs([{ type: "info", message: `🚀 ${username} started execution...` }]); 
         };
         const handleSyncRunComplete = ({ logs }) => { 
-            setIsRunning(false); setLogs(prev => [...prev, ...logs]); 
-        };
-        const handleUserLeft = ({ username }) => {
-            setRemoteCursors(prev => { const n = {...prev}; delete n[username]; return n; });
-            setActiveUsers(prev => prev.filter(u => u !== username));
+            setIsRunning(false);
+            setLogs(prev => [...prev, ...logs]); 
         };
 
         // Attach Listeners
-        socket.on("receive_code", handleReceiveCode);
         socket.on("room_users", handleRoomUsers);
         socket.on("user_typing", handleTyping);
-        socket.on("cursor_update", handleCursorUpdate);
         socket.on("sync_run_start", handleSyncRunStart);
         socket.on("sync_run_complete", handleSyncRunComplete);
-        socket.on("user_left", handleUserLeft);
 
         return () => {
-            socket.off("receive_code", handleReceiveCode);
             socket.off("room_users", handleRoomUsers);
             socket.off("user_typing", handleTyping);
-            socket.off("cursor_update", handleCursorUpdate);
             socket.off("sync_run_start", handleSyncRunStart);
             socket.off("sync_run_complete", handleSyncRunComplete);
-            socket.off("user_left", handleUserLeft);
         };
     }
-  }, [id, user]); // Dependency array is SAFE (Removed 'language')
+  }, [id, user]);
 
+
+  // 2. SIMPLIFIED CHANGE HANDLER (Only updates Local State for the "Run" button)
   const handleCodeChange = (type, value) => {
-      // 1. Update Local State as usual
+      // We ONLY update local state so the "Run" button works.
+      // We DO NOT emit "code_change" anymore. Yjs does that automatically.
       if (type === "html") setHtml(value);
       if (type === "css") setCss(value);
       if (type === "js") setJs(value);
       if (type === "cpp") setCppCode(value);
       if (type === "java") setJavaCode(value);
       if (type === "python") setPythonCode(value);
-
-      // 2. Broadcast to Room
+      
+      // Send typing indicator (Optional)
       if (id && user) {
-          // FIX: Send an object with language AND code
-          let payload = {
-              language: language, 
-              code: value
-          };
-
-          // Special structure for Web
-          if (language === "web") {
-              payload.code = { html, css, js, [type]: value };
-          }
-
-          socket.emit("code_change", { roomId: id, code: payload });
           socket.emit("typing", { roomId: id, username: user.username });
       }
   };
@@ -1053,6 +1009,119 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #555; 
 }
+/* =========================================
+   YJS REMOTE CURSOR STYLES
+   (Required to see other users)
+   ========================================= */
+
+.yRemoteSelection {
+    background-color: rgb(250, 129, 0, 0.5); /* Default highlight color */
+}
+
+.yRemoteSelectionHead {
+    position: absolute;
+    border-left: 2px solid orange; /* The vertical blinking line */
+    border-top: 2px solid orange;
+    border-bottom: 2px solid orange;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.yRemoteSelectionHead::after {
+    position: absolute;
+    content: ' ';
+    border: 3px solid orange;
+    border-radius: 4px;
+    left: -4px;
+    top: -5px;
+}
+
+/* THE NAME TAG (User's Name above cursor) */
+.yRemoteSelectionHead::before {
+    position: absolute;
+    content: attr(data-name); /* Pulls the name from the dataset */
+    font-size: 10px;
+    background-color: orange; /* Background matches cursor */
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    top: -20px; /* Positions it above the line */
+    left: -2px;
+    white-space: nowrap;
+    z-index: 10;
+    font-family: 'Roboto', sans-serif;
+    font-weight: bold;
+    pointer-events: none; /* Let clicks pass through */
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+/* Show name only when hovering near the cursor (Optional - remove to always show) */
+.yRemoteSelectionHead:hover::before {
+    opacity: 1;
+}
+
+/* FORCE NAME TO ALWAYS SHOW (If you prefer that) */
+/* .yRemoteSelectionHead::before {
+    opacity: 1 !important; 
+} 
+*//* =========================================
+   YJS REMOTE CURSOR STYLES
+   (Required to see other users)
+   ========================================= */
+
+.yRemoteSelection {
+    background-color: rgb(250, 129, 0, 0.5); /* Default highlight color */
+}
+
+.yRemoteSelectionHead {
+    position: absolute;
+    border-left: 2px solid orange; /* The vertical blinking line */
+    border-top: 2px solid orange;
+    border-bottom: 2px solid orange;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.yRemoteSelectionHead::after {
+    position: absolute;
+    content: ' ';
+    border: 3px solid orange;
+    border-radius: 4px;
+    left: -4px;
+    top: -5px;
+}
+
+/* THE NAME TAG (User's Name above cursor) */
+.yRemoteSelectionHead::before {
+    position: absolute;
+    content: attr(data-name); /* Pulls the name from the dataset */
+    font-size: 10px;
+    background-color: orange; /* Background matches cursor */
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    top: -20px; /* Positions it above the line */
+    left: -2px;
+    white-space: nowrap;
+    z-index: 10;
+    font-family: 'Roboto', sans-serif;
+    font-weight: bold;
+    pointer-events: none; /* Let clicks pass through */
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+/* Show name only when hovering near the cursor (Optional - remove to always show) */
+.yRemoteSelectionHead:hover::before {
+    opacity: 1;
+}
+
+/* FORCE NAME TO ALWAYS SHOW (If you prefer that) */
+/* .yRemoteSelectionHead::before {
+    opacity: 1 !important; 
+} 
+*/
 
 ==================================================
 FILE: frontend\src\main.jsx
@@ -1612,165 +1681,231 @@ export default function ConsolePanel({ logs, isOpen, onClose, onClear, style }) 
 ==================================================
 FILE: frontend\src\components\Editors.jsx
 ==================================================
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import Editor from "@monaco-editor/react";
+import * as Y from "yjs";
+import { WebsocketProvider } from "y-websocket";
+import { MonacoBinding } from "y-monaco";
+import { API_URL } from "../config"; 
+
+const getRandomColor = () => {
+    const colors = ['#ff0055', '#0099ff', '#22cc88', '#ffaa00', '#9900ff', '#00ccff'];
+    return colors[Math.floor(Math.random() * colors.length)];
+};
 
 export default function Editors({ 
-  language, 
-  html, setHtml, css, setCss, js, setJs, 
-  cppCode, setCppCode, javaCode, setJavaCode, pythonCode, setPythonCode,
-  socket, roomId, username, remoteCursors 
+  language, username, roomId,
+  html, css, js, cppCode, javaCode, pythonCode, 
+  setHtml, setCss, setJs, setCppCode, setJavaCode, setPythonCode
 }) {
+  const providerRef = useRef(null);
+  const docRef = useRef(null);
+  const bindingsRef = useRef([]);
+  const [isSynced, setIsSynced] = useState(false);
 
-  const editorRefs = useRef({}); 
-  const decorationsRef = useRef({}); 
-  
-  // 🔒 FIX: Store props in a Ref so event listeners always see the LATEST data
-  const propsRef = useRef({ socket, roomId, username });
-
-  // Update Ref whenever props change
-  useEffect(() => {
-    propsRef.current = { socket, roomId, username };
-  }, [socket, roomId, username]);
-
-  // --- 1. HANDLE LOCAL CURSOR MOVEMENT ---
-  const handleEditorDidMount = useCallback((editor, fileType) => {
-    editorRefs.current[fileType] = editor;
-    
-    // Initialize decorations array
-    if (!decorationsRef.current[fileType]) {
-        decorationsRef.current[fileType] = [];
+  // --- CLEANUP FUNCTION ---
+  const cleanupYjs = useCallback(() => {
+    if (providerRef.current) {
+        console.log("🧹 Disconnecting Yjs...");
+        providerRef.current.disconnect();
+        providerRef.current.destroy();
     }
+    if (docRef.current) docRef.current.destroy();
+    bindingsRef.current.forEach(b => b.destroy());
+    bindingsRef.current = [];
+    setIsSynced(false);
+  }, []);
 
-    editor.onDidChangeCursorPosition((e) => {
-      // 🔓 READ FROM REF (Solves the "null username" bug)
-      const { socket, roomId, username } = propsRef.current;
-
-      // Check Reason: 3=Explicit Move (User typed/clicked)
-      // This prevents the "Jumping Cursor" bug when code updates via socket
-      const allowedReasons = [3, 4, 5]; // 3: Mouse/Keyboard, 4: Paste, 5: Undo
-
-      if (
-          socket && roomId && username && 
-          allowedReasons.includes(e.reason) // Only emit if HUMAN moved it
-      ) {
-        const position = {
-          fileType: fileType,
-          lineNumber: e.position.lineNumber,
-          column: e.position.column
-        };
-        socket.emit("cursor_move", { roomId, username, position });
-      }
-    });
-  }, []); // Empty dependency array because we use propsRef!
-
-  // --- 2. RENDER REMOTE CURSORS ---
+  // --- FIX 1: STRICT LIFECYCLE MANAGEMENT ---
+  // This ensures we fully disconnect the old language before connecting the new one.
   useEffect(() => {
-    Object.keys(editorRefs.current).forEach((fileType) => {
-      const editor = editorRefs.current[fileType];
-      if (!editor) return;
+      // 1. Mount (Connect)
+      // Logic is handled inside handleMount, but we need to ensure we clean up on unmount.
+      
+      return () => {
+          // 2. Unmount (Disconnect)
+          cleanupYjs();
+      };
+  }, [cleanupYjs, language, roomId]); // Re-run if language or room changes
 
-      const relevantCursors = Object.entries(remoteCursors)
-        .filter(([remoteUser, data]) => {
-            // Show cursor if it matches file AND is not me
-            return data.position.fileType === fileType && remoteUser !== username;
+  // --- FIX 2: USERNAME UPDATE WATCHER ---
+  useEffect(() => {
+    if (providerRef.current && username && username !== "Anonymous") {
+        const awareness = providerRef.current.awareness;
+        const currentUser = awareness.getLocalState()?.user;
+        
+        if (currentUser && currentUser.name !== username) {
+            console.log("👤 User recognized:", username);
+            awareness.setLocalStateField('user', {
+                ...currentUser,
+                name: username
+            });
+        }
+    }
+  }, [username, isSynced]);
+
+  // --- MOUNT & CONNECT ---
+  const handleMount = useCallback((editor, monaco, fileType) => {
+    // 1. Initialize Yjs Doc (If not already valid for this language)
+    if (!docRef.current) {
+        const doc = new Y.Doc();
+        docRef.current = doc;
+
+        const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
+        const wsUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+        
+        // UNIQUE ROOM NAME PER LANGUAGE MODE
+        // This isolates C++ code from Web code completely.
+        const roomName = `codeplay-${roomId}`; 
+        
+        console.log(`🔌 Connecting to Room: ${roomName}`);
+        
+        const provider = new WebsocketProvider(
+            wsUrl, 
+            roomName, 
+            doc
+        );
+        providerRef.current = provider;
+        
+        // User Setup
+        const myColor = getRandomColor();
+        provider.awareness.setLocalStateField('user', {
+            name: username || "Anonymous",
+            color: myColor
         });
 
-      const newDecorationsData = relevantCursors.map(([user, data]) => {
-        return {
-          range: new window.monaco.Range(
-            data.position.lineNumber, data.position.column,
-            data.position.lineNumber, data.position.column
-          ),
-          options: {
-            className: `cursor-${user}`, 
-            hoverMessage: { value: `${user}` },
-            stickiness: 1 // NeverGrowsWhenTypingAtEdges
-          }
-        };
-      });
+        // Sync Listener
+        provider.on('sync', (synced) => {
+            console.log("✅ Yjs Synced:", synced);
+            setIsSynced(synced);
+        });
 
-      const previousIds = decorationsRef.current[fileType] || [];
-      const newIds = editor.deltaDecorations(previousIds, newDecorationsData);
-      decorationsRef.current[fileType] = newIds;
-    });
-  }, [remoteCursors, username]); 
-
-  // --- 3. CSS GENERATOR ---
-  const generateCursorStyles = () => {
-    let styles = "";
-    Object.keys(remoteCursors).forEach((user) => {
-        if (user === username) return;
-        const color = getUserColor(user);
-        styles += `
-            .cursor-${user} { border-left: 2px solid ${color}; position: absolute; z-index: 100; }
-            .cursor-${user}::after {
-              content: "${user}"; position: absolute; top: -18px; left: 0;
-              background-color: ${color}; color: white; font-size: 10px;
-              padding: 2px 4px; border-radius: 4px; pointer-events: none; 
-              opacity: 0.9; z-index: 101;
+        // CSS Injection
+        provider.awareness.on('update', () => {
+            const states = provider.awareness.getStates();
+            let styleContent = "";
+            states.forEach((state, clientId) => {
+                if (state.user) {
+                    const { name, color } = state.user;
+                    styleContent += `
+                        .yRemoteSelection-${clientId} { background-color: ${color}50; }
+                        .yRemoteSelectionHead-${clientId} { border-color: ${color}; }
+                        .yRemoteSelectionHead-${clientId}::after {
+                            content: "${name}";
+                            position: absolute;
+                            top: -20px;
+                            left: -2px;
+                            background: ${color};
+                            color: white;
+                            font-size: 10px;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            white-space: nowrap;
+                            pointer-events: none;
+                            z-index: 100;
+                            font-family: sans-serif;
+                            font-weight: bold;
+                        }
+                    `;
+                }
+            });
+            let styleEl = document.getElementById("yjs-cursor-styles");
+            if (!styleEl) {
+                styleEl = document.createElement("style");
+                styleEl.id = "yjs-cursor-styles";
+                document.head.appendChild(styleEl);
             }
-        `;
-    });
-    return styles;
-  };
+            styleEl.innerHTML = styleContent;
+        });
+    }
 
-  const getUserColor = (name) => {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    const h = Math.abs(hash) % 360;
-    return `hsl(${h}, 70%, 50%)`;
-  };
+    const doc = docRef.current;
+    const provider = providerRef.current;
+    
+    // 2. Select Text Field based on Language
+    // web -> html-code, css-code...
+    // cpp -> cpp-code
+    const textFieldName = language === "web" ? `${fileType}-code` : `${language}-code`;
+    const yText = doc.getText(textFieldName);
+
+    // 3. SEED CONTENT (Only if empty & synced)
+    const initContent = () => {
+        if (yText.toString().length === 0) { 
+            let initialValue = "";
+            if (language === "web") {
+                if (fileType === "html") initialValue = html;
+                if (fileType === "css") initialValue = css;
+                if (fileType === "js") initialValue = js;
+            } else {
+                if (language === "cpp") initialValue = cppCode;
+                if (language === "java") initialValue = javaCode;
+                if (language === "python") initialValue = pythonCode;
+            }
+
+            if (initialValue) {
+                console.log(`🌱 Seeding ${textFieldName}`);
+                doc.transact(() => yText.insert(0, initialValue));
+            }
+        }
+    };
+
+    if (provider.synced) {
+        initContent();
+    } else {
+        provider.once('synced', initContent);
+    }
+
+    // 4. Bind Editor
+    const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), provider.awareness);
+    bindingsRef.current.push(binding);
+
+    // 5. Update Local State
+    editor.onDidChangeModelContent(() => {
+        const val = editor.getValue();
+        if (language === "cpp") setCppCode(val);
+        else if (language === "java") setJavaCode(val);
+        else if (language === "python") setPythonCode(val);
+        else if (fileType === "html") setHtml(val);
+        else if (fileType === "css") setCss(val);
+        else if (fileType === "js") setJs(val);
+    });
+
+  }, [roomId, language, username]); 
+
+  const commonOptions = { minimap: { enabled: false }, fontSize: 14, automaticLayout: true, wordWrap: "on" };
+
+  // Helper
+  const renderEditor = (ft) => (
+      <Editor 
+        height="100%" 
+        defaultLanguage={language === "web" ? (ft === "js" ? "javascript" : ft) : (language === "cpp" ? "cpp" : language === "java" ? "java" : "python")}
+        theme="vs-dark" 
+        options={commonOptions}
+        defaultValue="" 
+        onMount={(e, m) => handleMount(e, m, ft)} 
+      />
+  );
+
+  if (language === "web") {
+    return (
+      <div style={{ display: "flex", height: "100%", width: "100%" }}>
+         <div style={paneStyle}><div style={headerStyle}>HTML</div>{renderEditor("html")}</div>
+         <div style={paneStyle}><div style={headerStyle}>CSS</div>{renderEditor("css")}</div>
+         <div style={paneStyle}><div style={headerStyle}>JS</div>{renderEditor("js")}</div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", height: "100%", width: "100%" }}>
-      <style>{generateCursorStyles()}</style>
-      
-      {/* C++ EDITOR */}
-      {language !== "web" && (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          <div style={headerStyle}>{language === "cpp" ? "C++" : language === "java" ? "Java" : "Python"}</div>
-          <Editor 
-            height="100%" 
-            language={language === "cpp" ? "cpp" : language === "java" ? "java" : "python"} 
-            theme="vs-dark"
-            value={language === "cpp" ? cppCode : language === "java" ? javaCode : pythonCode} 
-            onChange={(val) => {
-              // Call the parent setter
-              if (language === "cpp") setCppCode(val);
-              if (language === "java") setJavaCode(val);
-              if (language === "python") setPythonCode(val);
-            }}
-            onMount={(editor) => handleEditorDidMount(editor, language)}
-            options={editorOptions}
-          />
-        </div>
-      )}
-      
-      {/* WEB EDITORS (HTML/CSS/JS) - similar logic */}
-      {language === "web" && (
-        <>
-         <div style={paneStyle}>
-            <div style={headerStyle}>HTML</div>
-            <Editor height="100%" defaultLanguage="html" theme="vs-dark" value={html} onChange={setHtml} onMount={(e) => handleEditorDidMount(e, "html")} options={editorOptions} />
-         </div>
-         <div style={paneStyle}>
-            <div style={headerStyle}>CSS</div>
-            <Editor height="100%" defaultLanguage="css" theme="vs-dark" value={css} onChange={setCss} onMount={(e) => handleEditorDidMount(e, "css")} options={editorOptions} />
-         </div>
-         <div style={paneStyle}>
-            <div style={headerStyle}>JS</div>
-            <Editor height="100%" defaultLanguage="javascript" theme="vs-dark" value={js} onChange={setJs} onMount={(e) => handleEditorDidMount(e, "js")} options={editorOptions} />
-         </div>
-        </>
-      )}
+    <div style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={headerStyle}>{language === "cpp" ? "C++" : language === "java" ? "Java" : "Python"}</div>
+      {renderEditor(language)}
     </div>
   );
 }
 
 const paneStyle = { flex: 1, borderRight: "1px solid #333", display: "flex", flexDirection: "column" };
 const headerStyle = { background: "#1e1e1e", color: "#888", padding: "8px 16px", fontSize: "12px", fontWeight: "bold", borderBottom: "1px solid #333", textTransform: "uppercase" };
-const editorOptions = { minimap: { enabled: false }, fontSize: 14, wordWrap: "on", automaticLayout: true };
 
 ==================================================
 FILE: frontend\src\components\Preview.jsx

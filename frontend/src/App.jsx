@@ -44,97 +44,60 @@ export default function App() {
   const [typingUser, setTypingUser] = useState("");   
   const [remoteCursors, setRemoteCursors] = useState({}); 
 
-  // --- SOCKETS ---
+// In frontend/src/App.jsx
+
+  // 1. CLEANER SOCKET EFFECT (Only Chat & Room Logic)
   useEffect(() => {
     if (id && user) { 
         socket.emit("join_room", { roomId: id, username: user.username });
         
-        // RECEIVER LOGIC (FIXED)
-        const handleReceiveCode = (payload) => {
-             // Debug log to verify data arrival
-             console.log("📨 Received update:", payload);
-
-             // payload = { language: "cpp", code: "..." }
-             if (payload.language === "web") {
-                 const data = payload.code;
-                 if (data.html !== undefined) setHtml(data.html);
-                 if (data.css !== undefined) setCss(data.css);
-                 if (data.js !== undefined) setJs(data.js);
-             } else {
-                 // FIX: specific checks based on INCOMING language, not local state
-                 if (payload.language === "cpp") setCppCode(payload.code);
-                 if (payload.language === "java") setJavaCode(payload.code);
-                 if (payload.language === "python") setPythonCode(payload.code);
-             }
-        };
-
         const handleRoomUsers = (users) => setActiveUsers(users);
-        
         const handleTyping = (username) => {
             setTypingUser(`${username} is typing...`);
             setTimeout(() => setTypingUser(""), 2000);
         };
-
-        const handleCursorUpdate = ({ username, position }) => {
-            if (username !== user.username) {
-                setRemoteCursors(prev => ({ ...prev, [username]: { position } }));
-            }
-        };
+        // Note: We keep cursor_update for now if you want simple cursors, 
+        // but Yjs handles cursors better. You can remove this too if using Yjs cursors.
+        
         const handleSyncRunStart = ({ username }) => { 
-            setConsoleOpen(true); setIsRunning(true); setLogs([{ type: "info", message: `🚀 ${username} started execution...` }]); 
+            setConsoleOpen(true);
+            setIsRunning(true); 
+            setLogs([{ type: "info", message: `🚀 ${username} started execution...` }]); 
         };
         const handleSyncRunComplete = ({ logs }) => { 
-            setIsRunning(false); setLogs(prev => [...prev, ...logs]); 
-        };
-        const handleUserLeft = ({ username }) => {
-            setRemoteCursors(prev => { const n = {...prev}; delete n[username]; return n; });
-            setActiveUsers(prev => prev.filter(u => u !== username));
+            setIsRunning(false);
+            setLogs(prev => [...prev, ...logs]); 
         };
 
         // Attach Listeners
-        socket.on("receive_code", handleReceiveCode);
         socket.on("room_users", handleRoomUsers);
         socket.on("user_typing", handleTyping);
-        socket.on("cursor_update", handleCursorUpdate);
         socket.on("sync_run_start", handleSyncRunStart);
         socket.on("sync_run_complete", handleSyncRunComplete);
-        socket.on("user_left", handleUserLeft);
 
         return () => {
-            socket.off("receive_code", handleReceiveCode);
             socket.off("room_users", handleRoomUsers);
             socket.off("user_typing", handleTyping);
-            socket.off("cursor_update", handleCursorUpdate);
             socket.off("sync_run_start", handleSyncRunStart);
             socket.off("sync_run_complete", handleSyncRunComplete);
-            socket.off("user_left", handleUserLeft);
         };
     }
-  }, [id, user]); // Dependency array is SAFE (Removed 'language')
+  }, [id, user]);
 
+
+  // 2. SIMPLIFIED CHANGE HANDLER (Only updates Local State for the "Run" button)
   const handleCodeChange = (type, value) => {
-      // 1. Update Local State as usual
+      // We ONLY update local state so the "Run" button works.
+      // We DO NOT emit "code_change" anymore. Yjs does that automatically.
       if (type === "html") setHtml(value);
       if (type === "css") setCss(value);
       if (type === "js") setJs(value);
       if (type === "cpp") setCppCode(value);
       if (type === "java") setJavaCode(value);
       if (type === "python") setPythonCode(value);
-
-      // 2. Broadcast to Room
+      
+      // Send typing indicator (Optional)
       if (id && user) {
-          // FIX: Send an object with language AND code
-          let payload = {
-              language: language, 
-              code: value
-          };
-
-          // Special structure for Web
-          if (language === "web") {
-              payload.code = { html, css, js, [type]: value };
-          }
-
-          socket.emit("code_change", { roomId: id, code: payload });
           socket.emit("typing", { roomId: id, username: user.username });
       }
   };

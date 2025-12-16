@@ -1,247 +1,188 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import Editor from "@monaco-editor/react";
+import * as Y from "yjs";
+import { WebsocketProvider } from "y-websocket";
+import { MonacoBinding } from "y-monaco";
+import { API_URL } from "../config"; 
+
+// 1. MOVE OPTIONS OUTSIDE to prevent re-renders on every keystroke
+const COMMON_OPTIONS = { 
+  minimap: { enabled: false }, 
+  fontSize: 14, 
+  automaticLayout: true, 
+  wordWrap: "on",
+  scrollBeyondLastLine: false // Fixes "scrolling too far" feel
+};
+
+const getRandomColor = () => {
+    const colors = ['#ff0055', '#0099ff', '#22cc88', '#ffaa00', '#9900ff', '#00ccff'];
+    return colors[Math.floor(Math.random() * colors.length)];
+};
 
 export default function Editors({ 
-  language, 
-  html, setHtml, css, setCss, js, setJs, 
-  cppCode, setCppCode, javaCode, setJavaCode, pythonCode, setPythonCode,
-  socket, roomId, username, remoteCursors 
+  language, username, roomId,
+  html, css, js, cppCode, javaCode, pythonCode, 
+  setHtml, setCss, setJs, setCppCode, setJavaCode, setPythonCode
 }) {
+  const providerRef = useRef(null);
+  const docRef = useRef(null);
+  const bindingsRef = useRef([]);
+  const [isSynced, setIsSynced] = useState(false);
 
-  const editorRefs = useRef({});
-  const decorationsRef = useRef({}); 
-  
-  // 1. REFS
-  const propsRef = useRef({ socket, roomId, username });
-  const remoteCursorsRef = useRef(remoteCursors);
-  
-  // FLAG: This prevents the "Infinite Loop"
-  const isRemoteUpdate = useRef(false);
-
-  useEffect(() => {
-    propsRef.current = { socket, roomId, username };
-    remoteCursorsRef.current = remoteCursors;
-  }, [socket, roomId, username, remoteCursors]);
-
-
-  // --- 2. RENDER CURSORS ---
-  const renderRemoteCursors = (editor, fileType) => {
-    if (!editor) return;
-
-    const currentCursors = remoteCursorsRef.current;
-    const relevantCursors = Object.entries(currentCursors)
-      .filter(([remoteUser, data]) => {
-          return data.position.fileType === fileType && remoteUser !== propsRef.current.username;
-      });
-
-    const newDecorationsData = relevantCursors.map(([user, data]) => {
-      return {
-        range: new window.monaco.Range(
-          data.position.lineNumber, data.position.column,
-          data.position.lineNumber, data.position.column
-        ),
-        options: {
-          className: `cursor-${user}`, 
-          hoverMessage: { value: `${user}` },
-          stickiness: 1 
-        }
-      };
-    });
-
-    const previousIds = decorationsRef.current[fileType] || [];
-    const newIds = editor.deltaDecorations(previousIds, newDecorationsData);
-    decorationsRef.current[fileType] = newIds;
-  };
-
-
-  // --- 3. UPDATE TEXT SAFELY (Without Triggering Loop) ---
-  const updateEditorContent = (editor, newText, fileType) => {
-    if (!editor) return;
-    const currentText = editor.getValue();
-    if (currentText === newText) return;
-
-    // A. Raise the Flag: "This is a computer update, not a human"
-    isRemoteUpdate.current = true;
-
-    // B. Save cursor
-    const myCursorPosition = editor.getPosition();
-    
-    // C. Remove Remote Cursors (Fixes "Jump to End" bug)
-    const currentDecorationIds = decorationsRef.current[fileType] || [];
-    editor.deltaDecorations(currentDecorationIds, []); 
-    decorationsRef.current[fileType] = [];
-
-    // D. Apply Text Edit
-    const fullRange = editor.getModel().getFullModelRange();
-    editor.pushUndoStop();
-    editor.executeEdits('socket-update', [
-      {
-        range: fullRange,
-        text: newText,
-        forceMoveMarkers: false 
-      }
-    ]);
-    editor.pushUndoStop();
-
-    // E. Restore Remote Cursors
-    renderRemoteCursors(editor, fileType);
-
-    // F. Restore Local Cursor
-    if (myCursorPosition) {
-        editor.setPosition(myCursorPosition);
+  // --- CLEANUP ---
+  const cleanupYjs = useCallback(() => {
+    if (providerRef.current) {
+        providerRef.current.disconnect();
+        providerRef.current.destroy();
     }
-
-    // G. Lower the Flag: "Okay, humans can type now"
-    isRemoteUpdate.current = false;
-  };
-
-
-  // --- 4. LISTEN FOR TEXT UPDATES ---
-  useEffect(() => {
-    if (language === "web") {
-        updateEditorContent(editorRefs.current["html"], html, "html");
-        updateEditorContent(editorRefs.current["css"], css, "css");
-        updateEditorContent(editorRefs.current["js"], js, "js");
-    } else if (language === "cpp") {
-        updateEditorContent(editorRefs.current["cpp"], cppCode, "cpp");
-    } else if (language === "java") {
-        updateEditorContent(editorRefs.current["java"], javaCode, "java");
-    } else if (language === "python") {
-        updateEditorContent(editorRefs.current["python"], pythonCode, "python");
-    }
-  }, [html, css, js, cppCode, javaCode, pythonCode, language]);
-
-
-  // --- 5. LISTEN FOR CURSOR UPDATES ---
-  useEffect(() => {
-    Object.keys(editorRefs.current).forEach((fileType) => {
-      renderRemoteCursors(editorRefs.current[fileType], fileType);
-    });
-  }, [remoteCursors]); 
-
-
-  // --- 6. HANDLE MOUNT & CURSOR EVENTS ---
-  const handleEditorDidMount = useCallback((editor, fileType) => {
-    editorRefs.current[fileType] = editor;
-    renderRemoteCursors(editor, fileType);
-
-    editor.onDidChangeCursorPosition((e) => {
-      const { socket, roomId, username } = propsRef.current;
-      const allowedReasons = [3, 4, 5]; 
-
-      if (socket && roomId && username && allowedReasons.includes(e.reason)) {
-        const position = {
-          fileType: fileType,
-          lineNumber: e.position.lineNumber,
-          column: e.position.column
-        };
-        socket.emit("cursor_move", { roomId, username, position });
-      }
-    });
+    if (docRef.current) docRef.current.destroy();
+    bindingsRef.current.forEach(b => b.destroy());
+    bindingsRef.current = [];
+    setIsSynced(false);
   }, []);
 
-  // --- 7. HELPER: WRAPPER TO STOP LOOP ---
-  // This function checks the flag before notifying the parent
-  const handleEditorChange = (value, setter) => {
-      if (isRemoteUpdate.current) {
-          // STOP! This change came from the socket.
-          // Do NOT call setHtml/setCppCode, because App.jsx already has the new data.
-          // If we call it, App.jsx will emit 'code_change' back to server -> LOOP.
-          return;
-      }
-      setter(value);
-  };
+  // --- LIFECYCLE ---
+  useEffect(() => {
+    return () => cleanupYjs();
+  }, [cleanupYjs, language, roomId]);
 
-  // --- 8. CSS GENERATOR ---
-  const generateCursorStyles = () => {
-    let styles = "";
-    Object.keys(remoteCursors).forEach((user) => {
-        if (user === username) return;
-        const color = getUserColor(user);
-        styles += `
-            .cursor-${user} { border-left: 2px solid ${color}; position: absolute; z-index: 100; }
-            .cursor-${user}::after {
-              content: "${user}"; position: absolute; top: -18px; left: 0;
-              background-color: ${color}; color: white; font-size: 10px;
-              padding: 2px 4px; border-radius: 4px; pointer-events: none; 
-              opacity: 0.9; z-index: 101;
+  // --- USERNAME UPDATE ---
+  useEffect(() => {
+    if (providerRef.current && username && username !== "Anonymous") {
+        const awareness = providerRef.current.awareness;
+        const currentUser = awareness.getLocalState()?.user;
+        if (currentUser && currentUser.name !== username) {
+            awareness.setLocalStateField('user', { ...currentUser, name: username });
+        }
+    }
+  }, [username, isSynced]);
+
+  // --- MOUNT HANDLER ---
+  const handleMount = useCallback((editor, monaco, fileType) => {
+    if (!docRef.current) {
+        const doc = new Y.Doc();
+        docRef.current = doc;
+
+        const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
+        const wsUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+
+        // Unique Room for each Mode
+        const modeSuffix = language === "web" ? "web" : language;
+        const roomName = `codeplay-${roomId}-${modeSuffix}`; 
+
+        console.log(`🔌 Connecting to: ${roomName}`);
+        
+        const provider = new WebsocketProvider(wsUrl, roomName, doc);
+        providerRef.current = provider;
+
+        // User Awareness
+        provider.awareness.setLocalStateField('user', {
+            name: username || "Anonymous",
+            color: getRandomColor()
+        });
+
+        provider.on('sync', (synced) => setIsSynced(synced));
+
+        // Inject Dynamic Cursor Colors
+        provider.awareness.on('update', () => {
+            const states = provider.awareness.getStates();
+            let styleContent = "";
+            states.forEach((state, clientId) => {
+                if (state.user) {
+                    const { name, color } = state.user;
+                    // UPDATED CSS GENERATION (Removed border-top/bottom)
+                    styleContent += `
+                        .yRemoteSelection-${clientId} { background-color: ${color}33; }
+                        .yRemoteSelectionHead-${clientId} { border-left-color: ${color}; }
+                        .yRemoteSelectionHead-${clientId}::after {
+                            content: "${name}";
+                            background: ${color};
+                        }
+                    `;
+                }
+            });
+            let styleEl = document.getElementById("yjs-cursor-styles");
+            if (!styleEl) {
+                styleEl = document.createElement("style");
+                styleEl.id = "yjs-cursor-styles";
+                document.head.appendChild(styleEl);
             }
-        `;
-    });
-    return styles;
-  };
+            styleEl.innerHTML = styleContent;
+        });
+    }
 
-  const getUserColor = (name) => {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    const h = Math.abs(hash) % 360;
-    return `hsl(${h}, 70%, 50%)`;
-  };
+    const doc = docRef.current;
+    const provider = providerRef.current;
+    
+    const textFieldName = language === "web" ? `${fileType}-code` : `${language}-code`;
+    const yText = doc.getText(textFieldName);
+
+    // Initial Seed
+    const initContent = () => {
+        if (yText.toString().length === 0) { 
+            let initialValue = "";
+            if (language === "web") {
+                if (fileType === "html") initialValue = html;
+                if (fileType === "css") initialValue = css;
+                if (fileType === "js") initialValue = js;
+            } else {
+                if (language === "cpp") initialValue = cppCode;
+                if (language === "java") initialValue = javaCode;
+                if (language === "python") initialValue = pythonCode;
+            }
+            if (initialValue) doc.transact(() => yText.insert(0, initialValue));
+        }
+    };
+
+    if (provider.synced) initContent();
+    else provider.once('synced', initContent);
+
+    // Bind Editor
+    const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), provider.awareness);
+    bindingsRef.current.push(binding);
+
+    // Update Local State
+    editor.onDidChangeModelContent(() => {
+        const val = editor.getValue();
+        if (language === "cpp") setCppCode(val);
+        else if (language === "java") setJavaCode(val);
+        else if (language === "python") setPythonCode(val);
+        else if (fileType === "html") setHtml(val);
+        else if (fileType === "css") setCss(val);
+        else if (fileType === "js") setJs(val);
+    });
+
+  }, [roomId, language, username]); 
+
+  // Helper Renderer
+  const renderEditor = (ft) => (
+      <Editor 
+        height="100%" 
+        defaultLanguage={language === "web" ? (ft === "js" ? "javascript" : ft) : language}
+        theme="vs-dark" 
+        options={COMMON_OPTIONS} // <--- USE THE EXTERNAL CONSTANT
+        defaultValue="" 
+        onMount={(e, m) => handleMount(e, m, ft)} 
+      />
+  );
+
+  if (language === "web") {
+    return (
+      <div style={{ display: "flex", height: "100%", width: "100%" }}>
+         <div style={paneStyle}><div style={headerStyle}>HTML</div>{renderEditor("html")}</div>
+         <div style={paneStyle}><div style={headerStyle}>CSS</div>{renderEditor("css")}</div>
+         <div style={paneStyle}><div style={headerStyle}>JS</div>{renderEditor("js")}</div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", height: "100%", width: "100%" }}>
-      <style>{generateCursorStyles()}</style>
-      
-      {/* C++ / JAVA / PYTHON */}
-      {language !== "web" && (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          <div style={headerStyle}>{language === "cpp" ? "C++" : language === "java" ? "Java" : "Python"}</div>
-          <Editor 
-            key={language} 
-            height="100%" 
-            language={language === "cpp" ? "cpp" : language === "java" ? "java" : "python"} 
-            theme="vs-dark"
-            defaultValue={language === "cpp" ? cppCode : language === "java" ? javaCode : pythonCode} 
-            
-            // USE THE WRAPPER FUNCTION HERE
-            onChange={(val) => {
-              if (language === "cpp") handleEditorChange(val, setCppCode);
-              if (language === "java") handleEditorChange(val, setJavaCode);
-              if (language === "python") handleEditorChange(val, setPythonCode);
-            }}
-            
-            onMount={(editor) => handleEditorDidMount(editor, language === "cpp" ? "cpp" : language === "java" ? "java" : "python")}
-            options={editorOptions}
-          />
-        </div>
-      )}
-      
-      {/* WEB EDITORS */}
-      {language === "web" && (
-        <>
-         <div style={paneStyle}>
-            <div style={headerStyle}>HTML</div>
-            <Editor 
-                height="100%" defaultLanguage="html" theme="vs-dark" 
-                defaultValue={html} 
-                onChange={(val) => handleEditorChange(val, setHtml)} 
-                onMount={(e) => handleEditorDidMount(e, "html")} options={editorOptions} 
-            />
-         </div>
-         <div style={paneStyle}>
-            <div style={headerStyle}>CSS</div>
-            <Editor 
-                height="100%" defaultLanguage="css" theme="vs-dark" 
-                defaultValue={css} 
-                onChange={(val) => handleEditorChange(val, setCss)} 
-                onMount={(e) => handleEditorDidMount(e, "css")} options={editorOptions} 
-            />
-         </div>
-         <div style={paneStyle}>
-            <div style={headerStyle}>JS</div>
-            <Editor 
-                height="100%" defaultLanguage="javascript" theme="vs-dark" 
-                defaultValue={js} 
-                onChange={(val) => handleEditorChange(val, setJs)} 
-                onMount={(e) => handleEditorDidMount(e, "js")} options={editorOptions} 
-            />
-         </div>
-        </>
-      )}
+    <div style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={headerStyle}>{language === "cpp" ? "C++" : language === "java" ? "Java" : "Python"}</div>
+      {renderEditor(language)}
     </div>
   );
 }
 
 const paneStyle = { flex: 1, borderRight: "1px solid #333", display: "flex", flexDirection: "column" };
 const headerStyle = { background: "#1e1e1e", color: "#888", padding: "8px 16px", fontSize: "12px", fontWeight: "bold", borderBottom: "1px solid #333", textTransform: "uppercase" };
-const editorOptions = { minimap: { enabled: false }, fontSize: 14, wordWrap: "on", automaticLayout: true };
