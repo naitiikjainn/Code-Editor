@@ -30,45 +30,44 @@ app.use(cors({
 // 1. CREATE HTTP SERVER
 const server = http.createServer(app);
 
-// 2. SETUP SOCKET.IO (COMPLETELY DETACHED)
-// We do NOT call .attach(). We handle the upgrade manually below.
-const io = new SocketIOServer({
+// 2. SETUP SOCKET.IO (Attached in Non-Destructive Mode)
+const io = new SocketIOServer(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
-  path: '/socket.io/'
+  path: '/socket.io/',
+  destroyUpgrade: false // <--- CRITICAL: Lets other WebSockets (Yjs) pass through
 });
 
 // 3. SETUP YJS WEBSOCKET SERVER
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
-  console.log(" Yjs Connected:", req.url);
+  console.log("✅ Yjs Connected:", req.url);
   setupWSConnection(ws, req);
 });
 
-// 4. THE SINGLE TRAFFIC COP (Handles ALL Upgrades)
+// 4. THE TRAFFIC COP (Handle Upgrades Manually)
 server.on('upgrade', (request, socket, head) => {
   const url = request.url;
-  
-  // CASE A: Socket.io Traffic
-  if (url.startsWith('/socket.io/')) {
-    // Manually pass the request to Socket.io's engine
-    io.engine.handleUpgrade(request, socket, head, (ws) => {
-      io.engine.emit('connection', ws, request);
-    });
-    return;
-  }
 
-  // CASE B: Yjs (Code Collaboration)
+  // CASE A: Yjs (Code Collaboration)
+  // We grab this FIRST.
   if (url.startsWith('/codeplay-')) {
-    console.log(` Routing to Yjs: ${url}`);
+    console.log(`➡️ Routing to Yjs: ${url}`);
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
     return;
   }
 
+  // CASE B: Socket.io
+  // We do NOTHING here. Since we used io.attach(server), 
+  // Socket.io has its own listener that will handle this automatically.
+  if (url.startsWith('/socket.io/')) {
+    return;
+  }
+  
   // CASE C: Unknown -> Destroy to prevent hanging
-  socket.destroy();
+  // socket.destroy();
 });
 
 // --- API ROUTES ---
@@ -82,9 +81,7 @@ app.get("/", (req, res) => res.send("API & Collaboration Server is running..."))
 // --- SOCKET.IO EVENTS ---
 const userMap = new Map();
 io.on("connection", (socket) => {
-  // Bind the socket to the io instance manually if needed, 
-  // but usually io.on('connection') fires via the engine.emit above.
-  console.log(" Chat Connected:", socket.id);
+  console.log("💬 Chat Connected:", socket.id);
 
   socket.on("join_room", ({ roomId, username }) => {
     socket.join(roomId);
@@ -110,5 +107,5 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(` Server running on port ${PORT} (API + Collab)`);
+  console.log(`✅ Server running on port ${PORT} (API + Collab)`);
 });
