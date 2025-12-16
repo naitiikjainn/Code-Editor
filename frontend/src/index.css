@@ -3,9 +3,9 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: dark; /* Force dark mode preference */
+  color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #1e1e1e; /* Match your editor theme */
+  background-color: #1e1e1e;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -13,16 +13,15 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* RESET BODY - CRITICAL FIX */
+/* RESET BODY */
 body {
   margin: 0;
   padding: 0;
   width: 100vw;
   height: 100vh;
-  overflow: hidden; /* Prevent global scrollbars */
+  overflow: hidden;
 }
 
-/* Ensure the React Root fills the screen */
 #root {
   width: 100%;
   height: 100%;
@@ -30,7 +29,7 @@ body {
   flex-direction: column;
 }
 
-/* Optional: Make scrollbars look like VS Code */
+/* Scrollbars */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -56,7 +55,7 @@ body {
 
 .yRemoteSelectionHead {
     position: absolute;
-    border-left: 2px solid orange; /* Only left border = Standard Cursor */
+    border-left: 2px solid orange; /* ONLY Left Border = Vertical Line */
     height: 100%;
     box-sizing: border-box;
     z-index: 10;
