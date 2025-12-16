@@ -8,14 +8,12 @@ import shareRoutes from "./routes/share.js";
 import authRoutes from "./routes/auth.js";
 import http from "http"; 
 import { Server as SocketIOServer } from "socket.io"; 
-import { WebSocketServer } from 'ws';
-
-// --- FIX START: LOAD Y-WEBSOCKET DIRECTLY ---
+import { WebSocketServer } from 'ws'; 
 import { createRequire } from 'module';
+
+// Load Y-Websocket Utils
 const require = createRequire(import.meta.url);
-// Now we can load the specific file from the library without copying it!
 const { setupWSConnection } = require('y-websocket/bin/utils');
-// --- FIX END ---
 
 dotenv.config();
 connectDB();
@@ -32,26 +30,48 @@ app.use(cors({
 // 1. CREATE HTTP SERVER
 const server = http.createServer(app);
 
-// 2. SETUP SOCKET.IO (Chat & Room Logic)
+// 2. SETUP SOCKET.IO (Manual Attach Mode)
+// destroyingUpgrade: false prevents Socket.io from killing other connections
 const io = new SocketIOServer(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: { origin: "*", methods: ["GET", "POST"] },
+  destroyUpgrade: false, 
+  path: '/socket.io/' // Explicit path
 });
 
-// 3. SETUP YJS WEBSOCKET SERVER (Code Collaboration)
+// 3. SETUP YJS WEBSOCKET SERVER
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
+  console.log(" Yjs Connection Established:", req.url);
   setupWSConnection(ws, req);
 });
 
-// 4. HANDLE UPGRADE REQUESTS
+// 4. THE TRAFFIC COP (Handle All Upgrades Manually)
 server.on('upgrade', (request, socket, head) => {
-  if (request.url.startsWith('/socket.io/')) {
+  const url = request.url;
+  console.log(`📡 Incoming Upgrade: ${url}`);
+
+  // CASE A: Socket.io Traffic
+  if (url.startsWith('/socket.io/')) {
+    console.log(" Routing to Socket.io");
+    // We let the Socket.io engine handle it
+    // Note: Since we attached io to server, it usually handles this internaly,
+    // but this listener ensures we can see it happening.
     return; 
   }
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    wss.emit('connection', ws, request);
-  });
+
+  // CASE B: Yjs/Code Collaboration Traffic
+  if (url.startsWith('/codeplay-')) {
+    console.log(" Routing to Yjs (Collaboration)");
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+    return;
+  }
+
+  // CASE C: Unknown
+  console.log(" Unknown WebSocket Request. Destroying.");
+  socket.destroy();
 });
 
 // --- API ROUTES ---
@@ -60,14 +80,12 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
 app.use("/api/share", shareRoutes);
 
-app.get("/", (req, res) => {
-  res.send("API & Collaboration Server is running...");
-});
+app.get("/", (req, res) => res.send("API & Collaboration Server is running..."));
 
-// --- SOCKET.IO EVENTS (Chat) ---
+// --- SOCKET.IO EVENTS ---
 const userMap = new Map();
 io.on("connection", (socket) => {
-  console.log("Chat User connected:", socket.id);
+  console.log(" Chat Connected:", socket.id);
 
   socket.on("join_room", ({ roomId, username }) => {
     socket.join(roomId);
