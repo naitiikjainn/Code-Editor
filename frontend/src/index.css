@@ -17,7 +17,6 @@
 body {
   margin: 0;
   padding: 0;
-  /* REMOVED: display: flex; place-items: center; */
   width: 100vw;
   height: 100vh;
   overflow: hidden; /* Prevent global scrollbars */
@@ -46,62 +45,7 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #555; 
 }
-/* =========================================
-   YJS REMOTE CURSOR STYLES
-   (Required to see other users)
-   ========================================= */
 
-.yRemoteSelection {
-    background-color: rgb(250, 129, 0, 0.5); /* Default highlight color */
-}
-
-.yRemoteSelectionHead {
-    position: absolute;
-    border-left: 2px solid orange; /* The vertical blinking line */
-    border-top: 2px solid orange;
-    border-bottom: 2px solid orange;
-    height: 100%;
-    box-sizing: border-box;
-}
-
-.yRemoteSelectionHead::after {
-    position: absolute;
-    content: ' ';
-    border: 3px solid orange;
-    border-radius: 4px;
-    left: -4px;
-    top: -5px;
-}
-
-/* THE NAME TAG (User's Name above cursor) */
-.yRemoteSelectionHead::before {
-    position: absolute;
-    content: attr(data-name); /* Pulls the name from the dataset */
-    font-size: 10px;
-    background-color: orange; /* Background matches cursor */
-    color: white;
-    padding: 2px 6px;
-    border-radius: 4px;
-    top: -20px; /* Positions it above the line */
-    left: -2px;
-    white-space: nowrap;
-    z-index: 10;
-    font-family: 'Roboto', sans-serif;
-    font-weight: bold;
-    pointer-events: none; /* Let clicks pass through */
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-/* Show name only when hovering near the cursor (Optional - remove to always show) */
-.yRemoteSelectionHead:hover::before {
-    opacity: 1;
-}
-
-/* FORCE NAME TO ALWAYS SHOW (If you prefer that) */
-/* .yRemoteSelectionHead::before {
-    opacity: 1 !important; 
-} 
 /* =========================================
    YJS REMOTE CURSOR STYLES (Clean Vertical Bar)
    ========================================= */
