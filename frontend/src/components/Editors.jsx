@@ -60,25 +60,25 @@ export default function Editors({
   // --- MOUNT HANDLER ---
   const handleMount = useCallback((editor, monaco, fileType) => {
     if (!docRef.current) {
-        const doc = new Y.Doc();
-        docRef.current = doc;
+    const doc = new Y.Doc();
+    docRef.current = doc;
 
-        const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
-// In v1.5.4, the room name is part of the URL, not a separate argument
-const wsUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
-const modeSuffix = language === "web" ? "web" : language;
-const roomName = `codeplay-${roomId}-${modeSuffix}`; 
+    const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
+    const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+    
+    const modeSuffix = language === "web" ? "web" : language;
+    const roomName = `codeplay-${roomId}-${modeSuffix}`; 
 
-console.log(`🔌 Connecting to: ${wsUrl}/${roomName}`);
+    console.log(` Attempting Yjs Connect: ${baseUrl}/${roomName}`);
 
-// Passing roomName as the second argument works, but let's be explicit
-const provider = new WebsocketProvider(
-    wsUrl, 
-    roomName, 
-    doc,
-    { connect: true } // Explicitly connect
-);
-        providerRef.current = provider;
+    // Standard initialization for y-websocket@1.5.4
+    const provider = new WebsocketProvider(
+        baseUrl, 
+        roomName, 
+        doc,
+        { connect: true } 
+    );
+    providerRef.current = provider;
 
         // User Awareness
         provider.awareness.setLocalStateField('user', {
