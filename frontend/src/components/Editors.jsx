@@ -34,8 +34,12 @@ export default function Editors({
     if (providerRef.current) {
         providerRef.current.disconnect();
         providerRef.current.destroy();
+        providerRef.current = null;
     }
-    if (docRef.current) docRef.current.destroy();
+    if (docRef.current) {
+        docRef.current.destroy();
+        docRef.current = null;
+    }
     bindingsRef.current.forEach(b => b.destroy());
     bindingsRef.current = [];
     setIsSynced(false);
@@ -163,6 +167,7 @@ export default function Editors({
   // Helper Renderer
   const renderEditor = (ft) => (
       <Editor 
+        key={`${roomId}-${language}-${ft}`}
         height="100%" 
         defaultLanguage={language === "web" ? (ft === "js" ? "javascript" : ft) : language}
         theme="vs-dark" 
