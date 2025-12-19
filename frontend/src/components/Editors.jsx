@@ -3,6 +3,7 @@ import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
+import { Awareness } from "y-protocols/awareness";
 import { API_URL } from "../config"; 
 
 // 1. MOVE OPTIONS OUTSIDE to prevent re-renders on every keystroke
@@ -26,6 +27,7 @@ export default function Editors({
 }) {
   const providerRef = useRef(null);
   const docRef = useRef(null);
+  const awarenessRef = useRef(null);
   const bindingsRef = useRef([]);
   const [isSynced, setIsSynced] = useState(false);
 
@@ -39,6 +41,10 @@ export default function Editors({
     if (docRef.current) {
         docRef.current.destroy();
         docRef.current = null;
+    }
+    if (awarenessRef.current) {
+        awarenessRef.current.destroy();
+        awarenessRef.current = null;
     }
     bindingsRef.current.forEach(b => b.destroy());
     bindingsRef.current = [];
@@ -67,23 +73,23 @@ export default function Editors({
     const doc = new Y.Doc();
     docRef.current = doc;
 
-    const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
-    
-    // FIX: Robust URL cleaning
-    const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
-    
-    const modeSuffix = language === "web" ? "web" : language;
-    const roomName = `codeplay-${roomId}-${modeSuffix}`; 
+    if (roomId) {
+        // --- ONLINE MODE (COLLABORATION) ---
+        const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
+        const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+        const modeSuffix = language === "web" ? "web" : language;
+        const roomName = `codeplay-${roomId}-${modeSuffix}`; 
 
-    console.log(` Connecting: ${baseUrl}/${roomName}`);
+        console.log(` Connecting: ${baseUrl}/${roomName}`);
 
-    const provider = new WebsocketProvider(
-        baseUrl, 
-        roomName, 
-        doc,
-        { connect: true } 
-    );
-    providerRef.current = provider;
+        const provider = new WebsocketProvider(
+            baseUrl, 
+            roomName, 
+            doc,
+            { connect: true } 
+        );
+        providerRef.current = provider;
+        awarenessRef.current = provider.awareness;
 
         // User Awareness
         provider.awareness.setLocalStateField('user', {
@@ -100,7 +106,6 @@ export default function Editors({
             states.forEach((state, clientId) => {
                 if (state.user) {
                     const { name, color } = state.user;
-                    // UPDATED CSS GENERATION (Removed border-top/bottom)
                     styleContent += `
                         .yRemoteSelection-${clientId} { background-color: ${color}33; }
                         .yRemoteSelectionHead-${clientId} { border-left-color: ${color}; }
@@ -119,6 +124,12 @@ export default function Editors({
             }
             styleEl.innerHTML = styleContent;
         });
+    } else {
+        // --- OFFLINE MODE (LOCAL) ---
+        // Create a local awareness instance so MonacoBinding works
+        awarenessRef.current = new Awareness(doc);
+        setIsSynced(true); // Local is always "synced" with itself
+    }
     }
 
     const doc = docRef.current;
@@ -144,11 +155,12 @@ export default function Editors({
         }
     };
 
-    if (provider.synced) initContent();
-    else provider.once('synced', initContent);
+    if (providerRef.current && providerRef.current.synced) initContent();
+    else if (providerRef.current) providerRef.current.once('synced', initContent);
+    else initContent(); // Always init immediately if local
 
     // Bind Editor
-    const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), provider.awareness);
+    const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), awarenessRef.current);
     bindingsRef.current.push(binding);
 
     // Update Local State
