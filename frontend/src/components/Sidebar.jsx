@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Files, MessageSquare, Settings, FolderOpen, ChevronLeft } from "lucide-react";
+import { Files, MessageSquare, Settings, FolderOpen, ChevronLeft, Users } from "lucide-react";
 
 export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
   
@@ -24,11 +24,12 @@ export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
     </div>
   );
 
-  return (
+    return (
     <div style={{ display: "flex", height: "100%", background: "var(--bg-dark)", borderRight: "1px solid var(--border-subtle)" }}>
         {/* ICON BAR */}
         <div style={{ width: "48px", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", borderRight: isOpen ? "1px solid var(--border-subtle)" : "none", background: "#111", zIndex: 20 }}>
             {renderIcon("files", Files, "Explorer")}
+            {renderIcon("participants", Users, "Participants")}
             <div style={{ flex: 1 }} />
             {renderIcon("settings", Settings, "Settings")}
         </div>

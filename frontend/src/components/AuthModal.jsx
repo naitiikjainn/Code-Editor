@@ -70,7 +70,7 @@ export default function AuthModal({ isOpen, onClose }) {
   };
 
   return (
-    <div className="animate-fade-in" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+    <div className="animate-fade-in" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10001 }}>
       <div className="glass-panel" style={{ width: "360px", padding: "32px", borderRadius: "16px", position: "relative", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}>
         
         <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>

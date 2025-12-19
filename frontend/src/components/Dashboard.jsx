@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { API_URL } from "../config";
 import AuthModal from "./AuthModal";
 import { Plus, Code2, LogIn, ArrowRight } from "lucide-react";
 
@@ -12,9 +13,23 @@ export default function Dashboard() {
 
   const handleCreateRoom = async () => {
     if (!user) { setAuthOpen(true); return; }
-    // Call API to create room (mocked for now, just random ID)
+    
     const randomId = Math.random().toString(36).substring(7);
-    navigate(`/editor/${randomId}`);
+    
+    try {
+        const res = await fetch(`${API_URL}/api/rooms/create`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ roomId: randomId, username: user.username })
+        });
+        if (res.ok) {
+            navigate(`/editor/${randomId}`);
+        } else {
+            alert("Failed to create room. Try again.");
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Server error.");
+    }
   };
 
   const handleJoin = (e) => {

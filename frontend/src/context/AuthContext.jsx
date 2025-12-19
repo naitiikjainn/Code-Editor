@@ -4,6 +4,7 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true); // <--- Add loading state
 
   // Check if user is already logged in (on page refresh)
   useEffect(() => {
@@ -11,6 +12,7 @@ export const AuthProvider = ({ children }) => {
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
+    setLoading(false); // <--- Set loading to false after check
   }, []);
 
   // Login Function
@@ -30,7 +32,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

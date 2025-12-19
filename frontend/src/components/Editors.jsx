@@ -23,9 +23,13 @@ const COMMON_OPTIONS = {
   smoothScrolling: true
 };
 
-const getRandomColor = () => {
-    const colors = ['#ff0055', '#0099ff', '#22cc88', '#ffaa00', '#9900ff', '#00ccff'];
-    return colors[Math.floor(Math.random() * colors.length)];
+const stringToColor = (str) => {
+    if (!str) return "#ccc";
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
 };
 
 export default function Editors({ 
@@ -93,7 +97,7 @@ export default function Editors({
 
             provider.awareness.setLocalStateField('user', {
                 name: username || "Anonymous",
-                color: getRandomColor()
+                color: stringToColor(username || "Anonymous")
             });
 
             provider.on('sync', (synced) => setIsSynced(synced));
