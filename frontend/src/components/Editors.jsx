@@ -5,14 +5,22 @@ import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
 import { Awareness } from "y-protocols/awareness";
 import { API_URL } from "../config"; 
+import { FileJson, FileType, FileCode, Coffee, Braces } from "lucide-react";
 
-// 1. MOVE OPTIONS OUTSIDE to prevent re-renders on every keystroke
+// 1. ADVANCED EDITOR OPTIONS
 const COMMON_OPTIONS = { 
   minimap: { enabled: false }, 
   fontSize: 14, 
+  fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+  fontLigatures: true,
   automaticLayout: true, 
   wordWrap: "on",
-  scrollBeyondLastLine: false // Fixes "scrolling too far" feel
+  scrollBeyondLastLine: false,
+  padding: { top: 16, bottom: 16 },
+  lineNumbersMinChars: 4,
+  renderLineHighlight: "all", // Highlights current line nicely
+  cursorBlinking: "smooth",
+  smoothScrolling: true
 };
 
 const getRandomColor = () => {
@@ -21,9 +29,7 @@ const getRandomColor = () => {
 };
 
 export default function Editors({ 
-  language, username, roomId,
-  html, css, js, cppCode, javaCode, pythonCode, 
-  setHtml, setCss, setJs, setCppCode, setJavaCode, setPythonCode
+  activeFile, onCodeChange, username, roomId
 }) {
   const providerRef = useRef(null);
   const docRef = useRef(null);
@@ -54,7 +60,7 @@ export default function Editors({
   // --- LIFECYCLE ---
   useEffect(() => {
     return () => cleanupYjs();
-  }, [cleanupYjs, language, roomId]);
+  }, [cleanupYjs, roomId]);
 
   // --- USERNAME UPDATE ---
   useEffect(() => {
@@ -68,144 +74,125 @@ export default function Editors({
   }, [username, isSynced]);
 
   // --- MOUNT HANDLER ---
-  const handleMount = useCallback((editor, monaco, fileType) => {
+  const handleMount = useCallback((editor, monaco) => {
+    if (!activeFile) return;
+
+    // Make sure we have a valid doc
     if (!docRef.current) {
-    const doc = new Y.Doc();
-    docRef.current = doc;
+        const doc = new Y.Doc();
+        docRef.current = doc;
 
-    if (roomId) {
-        // --- ONLINE MODE (COLLABORATION) ---
-        const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
-        const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
-        const modeSuffix = language === "web" ? "web" : language;
-        const roomName = `codeplay-${roomId}-${modeSuffix}`; 
+        if (roomId) {
+            const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
+            const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
+            const roomName = `codeplay-${roomId}-v2`; // Updated room version
 
-        console.log(` Connecting: ${baseUrl}/${roomName}`);
+            const provider = new WebsocketProvider(baseUrl, roomName, doc, { connect: true });
+            providerRef.current = provider;
+            awarenessRef.current = provider.awareness;
 
-        const provider = new WebsocketProvider(
-            baseUrl, 
-            roomName, 
-            doc,
-            { connect: true } 
-        );
-        providerRef.current = provider;
-        awarenessRef.current = provider.awareness;
-
-        // User Awareness
-        provider.awareness.setLocalStateField('user', {
-            name: username || "Anonymous",
-            color: getRandomColor()
-        });
-
-        provider.on('sync', (synced) => setIsSynced(synced));
-
-        // Inject Dynamic Cursor Colors
-        provider.awareness.on('update', () => {
-            const states = provider.awareness.getStates();
-            let styleContent = "";
-            states.forEach((state, clientId) => {
-                if (state.user) {
-                    const { name, color } = state.user;
-                    styleContent += `
-                        .yRemoteSelection-${clientId} { background-color: ${color}33; }
-                        .yRemoteSelectionHead-${clientId} { border-left-color: ${color}; }
-                        .yRemoteSelectionHead-${clientId}::after {
-                            content: "${name}";
-                            background: ${color};
-                        }
-                    `;
-                }
+            provider.awareness.setLocalStateField('user', {
+                name: username || "Anonymous",
+                color: getRandomColor()
             });
-            let styleEl = document.getElementById("yjs-cursor-styles");
-            if (!styleEl) {
-                styleEl = document.createElement("style");
-                styleEl.id = "yjs-cursor-styles";
-                document.head.appendChild(styleEl);
-            }
-            styleEl.innerHTML = styleContent;
-        });
-    } else {
-        // --- OFFLINE MODE (LOCAL) ---
-        // Create a local awareness instance so MonacoBinding works
-        awarenessRef.current = new Awareness(doc);
-        setIsSynced(true); // Local is always "synced" with itself
-    }
+
+            provider.on('sync', (synced) => setIsSynced(synced));
+
+            // Cursor Styles
+            provider.awareness.on('update', () => {
+                const states = provider.awareness.getStates();
+                let styleContent = "";
+                states.forEach((state, clientId) => {
+                    if (state.user) {
+                        const { name, color } = state.user;
+                        styleContent += `
+                            .yRemoteSelection-${clientId} { background-color: ${color}33; }
+                            .yRemoteSelectionHead-${clientId} { border-left-color: ${color}; }
+                            .yRemoteSelectionHead-${clientId}::after {
+                                content: "${name}";
+                                background: ${color};
+                            }
+                        `;
+                    }
+                });
+                let styleEl = document.getElementById("yjs-cursor-styles");
+                if (!styleEl) {
+                    styleEl = document.createElement("style");
+                    styleEl.id = "yjs-cursor-styles";
+                    document.head.appendChild(styleEl);
+                }
+                styleEl.innerHTML = styleContent;
+            });
+        } else {
+            // Offline
+            awarenessRef.current = new Awareness(doc);
+            setIsSynced(true);
+        }
     }
 
     const doc = docRef.current;
-    const provider = providerRef.current;
-    
-    const textFieldName = language === "web" ? `${fileType}-code` : `${language}-code`;
+    // Use file ID for unique YJS field
+    const textFieldName = `file-${activeFile._id}`; 
     const yText = doc.getText(textFieldName);
 
-    // Initial Seed
     const initContent = () => {
         if (yText.toString().length === 0) { 
-            let initialValue = "";
-            if (language === "web") {
-                if (fileType === "html") initialValue = html;
-                if (fileType === "css") initialValue = css;
-                if (fileType === "js") initialValue = js;
-            } else {
-                if (language === "cpp") initialValue = cppCode;
-                if (language === "java") initialValue = javaCode;
-                if (language === "python") initialValue = pythonCode;
-            }
-            if (initialValue) doc.transact(() => yText.insert(0, initialValue));
+            if (activeFile.content) doc.transact(() => yText.insert(0, activeFile.content));
         }
     };
 
     if (providerRef.current && providerRef.current.synced) initContent();
     else if (providerRef.current) providerRef.current.once('synced', initContent);
-    else initContent(); // Always init immediately if local
+    else initContent(); 
 
-    // Bind Editor
     const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), awarenessRef.current);
     bindingsRef.current.push(binding);
 
-    // Update Local State
-    editor.onDidChangeModelContent(() => {
-        const val = editor.getValue();
-        if (language === "cpp") setCppCode(val);
-        else if (language === "java") setJavaCode(val);
-        else if (language === "python") setPythonCode(val);
-        else if (fileType === "html") setHtml(val);
-        else if (fileType === "css") setCss(val);
-        else if (fileType === "js") setJs(val);
+    // Force update parent on immediate bind in case Yjs already has content
+    if (editor.getValue()) {
+        onCodeChange(editor.getValue());
+    }
+
+    // Ensure we capture remote updates that might not trigger standard change events in time
+    yText.observe(() => {
+        onCodeChange(yText.toString());
     });
 
-  }, [roomId, language, username]); 
+    editor.onDidChangeModelContent(() => {
+        const val = editor.getValue();
+        onCodeChange(val);
+    });
 
-  // Helper Renderer
-  const renderEditor = (ft) => (
-      <Editor 
-        key={`${roomId}-${language}-${ft}`}
-        height="100%" 
-        defaultLanguage={language === "web" ? (ft === "js" ? "javascript" : ft) : language}
-        theme="vs-dark" 
-        options={COMMON_OPTIONS} // <--- USE THE EXTERNAL CONSTANT
-        defaultValue="" 
-        onMount={(e, m) => handleMount(e, m, ft)} 
-      />
-  );
+  }, [roomId, activeFile, username, onCodeChange]); 
 
-  if (language === "web") {
-    return (
-      <div style={{ display: "flex", height: "100%", width: "100%" }}>
-         <div style={paneStyle}><div style={headerStyle}>HTML</div>{renderEditor("html")}</div>
-         <div style={paneStyle}><div style={headerStyle}>CSS</div>{renderEditor("css")}</div>
-         <div style={paneStyle}><div style={headerStyle}>JS</div>{renderEditor("js")}</div>
-      </div>
-    );
+  if (!activeFile) {
+      return <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#666" }}>Select a file to edit</div>;
   }
 
   return (
     <div style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={headerStyle}>{language === "cpp" ? "C++" : language === "java" ? "Java" : "Python"}</div>
-      {renderEditor(language)}
+       <div style={headerContainerStyle}>
+          {renderTab(<FileCode size={14} color="#4fc3f7"/>, activeFile.name, "#4fc3f7")}
+       </div>
+       <Editor 
+        key={`${roomId}-${activeFile._id}`}
+        height="100%" 
+        defaultLanguage={activeFile.language === "js" ? "javascript" : activeFile.language}
+        theme="vs-dark" 
+        options={COMMON_OPTIONS}
+        defaultValue="" 
+        onMount={(e, m) => handleMount(e, m)} 
+       />
     </div>
   );
 }
 
-const paneStyle = { flex: 1, borderRight: "1px solid #333", display: "flex", flexDirection: "column" };
-const headerStyle = { background: "#1e1e1e", color: "#888", padding: "8px 16px", fontSize: "12px", fontWeight: "bold", borderBottom: "1px solid #333", textTransform: "uppercase" };
+const renderTab = (icon, name, color) => (
+    <div style={{ display: "flex", alignItems: "center", gap: "8px", height: "100%", padding: "0 12px", borderTop: `2px solid ${color}`, background: "var(--bg-panel)", color: "var(--text-main)" }}>
+        {icon}
+        <span style={{ fontSize: "13px", fontWeight: "500" }}>{name}</span>
+    </div>
+);
+
+const paneStyle = { flex: 1, borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", background: "var(--bg-panel)", overflow: "hidden" };
+const headerContainerStyle = { height: "36px", background: "var(--bg-dark)", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "center" };

@@ -6,9 +6,11 @@ import aiRoutes from "./routes/ai.js";
 import codeRoutes from "./routes/code.js";
 import shareRoutes from "./routes/share.js";
 import authRoutes from "./routes/auth.js";
-import http from "http"; 
-import { Server as SocketIOServer } from "socket.io"; 
-import { WebSocketServer } from 'ws'; 
+import fileRoutes from "./routes/files.js"; // <--- NEW
+import http from "http";
+import { Server as SocketIOServer } from "socket.io";
+
+import { WebSocketServer } from 'ws';
 import { createRequire } from 'module';
 
 // Load Y-Websocket Utils
@@ -22,8 +24,8 @@ const app = express();
 app.use(express.json());
 
 app.use(cors({
-  origin: "*", 
-  methods: ["GET", "POST"],
+  origin: "*",
+  methods: ["GET", "POST", "DELETE"],
   credentials: true
 }));
 
@@ -65,7 +67,7 @@ server.on('upgrade', (request, socket, head) => {
   if (url.startsWith('/socket.io/')) {
     return;
   }
-  
+
   // CASE C: Unknown -> Destroy to prevent hanging
   // socket.destroy();
 });
@@ -75,6 +77,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
 app.use("/api/share", shareRoutes);
+app.use("/api/files", fileRoutes); // <--- NEW
+
 
 app.get("/", (req, res) => res.send("API & Collaboration Server is running..."));
 
@@ -99,7 +103,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     if (socket.roomId && socket.username) {
-        socket.to(socket.roomId).emit("user_left", { username: socket.username });
+      socket.to(socket.roomId).emit("user_left", { username: socket.username });
     }
     userMap.delete(socket.id);
   });
