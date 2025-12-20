@@ -7,13 +7,14 @@ import ShareModal from "./ShareModal";
 import AuthModal from "./AuthModal";
 import Sidebar from "./Sidebar";
 import FileExplorer from "./FileExplorer";
-import ParticipantsPanel from "./ParticipantsPanel"; // <--- NEW
+import ParticipantsPanel from "./ParticipantsPanel";
+import TestPanel from "./TestPanel"; // <--- Import
 import useDebounce from "../hooks/useDebounce"; 
 import { useParams, useNavigate } from "react-router-dom"; 
 import { API_URL } from "../config"; 
 import io from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert } from "lucide-react";
+import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical } from "lucide-react";
 
 // Move socket outside to avoid multiple connections
 const socket = io(API_URL);
@@ -30,7 +31,7 @@ const stringToColor = (str) => {
 export default function Workspace() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth(); // Consolidated here
+  const { user, loading: authLoading } = useAuth(); 
 
   // --- STATE ---
   const [files, setFiles] = useState([]);
@@ -45,59 +46,57 @@ export default function Workspace() {
   const [consoleOpen, setConsoleOpen] = useState(true);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false); // <--- NEW INDEPENDENT STATE
+  const [aiPanelOpen, setAiPanelOpen] = useState(false); 
   const [shareUrl, setShareUrl] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState([]);
-  const [consoleHeight, setConsoleHeight] = useState(250); // <--- NEW
-  const [isResizing, setIsResizing] = useState(false); // <--- NEW
+  const [consoleHeight, setConsoleHeight] = useState(250); 
+  const [isResizing, setIsResizing] = useState(false); 
+  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false); 
 
+
+  // COLLAB STATE
   const [activeUsers, setActiveUsers] = useState([]); 
-  const [remoteCursors, setRemoteCursors] = useState({}); 
-  const [hoveredUser, setHoveredUser] = useState(null); // <--- Correctly placed
-  
-  // ACCESS CONTROL STATE
-  // default to 'loading' (or 'login_required' if auth needed)
-  const [accessStatus, setAccessStatus] = useState("loading"); 
-  const [waitMessage, setWaitMessage] = useState("Connecting to room...");
+  const [hoveredUser, setHoveredUser] = useState(null);
   const [pendingGuests, setPendingGuests] = useState([]); 
 
+  // TEST CASE STATE
+  const [testCases, setTestCases] = useState([]);
+  const [isRunningTests, setIsRunningTests] = useState(false);
+
+  // ACCESS STATE
+  const [accessStatus, setAccessStatus] = useState("loading"); // loading, waiting, granted, denied, login_required
+  const [waitMessage, setWaitMessage] = useState("Connecting to room...");
 
 
   // --- SOCKET CONFIG ---
   useEffect(() => {
-      if (!id || authLoading) return; // Wait for auth check to finish
+      if (!id || authLoading) return; 
 
       if (!user) {
           setAccessStatus("login_required");
           setWaitMessage("Please sign in to join this room.");
-          setAuthModalOpen(true); // Auto-open login
+          setAuthModalOpen(true); 
           return;
       }
       
-      // If we are here, we are logged in.
-      // Reset status in case we were in 'login_required' before
       if (accessStatus === "login_required") {
           setAccessStatus("loading");
       }
 
-      // JOIN ROOM FUNCTION
       const joinRoom = () => {
           console.log("Joining room:", id, "as", user.username);
           socket.emit("join_room", { roomId: id, username: user.username });
       };
 
-      // INITIAL JOIN
       joinRoom();
-
-      // RE-JOIN ON RECONNECT (Fixes server restart issue)
       socket.on("connect", joinRoom);
 
-      // LISTENERS
       socket.on("room_users", (users) => setActiveUsers(users));
       
       socket.on("status_update", ({ status, message }) => {
-          setAccessStatus(status); // 'waiting' or 'active' (if public?)
+          setAccessStatus(status); 
           setWaitMessage(message);
       });
 
@@ -109,12 +108,10 @@ export default function Workspace() {
       socket.on("access_denied", () => {
           setAccessStatus("denied");
           setWaitMessage("The host has declined your request to join this room.");
-          // Removed auto-redirect to let user see the message
       });
 
       socket.on("request_entry", ({ username, socketId }) => {
           setPendingGuests(prev => {
-              // Avoid duplicates
               if (prev.find(p => p.socketId === socketId)) return prev;
               return [...prev, { username, socketId }];
           });
@@ -162,14 +159,12 @@ export default function Workspace() {
 
   useEffect(() => {
     if (activeFile && debouncedCode !== activeFile.content) {
-        // Only save if changed
         fetch(`${API_URL}/api/files/${activeFile._id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ content: debouncedCode })
         }).then(() => {
             console.log("Saved:", activeFile.name);
-            // Update local file state silently to avoid re-trigger
             setFiles(prev => prev.map(f => f._id === activeFile._id ? { ...f, content: debouncedCode } : f));
         }).catch(err => console.error("Autosave failed", err));
     }
@@ -178,15 +173,26 @@ export default function Workspace() {
   // --- RESIZE HANDLER ---
   useEffect(() => {
       const handleMouseMove = (e) => {
-          if (!isResizing) return;
-          const newHeight = window.innerHeight - e.clientY;
-          if (newHeight > 50 && newHeight < window.innerHeight - 100) {
-              setConsoleHeight(newHeight);
+          if (isResizing) {
+              const newHeight = window.innerHeight - e.clientY;
+              if (newHeight > 50 && newHeight < window.innerHeight - 100) {
+                  setConsoleHeight(newHeight);
+              }
+          }
+          if (isSidebarResizing) {
+              const newWidth = e.clientX - 48; // Subtract sidebar icon bar width
+              if (newWidth > 150 && newWidth < 800) {
+                  setSidebarWidth(newWidth);
+              }
           }
       };
-      const handleMouseUp = () => setIsResizing(false);
+      const handleMouseUp = () => {
+          setIsResizing(false);
+          setIsSidebarResizing(false);
+          document.body.style.cursor = "default";
+      };
 
-      if (isResizing) {
+      if (isResizing || isSidebarResizing) {
           window.addEventListener("mousemove", handleMouseMove);
           window.addEventListener("mouseup", handleMouseUp);
       }
@@ -194,7 +200,7 @@ export default function Workspace() {
           window.removeEventListener("mousemove", handleMouseMove);
           window.removeEventListener("mouseup", handleMouseUp);
       };
-  }, [isResizing]);
+  }, [isResizing, isSidebarResizing]);
 
   // --- HANDLERS ---
   const handleFileSelect = (file) => {
@@ -220,7 +226,6 @@ export default function Workspace() {
   };
 
   const handleFileDelete = async (id) => {
-      // Direct delete without confirmation as requested
       try {
           await fetch(`${API_URL}/api/files/${id}`, { method: "DELETE" });
           setFiles(prev => prev.filter(f => f._id !== id));
@@ -231,6 +236,7 @@ export default function Workspace() {
       } catch (err) { console.error(err); }
   };
 
+  // --- EXECUTION & TESTS ---
   async function handleRun() {
     if (!user) { setAuthModalOpen(true); return; }
     if (!activeFile) return;
@@ -264,6 +270,56 @@ export default function Workspace() {
     finally { setIsRunning(false); }
   }
 
+  const runTests = async () => {
+    console.log("Run Tests clicked. Active File:", activeFile);
+    if (!activeFile) {
+        console.warn("No active file selected, aborting tests.");
+        return;
+    }
+    
+    setIsRunningTests(true);
+    console.log("Starting tests...", testCases);
+    
+    const newTestCases = [...testCases];
+    
+    for (let i = 0; i < newTestCases.length; i++) {
+        const test = newTestCases[i];
+        console.log(`Running test ${i+1}/${newTestCases.length}`, test);
+        newTestCases[i] = { ...test, status: "running", actualOutput: "" };
+        setTestCases([...newTestCases]); 
+
+        try {
+            console.log("Fetching /execute...");
+            const res = await fetch(`${API_URL}/api/code/execute`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    language: activeFile.language, 
+                    code: activeCode, 
+                    stdin: test.input 
+                }),
+            });
+            const data = await res.json();
+            console.log("Execution result:", data);
+
+            const output = data.run?.output?.trim() || "";
+            
+            newTestCases[i].actualOutput = output;
+            if (output === test.expectedOutput?.trim()) {
+                newTestCases[i].status = "accepted";
+            } else {
+                newTestCases[i].status = "wrong_answer";
+            }
+        } catch (err) {
+            console.error("Test execution error:", err);
+            newTestCases[i].status = "error";
+            newTestCases[i].actualOutput = "Execution Error";
+        }
+        setTestCases([...newTestCases]);
+    }
+    setIsRunningTests(false);
+    console.log("Tests finished.");
+  };
+
   function handleCopyLink() {
       const url = window.location.href.replace('editor', 'share');
       setShareUrl(window.location.href);
@@ -272,9 +328,7 @@ export default function Workspace() {
 
   async function handleAskAI(userPrompt) {
     if (!activeFile) return "Please select a file first.";
-
     const codeContext = { [activeFile.language]: activeCode };
-
     try {
         const res = await fetch(`${API_URL}/api/ai/assist`, {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: userPrompt, code: codeContext })
@@ -306,7 +360,7 @@ export default function Workspace() {
 
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 
-                {/* ACTIVE USERS (Google Docs Style) */}
+                {/* ACTIVE USERS */}
                 <div style={{ display: "flex", alignItems: "center", paddingLeft: "8px" }}>
                     {activeUsers.map((u, i) => (
                         <div 
@@ -326,23 +380,11 @@ export default function Workspace() {
                             }}
                         >
                             {(u.username || "U")[0].toUpperCase()}
-                            
-                            {/* CUSTOM TOOLTIP */}
                             {hoveredUser === u.username && (
                                 <div style={{
                                     position: "absolute",
-                                    top: "40px",
-                                    left: "50%",
-                                    transform: "translateX(-50%)",
-                                    background: "#333",
-                                    color: "white",
-                                    padding: "4px 8px",
-                                    borderRadius: "4px",
-                                    fontSize: "12px",
-                                    whiteSpace: "nowrap",
-                                    zIndex: 1000,
-                                    pointerEvents: "none",
-                                    boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
+                                    top: "40px", left: "50%", transform: "translateX(-50%)",
+                                    background: "#333", color: "white", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", whiteSpace: "nowrap", zIndex: 1000, pointerEvents: "none", boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
                                 }}>
                                     {u.username}
                                 </div>
@@ -351,7 +393,6 @@ export default function Workspace() {
                     ))}
                 </div>
 
-                
                 <button onClick={handleRun} disabled={isRunning} className="btn-primary" style={{ padding: "6px 16px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
                      {isRunning ? "..." : <><Play size={14} fill="white" /> Run</>}
                 </button>
@@ -366,43 +407,67 @@ export default function Workspace() {
             {/* 1. SIDEBAR NAVIGATION */}
             <Sidebar activeTab={activeSidebar} setActiveTab={setActiveSidebar} isOpen={!!activeSidebar} />
 
-            {/* 2. SIDEBAR PANEL (Conditional) */}
+            {/* 2. SIDEBAR PANEL */}
             {activeSidebar && (
-                <div style={{ width: "260px", background: "var(--bg-panel)", borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
-                    {activeSidebar === "files" && (
-                        <FileExplorer 
-                            files={files} 
-                            activeFileId={activeFile?._id} 
-                            onSelect={handleFileSelect} 
-                            onDelete={handleFileDelete}
-                            onCreate={handleFileCreate}
-                        />
-                    )}
-                    {activeSidebar === "participants" && (
-                        <ParticipantsPanel users={activeUsers} />
-                    )}
-                </div>
+                <>
+                    <div style={{ width: sidebarWidth, height: "100%", overflow: "hidden", background: "var(--bg-panel)", borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
+                        {activeSidebar === "files" && (
+                            <FileExplorer 
+                                files={files} 
+                                activeFileId={activeFile?._id} 
+                                onSelect={handleFileSelect} 
+                                onDelete={handleFileDelete}
+                                onCreate={handleFileCreate}
+                            />
+                        )}
+                        {activeSidebar === "participants" && (
+                            <ParticipantsPanel users={activeUsers} />
+                        )}
+                        {activeSidebar === "tests" && (
+                            <TestPanel 
+                                testCases={testCases}
+                                setTestCases={setTestCases}
+                                runTests={runTests}
+                                isRunningTests={isRunningTests}
+                                onClose={() => setActiveSidebar(null)}
+                            />
+                        )}
+                    </div>
+                    {/* RESIZE HANDLE */}
+                    <div 
+                        onMouseDown={(e) => { e.preventDefault(); setIsSidebarResizing(true); document.body.style.cursor = "col-resize"; }}
+                        className="resize-handle-vertical"
+                        style={{ 
+                            width: "4px", cursor: "col-resize", background: isSidebarResizing ? "var(--accent-primary)" : "transparent", 
+                            transition: "background 0.2s", zIndex: 10, position: "relative", right: "2px"
+                        }}
+                    />
+                </>
             )}
 
             {/* 3. MAIN EDITOR AREA */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-                {/* Coding Area */}
+                {/* Coding Area + Right Panel Split */}
                 <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden", borderBottom: consoleOpen ? "1px solid var(--border-subtle)" : "none" }}>
-                   <Editors
-                        activeFile={activeFile}
-                        onCodeChange={setActiveCode}
-                        socket={socket}
-                        roomId={id}
-                        username={user?.username} 
-                   />
                    
+                   {/* EDITOR */}
+                   <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+                       <Editors
+                            activeFile={activeFile}
+                            onCodeChange={setActiveCode}
+                            socket={socket}
+                            roomId={id}
+                            username={user?.username} 
+                       />
+                   </div>
+
                    {/* Web Preview Split - Only if active file is HTML */}
                    {activeFile?.language === "html" && (
                        <div style={{ width: "40%", borderLeft: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
-                           <div style={{ padding: "8px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-subtle)", fontSize: "12px", fontWeight: "bold" }}>PREVIEW</div>
-                           <div style={{ flex: 1, background: "white" }}>
-                               <Preview html={activeCode} />
-                           </div>
+                            <div style={{ padding: "8px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-subtle)", fontSize: "12px", fontWeight: "bold" }}>PREVIEW</div>
+                            <div style={{ flex: 1, background: "white" }}>
+                                <Preview html={activeCode} />
+                            </div>
                        </div>
                    )}
                 </div>
@@ -410,7 +475,6 @@ export default function Workspace() {
                 {/* Bottom Terminal */}
                 {consoleOpen && (
                     <>
-                        {/* RESIZE HANDLE */}
                         <div 
                            onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }}
                            style={{ height: "4px", cursor: "ns-resize", background: isResizing ? "var(--accent-primary)" : "var(--border-subtle)", transition: "background 0.2s" }} 
@@ -424,10 +488,7 @@ export default function Workspace() {
                             setInput={setInput}
                             height={consoleHeight}
                         />
-                
-
-
-    </>
+                    </>
                 )}
                 {!consoleOpen && (
                     <div style={{ height: "30px", background: "var(--bg-panel)", display: "flex", alignItems: "center", padding: "0 16px", cursor: "pointer", borderTop: "1px solid var(--border-subtle)" }} onClick={() => setConsoleOpen(true)}>
@@ -441,41 +502,28 @@ export default function Workspace() {
 
       </div>
       
-      {/* WAITING / LOADING / LOGIN OVERLAY */}
+      {/* OVERLAYS */}
       {(accessStatus === "waiting" || accessStatus === "loading" || accessStatus === "login_required" || accessStatus === "denied") && (
           <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.9)", backdropFilter: "blur(10px)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white" }}>
-              
-              {/* ICON */}
               <div className="animate-pulse" style={{ fontSize: "64px", marginBottom: "20px", color: accessStatus === "denied" ? "#ef5350" : "white" }}>
                   {accessStatus === "login_required" ? "🔑" : (accessStatus === "denied" ? <ShieldAlert size={64} /> : (accessStatus === "loading" ? "⏳" : "🔒"))}
               </div>
-
-              {/* TITLE */}
               <h2 style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "10px", color: accessStatus === "denied" ? "#ef5350" : "white" }}>
                   {accessStatus === "login_required" ? "Authentication Required" : 
                    (accessStatus === "denied" ? "Access Denied" : 
                    (accessStatus === "loading" ? "Connecting..." : "Waiting for Host"))}
               </h2>
-
-              {/* MESSAGE */}
               <p style={{ color: "var(--text-muted)", fontSize: "16px", marginBottom: "20px" }}>{waitMessage}</p>
               
-              {/* ACTIONS */}
               {accessStatus === "login_required" && (
-                  <button onClick={() => setAuthModalOpen(true)} className="btn-primary" style={{ padding: "10px 24px", fontSize: "16px" }}>
-                      Sign In to Join
-                  </button>
+                  <button onClick={() => setAuthModalOpen(true)} className="btn-primary" style={{ padding: "10px 24px", fontSize: "16px" }}>Sign In to Join</button>
               )}
-              
               {accessStatus === "denied" && (
-                  <button onClick={() => navigate("/")} className="btn-secondary" style={{ padding: "10px 24px", fontSize: "16px", borderColor: "#ef5350", color: "#ef5350" }}>
-                      Return to Dashboard
-                  </button>
+                  <button onClick={() => navigate("/")} className="btn-secondary" style={{ padding: "10px 24px", fontSize: "16px", borderColor: "#ef5350", color: "#ef5350" }}>Return to Dashboard</button>
               )}
           </div>
       )}
 
-      {/* HOST NOTIFICATIONS (GUEST REQUESTS) */}
       {pendingGuests.length > 0 && (
           <div style={{ position: "fixed", top: "70px", right: "20px", width: "320px", zIndex: 2000 }}>
               {pendingGuests.map((guest, i) => (
@@ -499,23 +547,12 @@ export default function Workspace() {
       <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)} url={shareUrl} />
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
       
-      {/* FLOATING AI BUTTON */}
       <button 
         onClick={() => setAiPanelOpen(!aiPanelOpen)}
         style={{
-            position: "fixed",
-            bottom: "24px",
-            right: "24px",
-            width: "56px",
-            height: "56px",
-            borderRadius: "50%",
-            background: "linear-gradient(135deg, #4285f4, #9b72cb, #d96570)", // Gemini Gradient
-            border: "none",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-            cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 100,
-            transition: "transform 0.2s"
+            position: "fixed", bottom: "24px", right: "24px", width: "56px", height: "56px", borderRadius: "50%",
+            background: "linear-gradient(135deg, #4285f4, #9b72cb, #d96570)", 
+            border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, transition: "transform 0.2s"
         }}
         onMouseEnter={e => e.currentTarget.style.transform = "scale(1.1)"}
         onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
@@ -525,20 +562,10 @@ export default function Workspace() {
         </svg>
       </button>
 
-      {/* FLOATING AI PANEL */}
       {aiPanelOpen && (
         <div style={{
-            position: "fixed",
-            bottom: "90px",
-            right: "24px",
-            width: "350px",
-            height: "500px",
-            zIndex: 99,
-            borderRadius: "12px",
-            overflow: "hidden",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-            border: "1px solid var(--border-subtle)",
-            background: "var(--bg-panel)"
+            position: "fixed", bottom: "90px", right: "24px", width: "350px", height: "500px", zIndex: 99,
+            borderRadius: "12px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", border: "1px solid var(--border-subtle)", background: "var(--bg-panel)"
         }}>
             <AIPanel open={true} onClose={() => setAiPanelOpen(false)} onAsk={handleAskAI} />
         </div>

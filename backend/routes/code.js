@@ -7,6 +7,7 @@ const RUNTIMES = {
   cpp: { language: "c++", version: "10.2.0" },
   java: { language: "java", version: "15.0.2" },
   python: { language: "python", version: "3.10.0" },
+  javascript: { language: "javascript", version: "18.15.0" },
 };
 
 router.post("/execute", async (req, res) => {
