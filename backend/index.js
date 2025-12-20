@@ -8,6 +8,8 @@ import shareRoutes from "./routes/share.js";
 import authRoutes from "./routes/auth.js";
 import fileRoutes from "./routes/files.js";
 import roomRoutes from "./routes/rooms.js";
+import problemRoutes from "./routes/problems.js";
+import leetRoutes from "./routes/leettools.js"; // <--- Import for leetRoutes
 import Room from "./models/Room.js"; // <--- NEW
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
@@ -81,7 +83,9 @@ app.use("/api/code", codeRoutes);
 app.use("/api/share", shareRoutes);
 app.use("/api/share", shareRoutes);
 app.use("/api/files", fileRoutes);
-app.use("/api/rooms", roomRoutes); // <--- NEW
+app.use("/api/rooms", roomRoutes);
+app.use("/api/problems", problemRoutes); // <--- New Route
+app.use("/api/leettools", leetRoutes); // <--- Register // <--- New Route
 
 
 app.get("/", (req, res) => res.send("API & Collaboration Server is running..."));

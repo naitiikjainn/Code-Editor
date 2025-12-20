@@ -6,6 +6,7 @@ import { MonacoBinding } from "y-monaco";
 import { Awareness } from "y-protocols/awareness";
 import { API_URL } from "../config"; 
 import { FileJson, FileType, FileCode, Coffee, Braces } from "lucide-react";
+import ProblemPreview from "./ProblemPreview"; // <--- Import
 
 // 1. ADVANCED EDITOR OPTIONS
 const COMMON_OPTIONS = { 
@@ -33,7 +34,7 @@ const stringToColor = (str) => {
 };
 
 export default function Editors({ 
-  activeFile, onCodeChange, username, roomId
+  activeFile, onCodeChange, username, roomId, onCodeNow 
 }) {
   const providerRef = useRef(null);
   const docRef = useRef(null);
@@ -171,6 +172,18 @@ export default function Editors({
 
   if (!activeFile) {
       return <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#666" }}>Select a file to edit</div>;
+  }
+
+  // --- PROBLEM PREVIEW MODE ---
+  if (activeFile.type === "preview") {
+      return (
+          <div style={{ height: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
+               <div style={headerContainerStyle}>
+                  {renderTab(<FileCode size={14} color="#facc15"/>, activeFile.name, "#facc15")}
+               </div>
+               <ProblemPreview problem={activeFile.data} onCodeNow={onCodeNow} />
+          </div>
+      );
   }
 
   return (

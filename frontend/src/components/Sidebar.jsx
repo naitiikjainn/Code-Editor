@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Files, MessageSquare, Settings, FolderOpen, ChevronLeft, Users, FlaskConical } from "lucide-react";
+import { Files, MessageSquare, Settings, FolderOpen, ChevronLeft, Users, FlaskConical, Trophy } from "lucide-react";
 
 export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
   
@@ -31,6 +31,7 @@ export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
             {renderIcon("files", Files, "Explorer")}
             {renderIcon("participants", Users, "Participants")}
             {renderIcon("tests", FlaskConical, "Test Cases")}
+            {renderIcon("problems", Trophy, "Problem Browser")}
             <div style={{ flex: 1 }} />
             {renderIcon("settings", Settings, "Settings")}
         </div>
