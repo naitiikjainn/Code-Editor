@@ -19,8 +19,8 @@ router.get("/", async (req, res) => {
 // POST create new file
 router.post("/", async (req, res) => {
     try {
-        const { name, language, folder, roomId } = req.body;
-        const newFile = new File({ name, language, folder, roomId: roomId || "default" });
+        const { name, language, folder, roomId, content } = req.body;
+        const newFile = new File({ name, language, folder, roomId: roomId || "default", content: content || "" });
         await newFile.save();
         res.json(newFile);
     } catch (err) {

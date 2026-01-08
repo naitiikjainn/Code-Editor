@@ -596,7 +596,179 @@ export default function Workspace() {
     } catch (error) { return "Error: Could not reach the AI server."; }
   }
 
-  return (
+    const handleCodeNow = async (problem) => {
+        // 1. Prepare Content & Tests
+        let initialCode = "";
+        let initialTests = [];
+        
+        console.log("Code Now Triggered for:", problem);
+
+        // 0. Ensure we have snippets
+        let fullProblem = problem;
+        if (problem.provider === "leetcode" && !problem.snippets) {
+                try {
+                    console.log("Fetching full problem details for:", problem.titleSlug || problem.id);
+                    const slug = problem.titleSlug || problem.id;
+                    const res = await fetch(`${API_URL}/api/problems/leetcode/${slug}`);
+                    const data = await res.json();
+                    if (data && data.snippets) {
+                        fullProblem = { ...problem, ...data };
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch full problem details", e);
+                }
+        }
+
+        if (fullProblem.provider === "leetcode" && fullProblem.snippets) {
+            // A. Get C++ Snippet
+            const snippet = fullProblem.snippets.find(s => s.langSlug === "cpp");
+            if (snippet) {
+                // Wrap with headers but NO main function (auto-runner will handle it)
+                initialCode = `#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <map>
+#include <set>
+#include <unordered_map>
+
+using namespace std;
+
+${snippet.code}
+`;
+
+                // B. Parse Inputs (Heuristic: Count args)
+                if (problem.examples) {
+                    const lines = problem.examples.trim().split('\n');
+                    
+                    // Count args to group lines
+                    const openParen = snippet.code.indexOf("(");
+                    const closeParen = snippet.code.indexOf(")", openParen);
+                    let argCount = 1;
+                    
+                    if (openParen !== -1 && closeParen !== -1) {
+                        const argsStr = snippet.code.substring(openParen + 1, closeParen);
+                        if (!argsStr.trim()) argCount = 0;
+                        else {
+                            let depth = 0;
+                            for (let char of argsStr) {
+                                if (char === "<") depth++;
+                                else if (char === ">") depth--;
+                                else if (char === "," && depth === 0) argCount++;
+                            }
+                        }
+                    }
+
+                    // Group lines
+                    if (argCount > 0) {
+                        // Extract expected outputs from description (heuristic)
+                        // Look for "Output:</strong> <span ...>val</span>" or "Output: val"
+                        let expectedOutputs = [];
+                        if (fullProblem.description) {
+                            const desc = fullProblem.description;
+                            const regex = /Output:\s*<\/strong>\s*([^<]+)/g;
+                            let match;
+                            while ((match = regex.exec(desc)) !== null) {
+                                expectedOutputs.push(match[1].trim());
+                            }
+                            if (expectedOutputs.length === 0) {
+                                    const plainRegex = /Output:\s*([^<\n]+)/g;
+                                    while ((match = plainRegex.exec(desc)) !== null) {
+                                    expectedOutputs.push(match[1].trim());
+                                    }
+                            }
+                        }
+
+                        let testCaseIndex = 0;
+                        for (let i = 0; i < lines.length; i += argCount) {
+                            const inputChunk = lines.slice(i, i + argCount).join("\n");
+                            if (inputChunk) {
+                                initialTests.push({
+                                    id: Date.now() + Math.random(),
+                                    input: inputChunk,
+                                    expectedOutput: expectedOutputs[testCaseIndex] || "", 
+                                    status: "idle",
+                                    actualOutput: "",
+                                    expanded: true 
+                                });
+                                testCaseIndex++;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Codeforces / Default (Standard CP Template) - Keeps main
+            initialCode = `#include <bits/stdc++.h>
+using namespace std;
+
+void solve() {
+    // Write your solution here
+    
+}
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+    solve();
+    return 0;
+}
+`;
+            initialTests = (problem.testCases || []).map(tc => ({
+                ...tc,
+                id: Date.now() + Math.random(),
+                status: "idle",
+                actualOutput: "",
+                expanded: true
+            }));
+        }
+
+
+        // 2. Create File
+        const fileName = `solution_${problem.id}.cpp`; 
+        let targetFile = files.find(f => f.name === fileName);
+        
+        if (!targetFile) {
+            try {
+                const res = await fetch(`${API_URL}/api/files`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ 
+                        name: fileName, 
+                        language: "cpp", 
+                        folder: "/", 
+                        roomId: id || "default",
+                        content: initialCode 
+                    }) 
+                });
+                targetFile = await res.json();
+                setFiles(prev => [...prev, targetFile]);
+            } catch (e) {
+                console.error("Failed to create solution file", e);
+                setLogs(prev => [...prev, { type: "error", message: "Failed to create solution file. Backend unreachable?" }]);
+                return;
+            }
+        } 
+        
+        if (!targetFile) {
+                setLogs(prev => [...prev, { type: "error", message: "File Creation Error: Backend returned null." }]);
+                return;
+        }
+
+        // 3. Switch to File
+        setActiveFile(targetFile);
+        setActiveCode(targetFile.content || initialCode);
+
+        // 4. Import Tests
+        if (initialTests.length > 0) {
+            setTestCases(prev => [...prev, ...initialTests]);
+            if(problem.provider === "leetcode") setActiveSidebar("tests");
+        }
+
+        // 5. ENSURE PREVIEW IS AVAILABLE (User might have closed it)
+        setRightPanel({ type: "preview", data: problem });
+    };
+
+    return (
     <ErrorBoundary>
       <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-dark)", color: "var(--text-main)" }}>
         
@@ -729,178 +901,7 @@ export default function Workspace() {
                                 roomId={id}
                                 username={user?.username} 
                                 
-                                onCodeNow={async (problem) => {
-                                // 1. Prepare Content & Tests
-                                let initialCode = "";
-                                let initialTests = [];
-                                
-                                console.log("Code Now Triggered for:", problem);
-                                console.log("Snippets:", problem.snippets);
-
-
-                                // 0. Ensure we have snippets
-                                let fullProblem = problem;
-                                if (problem.provider === "leetcode" && !problem.snippets) {
-                                     try {
-                                         console.log("Fetching full problem details for:", problem.titleSlug || problem.id);
-                                         const slug = problem.titleSlug || problem.id;
-                                         const res = await fetch(`${API_URL}/api/problems/leetcode/${slug}`);
-                                         const data = await res.json();
-                                         if (data && data.snippets) {
-                                             fullProblem = { ...problem, ...data };
-                                         }
-                                     } catch (e) {
-                                         console.error("Failed to fetch full problem details", e);
-                                     }
-                                }
-
-                                if (fullProblem.provider === "leetcode" && fullProblem.snippets) {
-                                    // A. Get C++ Snippet
-                                    const snippet = fullProblem.snippets.find(s => s.langSlug === "cpp");
-                                    if (snippet) {
-                                        // Wrap with headers but NO main function (auto-runner will handle it)
-                                        initialCode = `#include <iostream>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <map>
-#include <set>
-#include <unordered_map>
-
-using namespace std;
-
-${snippet.code}
-`;
-
-                                        // B. Parse Inputs (Heuristic: Count args)
-                                        if (problem.examples) {
-                                            const lines = problem.examples.trim().split('\n');
-                                            
-                                            // Count args to group lines
-                                            const openParen = snippet.code.indexOf("(");
-                                            const closeParen = snippet.code.indexOf(")", openParen);
-                                            let argCount = 1;
-                                            
-                                            if (openParen !== -1 && closeParen !== -1) {
-                                                const argsStr = snippet.code.substring(openParen + 1, closeParen);
-                                                if (!argsStr.trim()) argCount = 0;
-                                                else {
-                                                    let depth = 0;
-                                                    for (let char of argsStr) {
-                                                        if (char === "<") depth++;
-                                                        else if (char === ">") depth--;
-                                                        else if (char === "," && depth === 0) argCount++;
-                                                    }
-                                                }
-                                            }
-
-                                            // Group lines
-                                            if (argCount > 0) {
-                                                // Extract expected outputs from description (heuristic)
-                                                // Look for "Output:</strong> <span ...>val</span>" or "Output: val"
-                                                // Simple regex for "Output: ... \n" or "Output: ... <"
-                                                let expectedOutputs = [];
-                                                if (fullProblem.description) {
-                                                    const desc = fullProblem.description;
-                                                    // Regex to find Output: ... blocks
-                                                    // This matches "Output:</strong>" followed by anything until newline or <
-                                                    const regex = /Output:\s*<\/strong>\s*([^<]+)/g;
-                                                    let match;
-                                                    while ((match = regex.exec(desc)) !== null) {
-                                                        expectedOutputs.push(match[1].trim());
-                                                    }
-                                                    // Fallback check for plain text "Output: "
-                                                    if (expectedOutputs.length === 0) {
-                                                         const plainRegex = /Output:\s*([^<\n]+)/g;
-                                                         while ((match = plainRegex.exec(desc)) !== null) {
-                                                            expectedOutputs.push(match[1].trim());
-                                                         }
-                                                    }
-                                                }
-
-                                                let testCaseIndex = 0;
-                                                for (let i = 0; i < lines.length; i += argCount) {
-                                                    const inputChunk = lines.slice(i, i + argCount).join("\n");
-                                                    if (inputChunk) {
-                                                        initialTests.push({
-                                                            input: inputChunk,
-                                                            expectedOutput: expectedOutputs[testCaseIndex] || "", 
-                                                            status: "idle" 
-                                                        });
-                                                        testCaseIndex++;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Codeforces / Default (Standard CP Template) - Keeps main
-                                    initialCode = `#include <bits/stdc++.h>
-using namespace std;
-
-void solve() {
-    // Write your solution here
-    
-}
-
-int main() {
-    ios_base::sync_with_stdio(false);
-    cin.tie(NULL);
-    solve();
-    return 0;
-}
-`;
-                                    initialTests = problem.testCases || [];
-                                }
-
-
-                                // 2. Create File
-                                const fileName = `solution_${problem.id}.cpp`; 
-                                let targetFile = files.find(f => f.name === fileName);
-                                
-                                if (!targetFile) {
-                                    try {
-                                        const res = await fetch(`${API_URL}/api/files`, {
-                                            method: "POST", headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ 
-                                                name: fileName, 
-                                                language: "cpp", 
-                                                folder: "/", 
-                                                roomId: id || "default",
-                                                content: initialCode 
-                                            }) 
-                                        });
-                                        targetFile = await res.json();
-                                        setFiles(prev => [...prev, targetFile]);
-                                    } catch (e) {
-                                        console.error("Failed to create solution file", e);
-                                        return;
-                                    }
-                                } 
-                                
-                                if (!targetFile) return; // SAFETY CHECK
-
-                                // 3. Switch to File
-                                setActiveFile(targetFile);
-                                setActiveCode(targetFile.content || initialCode);
-
-                                // 4. Import Tests
-                                if (initialTests.length > 0) {
-                                    const newTests = initialTests.map(tc => ({
-                                        id: Date.now() + Math.random(),
-                                        input: tc.input,
-                                        expectedOutput: tc.expectedOutput,
-                                        status: "idle",
-                                        actualOutput: "",
-                                        expanded: true
-                                    }));
-                                    setTestCases(prev => [...prev, ...newTests]);
-                                    if(problem.provider === "leetcode") setActiveSidebar("tests");
-                                }
-
-                                // 5. MOVE PREVIEW TO RIGHT PANEL
-                                setRightPanel({ type: "preview", data: problem });
-                            }}
+                                onCodeNow={handleCodeNow}
                        />
                    </div>
 
@@ -953,7 +954,7 @@ int main() {
                                  </div>
                                  
                                  <div style={{ flex: 1, overflow: "hidden" }}>
-                                     <ProblemPreview problem={rightPanel.data} onCodeNow={() => {}} />
+                                     <ProblemPreview problem={rightPanel.data} onCodeNow={handleCodeNow} />
                                  </div>
                             </div>
                         </>
