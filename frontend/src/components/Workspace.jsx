@@ -877,6 +877,8 @@ int main() {
                                         return;
                                     }
                                 } 
+                                
+                                if (!targetFile) return; // SAFETY CHECK
 
                                 // 3. Switch to File
                                 setActiveFile(targetFile);
