@@ -28,8 +28,19 @@ const app = express();
 app.use(express.json());
 
 app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "DELETE", "PUT"],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    // Allowed Origins: Localhost and Vercel Deployments
+    if (origin.includes("localhost") || origin.includes(".vercel.app") || origin.includes(".onrender.com")) {
+      return callback(null, true);
+    }
+
+    const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+    return callback(new Error(msg), false);
+  },
+  methods: ["GET", "POST", "DELETE", "PUT", "OPTIONS"],
   credentials: true
 }));
 
