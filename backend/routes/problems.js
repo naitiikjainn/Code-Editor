@@ -238,4 +238,47 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
     res.status(500).json({ error: `Failed to fetch Codeforces problem. Last error: ${lastError?.message}` });
 });
 
+// --- CODEFORCES LIST ---
+router.get("/codeforces/list", async (req, res) => {
+    try {
+        const response = await fetch("https://codeforces.com/api/problemset.problems");
+        const data = await response.json();
+
+        if (data.status === "OK") {
+            // Filter/Map if needed to reduce payload? 
+            // Sending all might be heavy (~5MB). Let's send it all for now, client can cache.
+            res.json(data.result);
+        } else {
+            res.status(500).json({ error: "Codeforces API Error: " + data.comment });
+        }
+    } catch (err) {
+        console.error("CF List Error:", err);
+        res.status(500).json({ error: "Failed to fetch problem list" });
+    }
+});
+
+// --- CODEFORCES USER ---
+router.get("/codeforces/user/:handle", async (req, res) => {
+    try {
+        const { handle } = req.params;
+        const response = await fetch(`https://codeforces.com/api/user.status?handle=${handle}`);
+        const data = await response.json();
+
+        if (data.status === "OK") {
+            // We only need solved problems to mark them green
+            const solved = new Set();
+            data.result.forEach(sub => {
+                if (sub.verdict === "OK") {
+                    solved.add(`${sub.problem.contestId}${sub.problem.index}`);
+                }
+            });
+            res.json({ solved: Array.from(solved) });
+        } else {
+            res.status(404).json({ error: "User not found or API error" });
+        }
+    } catch (err) {
+        res.status(500).json({ error: "Failed to fetch user stats" });
+    }
+});
+
 export default router;

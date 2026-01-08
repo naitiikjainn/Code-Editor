@@ -22,4 +22,28 @@ window.addEventListener("message", (event) => {
             }, "*");
         });
     }
+
+    if (event.data.type === "CODEPLAY_SUBMIT_CODEFORCES") {
+        console.log("[CodePlay Helper] Received CF Submit request...");
+        chrome.runtime.sendMessage({
+            type: "SUBMIT_CODEFORCES",
+            payload: event.data.payload
+        }, (response) => {
+            window.postMessage({
+                type: "CODEPLAY_SUBMIT_RESULT",
+                payload: response
+            }, "*");
+        });
+    }
+    if (event.data.type === "CODEPLAY_FETCH_CF_HTML") {
+        chrome.runtime.sendMessage({
+            type: "FETCH_CODEFORCES_PROBLEM",
+            payload: event.data.payload
+        }, (response) => {
+            window.postMessage({
+                type: "CODEPLAY_CF_HTML_RESULT",
+                payload: response
+            }, "*");
+        });
+    }
 });

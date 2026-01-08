@@ -7,7 +7,10 @@ export default function ConsolePanel({
   const endRef = useRef(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // endRef.current?.scrollIntoView({ behavior: "smooth" }); // DEBUG: Disabled to prevent UI scroll hijacking
+    if (endRef.current?.parentElement) {
+        endRef.current.parentElement.scrollTop = endRef.current.parentElement.scrollHeight;
+    }
   }, [logs, isOpen]);
 
   if (!isOpen) return null;
@@ -50,10 +53,14 @@ export default function ConsolePanel({
             {logs.length === 0 ?
               <div style={{ color: "#444", fontStyle: "italic", marginTop: "12px" }}>$ Ready to compile...</div> : 
               logs.map((log, i) => (
+                log && (
                 <div key={i} style={{ padding: "2px 0", color: log.type === "error" ? "#ef5350" : (log.type === "info" ? "#4fc3f7" : "#d4d4d4"), display: "flex", alignItems: "flex-start" }}>
                   <span style={{ color: "#666", marginRight: "10px", userSelect: "none" }}>$</span>
-                  <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{log.message}</div>
+                  <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {typeof log.message === 'object' ? JSON.stringify(log.message) : String(log.message || "")}
+                  </div>
                 </div>
+                )
               ))
             }
             <div ref={endRef} />

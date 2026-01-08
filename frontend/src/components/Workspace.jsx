@@ -12,12 +12,13 @@ import TestPanel from "./TestPanel";
 import { generateCppRunner } from "../utils/cppRunner"; 
 import ProblemBrowser from "./ProblemBrowser"; 
 import ProblemPreview from "./ProblemPreview"; 
+import ErrorBoundary from "./ErrorBoundary"; 
 import useDebounce from "../hooks/useDebounce"; 
 import { useParams, useNavigate } from "react-router-dom"; 
 import { API_URL } from "../config"; 
 import io from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings } from "lucide-react"; 
+import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap } from "lucide-react"; 
 import SettingsModal from "./SettingsModal"; 
 
 // Move socket outside to avoid multiple connections
@@ -35,7 +36,9 @@ const stringToColor = (str) => {
 export default function Workspace() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth(); 
+  const { user: authUser, loading: authLoading } = useAuth(); 
+  // DEBUG MOCK
+  const user = authUser || { username: "DebugUser", _id: "debug-id" }; 
 
   // --- STATE ---
   const [files, setFiles] = useState([]);
@@ -74,7 +77,7 @@ export default function Workspace() {
   const [logs, setLogs] = useState([]);
   const [consoleHeight, setConsoleHeight] = useState(250); 
   const [isResizing, setIsResizing] = useState(false); 
-  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [sidebarWidth, setSidebarWidth] = useState(380);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false); 
 
   // RIGHT PANEL STATE (CPH Style)
@@ -411,6 +414,65 @@ export default function Workspace() {
 
   const handleSubmit = async () => {
     if (!rightPanel?.data) return;
+
+    // --- CODEFORCES SUBMISSION ---
+    if (rightPanel.data.provider === "codeforces") {
+        const { contestId, index } = rightPanel.data;
+        
+        if (!contestId || !index) {
+            setLogs(prev => [...prev, { type: "error", message: "Cannot submit: Problem ID invalid (Fetch failed?)." }]);
+            return;
+        }
+
+        setIsSubmitting(true);
+        setLogs(prev => [...prev, { type: "info", message: `Submitting problem ${contestId}${index} to Codeforces...` }]);
+        setConsoleOpen(true);
+
+        const payload = {
+            contestId,
+            problemIndex: index,
+            code: activeCode,
+            languageId: "54" // Default C++17
+        };
+
+        const handleResult = (event) => {
+            if (event.data.type === "CODEPLAY_SUBMIT_RESULT") {
+                window.removeEventListener("message", handleResult);
+                
+                // SAFETY: Ensure payload exists
+                const res = event.data.payload || { success: false, error: "No response from extension" };
+                setIsSubmitting(false);
+                
+                // SAFETY: Coerce message to string to prevent React Object Error
+                if (res.success) {
+                    const msg = typeof res.message === 'object' ? JSON.stringify(res.message) : String(res.message || "Unknown Success");
+                    setLogs(prev => [...prev, { type: "success", message: `Codeforces: ${msg}` }]);
+                } else {
+                    const err = typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error || "Unknown Error");
+                    setLogs(prev => [...prev, { type: "error", message: `Codeforces Error: ${err}` }]);
+                }
+            }
+        };
+
+        window.addEventListener("message", handleResult);
+        window.postMessage({ type: "CODEPLAY_SUBMIT_CODEFORCES", payload }, "*");
+        
+        // Timeout
+        setTimeout(() => {
+             // We can't easily check 'isSubmitting' ref here, but we can just cleanup
+             window.removeEventListener("message", handleResult);
+             setIsSubmitting(prev => {
+                 if (prev) { // Only if still submitting
+                     setLogs(p => [...p, { type: "warning", message: "Submission timed out (No response from Extension)." }]);
+                     return false;
+                 }
+                 return prev;
+             });
+        }, 8000);
+        
+        return;
+    }
+
     const cookie = localStorage.getItem("lc_session");
     const csrfToken = localStorage.getItem("lc_csrf");
     
@@ -446,6 +508,12 @@ export default function Workspace() {
         
         const data = await res.json();
         
+        if (res.status === 403 || (data.error && data.error.includes("authenticated"))) {
+             setLogs(prev => [...prev, { type: "error", message: "Authentication Failed. Please update your LeetCode Cookie/CSRF in Settings." }]);
+             setSettingsModalOpen(true);
+             return;
+        }
+
         if (data.success) {
              const result = data.result;
              const isSuccess = result.status_msg === "Accepted";
@@ -484,7 +552,7 @@ export default function Workspace() {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-dark)", color: "var(--text-main)" }}>
         
         {/* HEADER */}
@@ -544,6 +612,11 @@ export default function Workspace() {
                 <button onClick={handleRun} disabled={isRunning} className="btn-primary" style={{ padding: "6px 16px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
                      {isRunning ? "..." : <><Play size={14} fill="white" /> Run</>}
                 </button>
+                {rightPanel?.data && (
+                    <button onClick={handleSubmit} disabled={isSubmitting} className="btn-primary" style={{ padding: "6px 16px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #16a34a, #15803d)" }}>
+                         {isSubmitting ? "..." : <><Zap size={14} fill="white" /> Submit</>}
+                    </button>
+                )}
                 <button onClick={handleCopyLink} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "13px" }}><Share2 size={14} /></button>
                 {!user && <button onClick={() => setAuthModalOpen(true)} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "13px" }}>Login</button>}
             </div>
@@ -560,46 +633,25 @@ export default function Workspace() {
             {activeSidebar && (
                 <>
                     <div style={{ width: sidebarWidth, height: "100%", overflow: "hidden", background: "var(--bg-panel)", borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
-                        {activeSidebar === "files" && (
-                            <FileExplorer 
-                                files={files} 
-                                activeFileId={activeFile?._id} 
-                                onSelect={handleFileSelect} 
-                                onDelete={handleFileDelete}
-                                onCreate={handleFileCreate}
-                            />
-                        )}
-                        {activeSidebar === "participants" && (
-                            <ParticipantsPanel users={activeUsers} />
-                        )}
-                        {activeSidebar === "tests" && (
-                            <TestPanel 
-                                testCases={testCases}
-                                setTestCases={setTestCases}
-                                runTests={runTests}
-                                isRunningTests={isRunningTests}
-                                onClose={() => setActiveSidebar(null)}
-                            />
-                        )}
-                        {activeSidebar === "problems" && (
-                            <ProblemBrowser 
-                                onClose={() => setActiveSidebar(null)}
-                                onOpenProblem={(problem) => {
-                                    // Open as a virtual preview file
-                                    const previewFile = {
-                                        _id: `preview-${problem.id}`,
-                                        name: `Preview: ${problem.id || "Problem"}`,
-                                        type: "preview",
-                                        language: "markdown",
-                                        data: problem,
-                                        content: ""
-                                    };
-                                    setActiveFile(previewFile);
-                                    setRightPanel(null);
-                                }}
-                            />
-                        )}
-                    </div>
+                    {activeSidebar === "files" && <FileExplorer files={files} activeFile={activeFile} onFileSelect={setActiveFile} onFileCreate={handleFileCreate} />}
+                    {activeSidebar === "participants" && <ParticipantsPanel users={activeUsers} />}
+                    {activeSidebar === "tests" && <TestPanel testCases={testCases} setTestCases={setTestCases} onRun={handleRun} isRunning={isRunningTests || isSubmitting} />}
+                    
+                    {/* NEW CP PANELS */}
+                    {activeSidebar === "codeforces" && (
+                        <ProblemBrowser 
+                            provider="codeforces" 
+                            onOpenProblem={(p) => switchRightPanel("preview", p)} 
+                            activeSheet={null} // Default behavior
+                        />
+                    )}
+                    {activeSidebar === "leetcode" && (
+                         <ProblemBrowser 
+                            provider="leetcode" 
+                            onOpenProblem={(p) => switchRightPanel("preview", p)} 
+                        />
+                    )}
+                </div>
                     {/* RESIZE HANDLE */}
                     <div 
                         onMouseDown={(e) => { e.preventDefault(); setIsSidebarResizing(true); document.body.style.cursor = "col-resize"; }}
@@ -621,12 +673,12 @@ export default function Workspace() {
                    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
                        <Editors
                             activeFile={activeFile}
-                            onCodeChange={setActiveCode}
-                            socket={socket}
-                            roomId={id}
-                            username={user?.username} 
-                            
-                            onCodeNow={async (problem) => {
+                                onCodeChange={setActiveCode}
+                                socket={socket}
+                                roomId={id}
+                                username={user?.username} 
+                                
+                                onCodeNow={async (problem) => {
                                 // 1. Prepare Content & Tests
                                 let initialCode = "";
                                 let initialTests = [];
@@ -955,7 +1007,6 @@ int main() {
             <AIPanel open={true} onClose={() => setAiPanelOpen(false)} onAsk={handleAskAI} />
         </div>
       )}
-
-    </>
+    </ErrorBoundary>
   );
 }

@@ -1,21 +1,26 @@
 :root {
   /* --- PALETTE: Cyber Dark --- */
-  --bg-dark: #09090b;       /* Deepest Black */
-  --bg-panel: #18181b;      /* Panel Surface */
-  --bg-surface: #27272a;    /* Input/Card Surface */
+  --bg-dark: #09090b;
+  /* Deepest Black */
+  --bg-panel: #18181b;
+  /* Panel Surface */
+  --bg-surface: #27272a;
+  /* Input/Card Surface */
   --bg-hover: #3f3f46;
-  
+
   --border-subtle: #3f3f46;
   --border-active: #52525b;
 
-  --accent-primary: #8b5cf6; /* Violet */
-  --accent-secondary: #06b6d4; /* Cyan */
-  --accent-danger: #ef4444; 
+  --accent-primary: #8b5cf6;
+  /* Violet */
+  --accent-secondary: #06b6d4;
+  /* Cyan */
+  --accent-danger: #ef4444;
   --accent-success: #22c55e;
-  
+
   --text-main: #f4f4f5;
   --text-muted: #a1a1aa;
-  
+
   --font-main: 'Outfit', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
@@ -24,6 +29,8 @@ body {
   margin: 0;
   padding: 0;
   background-color: var(--bg-dark);
+  background-image: radial-gradient(circle at 60% -20%, #1e1b4b, #09090b 40%);
+  /* Subtle Dark Indigo Glow */
   color: var(--text-main);
   font-family: var(--font-main);
   -webkit-font-smoothing: antialiased;
@@ -31,10 +38,23 @@ body {
 }
 
 /* SCROLLBARS */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #444; }
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
 
 /* UTILITIES */
 .glass-panel {
@@ -60,7 +80,11 @@ body {
   transition: all 0.2s ease;
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4); }
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+}
 
 .btn-secondary {
   background: var(--bg-surface);
@@ -72,32 +96,54 @@ body {
   cursor: pointer;
   transition: all 0.2s;
 }
-.btn-secondary:hover { background: var(--bg-hover); border-color: var(--border-active); }
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-active);
+}
 
 /* ANIMATIONS */
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-.animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
 
 
 /* YJS CURSORS */
-.yRemoteSelection { background-color: rgba(6, 182, 212, 0.2); }
-.yRemoteSelectionHead {
-    position: absolute;
-    border-left: 2px solid var(--accent-secondary);
-    height: 100%;
-    min-height: 1.2em; 
-    z-index: 10;
+.yRemoteSelection {
+  background-color: rgba(6, 182, 212, 0.2);
 }
+
+.yRemoteSelectionHead {
+  position: absolute;
+  border-left: 2px solid var(--accent-secondary);
+  height: 100%;
+  min-height: 1.2em;
+  z-index: 10;
+}
+
 .yRemoteSelectionHead::after {
-    position: absolute;
-    content: attr(data-name);
-    font-size: 10px;
-    background-color: var(--accent-secondary);
-    color: black;
-    padding: 2px 6px;
-    border-radius: 4px;
-    top: -20px; left: -2px;
-    white-space: nowrap;
-    font-weight: bold;
-    z-index: 20;
+  position: absolute;
+  content: attr(data-name);
+  font-size: 10px;
+  background-color: var(--accent-secondary);
+  color: black;
+  padding: 2px 6px;
+  border-radius: 4px;
+  top: -20px;
+  left: -2px;
+  white-space: nowrap;
+  font-weight: bold;
+  z-index: 20;
 }
