@@ -107,8 +107,6 @@ io.on("connection", (socket) => {
     }
 
     const isHost = (room.host.username === username);
-
-    // Check if user is already a participant (PERSISTENCE CHECK)
     const isParticipant = room.participants.some(p => p.username === username);
 
     if (isHost || isParticipant) {
@@ -122,12 +120,17 @@ io.on("connection", (socket) => {
       socket.isHost = isHost;
       userMap.set(socket.id, { username, isHost });
 
-      socket.emit("access_granted"); // <--- UNBLOCK
+      socket.emit("access_granted");
 
       // Broadcast full list
       const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
       const users = clients.map(clientId => userMap.get(clientId)).filter(u => u);
       io.to(roomId).emit("room_users", users);
+
+      // 🔄 SYNC PROBLEM STATE (Send to the joiner)
+      if (room.activeProblem) {
+        socket.emit("sync_problem_state", { problem: room.activeProblem });
+      }
 
     } else {
       // GUEST JOINING (New)
@@ -143,7 +146,7 @@ io.on("connection", (socket) => {
       if (hostSocketId) {
         // Host is online, ask for permission
         userMap.set(socket.id, { username, isHost: false, status: "pending" });
-        socket.roomId = roomId; // <--- Track room for disconnect cleanup
+        socket.roomId = roomId;
 
         io.to(hostSocketId).emit("request_entry", { username, socketId: socket.id });
         socket.emit("status_update", { status: "waiting", message: "Waiting for host approval..." });
@@ -151,7 +154,7 @@ io.on("connection", (socket) => {
         // Host offline
         socket.emit("status_update", { status: "waiting", message: "Waiting for host to join..." });
         socket.join(`${roomId}_waiting`);
-        socket.roomId = roomId; // <--- Track room for disconnect cleanup
+        socket.roomId = roomId;
       }
     }
   });

@@ -89,8 +89,34 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                 </div>
 
                 {/* 2. DESCRIPTION BODY */}
-                <div style={{ padding: "40px", maxWidth: "800px", margin: "0 auto", width: "100%" }}>
-                    
+                <div style={{ padding: "40px", maxWidth: "800px", margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
+                    <style>
+                        {`
+                        .problem-content { 
+                            width: 100%; 
+                            overflow-x: hidden; 
+                            word-wrap: break-word; 
+                            overflow-wrap: break-word;
+                        }
+                        .problem-content * {
+                            max-width: 100%;
+                            box-sizing: border-box;
+                        }
+                        .problem-content p, .problem-content div, .problem-content li {
+                            white-space: normal !important;
+                            word-break: break-word;
+                        }
+                        .problem-content pre { 
+                            white-space: pre-wrap !important; 
+                            word-wrap: break-word; 
+                            overflow-x: auto;
+                            background: rgba(255,255,255,0.05); 
+                            padding: 10px; 
+                            border-radius: 6px; 
+                        }
+                        .problem-content img { max-width: 100%; height: auto; }
+                        `}
+                    </style>
                     <div 
                         className="problem-content"
                         style={{ lineHeight: "1.7", fontSize: "15px", color: "#d4d4d8" }}

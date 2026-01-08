@@ -174,6 +174,10 @@ export default function Workspace() {
 		  setPendingGuests(prev => prev.filter(g => g.socketId !== socketId));
 	  });
 
+      socket.on("sync_problem_state", ({ problem }) => {
+          if (problem) switchRightPanel("preview", problem);
+      });
+
 	  return () => {
 		  socket.off("connect", joinRoom);
 		  socket.off("room_users");
@@ -182,6 +186,7 @@ export default function Workspace() {
 		  socket.off("access_denied");
 		  socket.off("request_entry");
 		  socket.off("request_cancelled");
+          socket.off("sync_problem_state");
 	  };
   }, [user, id, navigate, authLoading]);
   
@@ -288,6 +293,8 @@ export default function Workspace() {
   }, [isResizing, isSidebarResizing, isRightPanelResizing]);
 
   // --- HANDLERS ---
+  const switchRightPanel = (type, data) => setRightPanel({ type, data });
+
   const handleFileSelect = (file) => {
 	  setActiveFile(file);
 	  setActiveCode(file.content || "");
@@ -439,14 +446,54 @@ export default function Workspace() {
             if (event.data.type === "CODEPLAY_SUBMIT_RESULT") {
                 window.removeEventListener("message", handleResult);
                 
-                // SAFETY: Ensure payload exists
                 const res = event.data.payload || { success: false, error: "No response from extension" };
                 setIsSubmitting(false);
                 
-                // SAFETY: Coerce message to string to prevent React Object Error
                 if (res.success) {
                     const msg = typeof res.message === 'object' ? JSON.stringify(res.message) : String(res.message || "Unknown Success");
                     setLogs(prev => [...prev, { type: "success", message: `Codeforces: ${msg}` }]);
+                    
+                    // --- POLL FOR VERDICT ---
+                    const handle = localStorage.getItem("cf_handle");
+                    if (handle) {
+                        setLogs(prev => [...prev, { type: "info", message: `Polling verdict for ${handle}...` }]);
+                        
+                        let attempts = 0;
+                        const pollInterval = setInterval(() => {
+                            attempts++;
+                            if (attempts > 30) { clearInterval(pollInterval); return; } // Stop after 60s
+
+                            fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=5`)
+                                .then(r => r.json())
+                                .then(data => {
+                                    if (data.status === "OK") {
+                                        const submission = data.result.find(s => 
+                                            s.contestId == contestId && s.problem.index == index
+                                        );
+                                        if (submission) {
+                                            const verdict = submission.verdict;
+                                            const testCount = submission.passedTestCount;
+                                            
+                                            // Update Log (Replace last log if it was a status update, or add new)
+                                            if (verdict === "TESTING") {
+                                                 // Optional: console.log(`Running on test ${testCount + 1}`);
+                                            } else {
+                                                clearInterval(pollInterval);
+                                                const isAc = verdict === "OK";
+                                                setLogs(prev => [...prev, { 
+                                                    type: isAc ? "success" : "error", 
+                                                    message: `Verdict: ${verdict === "OK" ? "ACCEPTED" : verdict} (${submission.timeConsumedMillis}ms, ${Math.round(submission.memoryConsumedBytes/1024)}KB)` 
+                                                }]);
+                                            }
+                                        }
+                                    }
+                                })
+                                .catch(e => console.error("Poll Error", e));
+                        }, 2000);
+                    } else {
+                         setLogs(prev => [...prev, { type: "warning", message: "Tip: Set your handle in the 'User' tab to see live verdicts." }]);
+                    }
+
                 } else {
                     const err = typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error || "Unknown Error");
                     setLogs(prev => [...prev, { type: "error", message: `Codeforces Error: ${err}` }]);
@@ -457,12 +504,10 @@ export default function Workspace() {
         window.addEventListener("message", handleResult);
         window.postMessage({ type: "CODEPLAY_SUBMIT_CODEFORCES", payload }, "*");
         
-        // Timeout
         setTimeout(() => {
-             // We can't easily check 'isSubmitting' ref here, but we can just cleanup
              window.removeEventListener("message", handleResult);
              setIsSubmitting(prev => {
-                 if (prev) { // Only if still submitting
+                 if (prev) { 
                      setLogs(p => [...p, { type: "warning", message: "Submission timed out (No response from Extension)." }]);
                      return false;
                  }
@@ -641,14 +686,20 @@ export default function Workspace() {
                     {activeSidebar === "codeforces" && (
                         <ProblemBrowser 
                             provider="codeforces" 
-                            onOpenProblem={(p) => switchRightPanel("preview", p)} 
-                            activeSheet={null} // Default behavior
+                            onOpenProblem={(p) => {
+                                switchRightPanel("preview", p);
+                                socket.emit("sync_problem_state", { roomId: id, problem: p });
+                            }} 
+                            activeSheet={null} 
                         />
                     )}
                     {activeSidebar === "leetcode" && (
                          <ProblemBrowser 
                             provider="leetcode" 
-                            onOpenProblem={(p) => switchRightPanel("preview", p)} 
+                            onOpenProblem={(p) => {
+                                switchRightPanel("preview", p);
+                                socket.emit("sync_problem_state", { roomId: id, problem: p });
+                            }} 
                         />
                     )}
                 </div>

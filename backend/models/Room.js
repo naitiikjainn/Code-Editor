@@ -12,6 +12,7 @@ const RoomSchema = new mongoose.Schema({
             addedAt: { type: Date, default: Date.now }
         }
     ],
+    activeProblem: { type: Object, default: null }, // Stores the currently open problem
     createdAt: { type: Date, default: Date.now }
 });
 
