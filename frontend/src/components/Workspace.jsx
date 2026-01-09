@@ -20,7 +20,8 @@ import io from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
 import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap } from "lucide-react"; 
 import SettingsModal from "./SettingsModal";
-import SettingsPanel from "./SettingsPanel"; 
+import SettingsPanel from "./SettingsPanel";
+import Whiteboard from "./Whiteboard"; 
 
 // Move socket outside to avoid multiple connections
 const socket = io(API_URL);
@@ -37,9 +38,7 @@ const stringToColor = (str) => {
 export default function Workspace() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user: authUser, loading: authLoading } = useAuth(); 
-  // DEBUG MOCK
-  const user = authUser || { username: "DebugUser", _id: "debug-id" }; 
+  const { user, loading: authLoading } = useAuth(); 
 
   // --- STATE ---
   const [files, setFiles] = useState([]);
@@ -509,7 +508,7 @@ export default function Workspace() {
              window.removeEventListener("message", handleResult);
              setIsSubmitting(prev => {
                  if (prev) { 
-                     setLogs(p => [...p, { type: "warning", message: "Submission timed out (No response from Extension)." }]);
+                     setLogs(p => [...p, { type: "error", message: "Submission Failed: Extension Disconnected. Please REFRESH the page to reconnect." }]);
                      return false;
                  }
                  return prev;
@@ -883,8 +882,8 @@ int main() {
             {/* 1. SIDEBAR NAVIGATION */}
             <Sidebar activeTab={activeSidebar} setActiveTab={setActiveSidebar} isOpen={!!activeSidebar} />
 
-            {/* 2. SIDEBAR PANEL */}
-            {activeSidebar && (
+            {/* 2. SIDEBAR PANEL (Only if active and NOT whiteboard which is floating) */}
+            {activeSidebar && activeSidebar !== "whiteboard" && (
                 <>
                     <div style={{ width: sidebarWidth, height: "100%", overflow: "hidden", background: "var(--bg-panel)", borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
                     {activeSidebar === "files" && (
@@ -933,6 +932,17 @@ int main() {
                 </>
             )}
 
+            {/* 3. FLOATABLE WHITEBOARD */}
+            {/* 3. FLOATABLE WHITEBOARD */}
+            {activeSidebar === "whiteboard" && (
+                <Whiteboard 
+                    socket={socket} 
+                    roomId={id} 
+                    username={user?.username}
+                    onClose={() => setActiveSidebar(null)} 
+                />
+            )}
+
             {/* 3. MAIN EDITOR AREA */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
                 {/* Coding Area + Right Panel Split */}
@@ -940,15 +950,17 @@ int main() {
                    
                    {/* EDITOR */}
                    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-                       <Editors
-                            activeFile={activeFile}
-                                onCodeChange={setActiveCode}
-                                socket={socket}
-                                roomId={id}
-                                username={user?.username} 
-                                
-                                onCodeNow={handleCodeNow}
-                       />
+                       {accessStatus === "granted" && (
+                           <Editors
+                                activeFile={activeFile}
+                                    onCodeChange={setActiveCode}
+                                    socket={socket}
+                                    roomId={id}
+                                    username={user?.username} 
+                                    
+                                    onCodeNow={handleCodeNow}
+                           />
+                       )}
                    </div>
 
                    {/* RIGHT PANEL (SPLIT VIEW) */}

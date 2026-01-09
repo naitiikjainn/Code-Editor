@@ -235,6 +235,46 @@ io.on("connection", (socket) => {
   socket.on("sync_run_trigger", ({ roomId, username }) => socket.to(roomId).emit("sync_run_start", { username }));
   socket.on("sync_run_result", ({ roomId, logs }) => socket.to(roomId).emit("sync_run_complete", { logs }));
 
+  // WHITEBOARD EVENTS
+  // Store history in memory (Note: In production, use Redis or DB)
+  if (!global.whiteboardHistory) global.whiteboardHistory = new Map();
+
+  socket.on("draw_line", ({ roomId, prev, curr, color, width }) => {
+    // 1. Save to History
+    if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
+    global.whiteboardHistory.get(roomId).push({ type: "line", prev, curr, color, width });
+
+    // 2. Broadcast
+    socket.to(roomId).emit("draw_line", { prev, curr, color, width });
+  });
+
+  socket.on("clear_board", ({ roomId }) => {
+    global.whiteboardHistory.set(roomId, []); // Clear history
+    socket.to(roomId).emit("clear_board");
+  });
+
+  socket.on("request_whiteboard_state", ({ roomId }) => {
+    const history = global.whiteboardHistory.get(roomId) || [];
+    socket.emit("whiteboard_state", history);
+  });
+
+  socket.on("draw_text", ({ roomId, x, y, text, color, fontSize }) => {
+    // 1. Save to History
+    if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
+    global.whiteboardHistory.get(roomId).push({ type: "text", x, y, text, color, fontSize });
+
+    // 2. Broadcast
+    socket.to(roomId).emit("draw_text", { x, y, text, color, fontSize });
+  });
+
+  socket.on("wb_view", ({ roomId, pan, scale }) => {
+    socket.to(roomId).emit("wb_view", { pan, scale });
+  });
+
+  socket.on("wb_cursor", ({ roomId, x, y, username, color }) => {
+    socket.to(roomId).emit("wb_cursor", { x, y, username, color });
+  });
+
   socket.on("disconnect", () => {
     if (socket.roomId && socket.username) {
       socket.to(socket.roomId).emit("user_left", { username: socket.username });

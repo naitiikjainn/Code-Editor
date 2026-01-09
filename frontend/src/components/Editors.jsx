@@ -15,13 +15,15 @@ const COMMON_OPTIONS = {
   fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
   fontLigatures: true,
   automaticLayout: true, 
-  wordWrap: "on",
+  wordWrap: "off", // Disable wrapping to prevent "spreading"
   scrollBeyondLastLine: false,
   padding: { top: 16, bottom: 16 },
   lineNumbersMinChars: 4,
-  renderLineHighlight: "all", // Highlights current line nicely
+  renderLineHighlight: "all", 
   cursorBlinking: "smooth",
-  smoothScrolling: true
+  smoothScrolling: true,
+  formatOnPaste: false,
+  formatOnType: false
 };
 
 const stringToColor = (str) => {
