@@ -2,56 +2,15 @@ import { useState, useEffect } from "react";
 import { X, Save, KeyRound, Radio } from "lucide-react"; // Import Radio icon
 
 export default function SettingsModal({ isOpen, onClose }) {
-  const [cookie, setCookie] = useState("");
-  const [csrfToken, setCsrfToken] = useState("");
-  const [extensionDetected, setExtensionDetected] = useState(false);
-  const [activeTab, setActiveTab] = useState("general");
   const [cppTemplate, setCppTemplate] = useState("");
 
   useEffect(() => {
     if (isOpen) {
-      setCookie(localStorage.getItem("lc_session") || "");
-      setCsrfToken(localStorage.getItem("lc_csrf") || "");
       setCppTemplate(localStorage.getItem("user_cpp_template") || "");
-
-      // Sense Extension
-      const handleExtensionReady = (event) => {
-           if (event.data.type === "CODEPLAY_EXTENSION_READY") setExtensionDetected(true);
-      };
-      // Listen for initial announcement (might have missed it if already mounted, so we just retry via button?)
-      // Actually, content script runs on load. 
-      // Let's rely on user click to fetch, which will verify if it works.
-      
-      const handleCookies = (event) => {
-        if (event.data.type === "CODEPLAY_COOKIES_RECEIVED") {
-            const { success, cookie, csrfToken, error } = event.data.payload;
-            if (success) {
-                setCookie(cookie);
-                setCsrfToken(csrfToken);
-                alert("Credentials Auto-Fetched!");
-            } else {
-                alert(`Extension Error: ${error}`);
-            }
-        }
-      };
-
-      window.addEventListener("message", handleExtensionReady);
-      window.addEventListener("message", handleCookies);
-      return () => {
-          window.removeEventListener("message", handleExtensionReady);
-          window.removeEventListener("message", handleCookies);
-      };
     }
   }, [isOpen]);
 
-  const handleAutoFetch = () => {
-       window.postMessage({ type: "CODEPLAY_FETCH_COOKIES" }, "*");
-  };
-
-
   const handleSave = () => {
-    localStorage.setItem("lc_session", cookie.trim());
-    localStorage.setItem("lc_csrf", csrfToken.trim());
     localStorage.setItem("user_cpp_template", cppTemplate);
     onClose();
     // Optional: Toast notification
@@ -82,110 +41,29 @@ export default function SettingsModal({ isOpen, onClose }) {
           </button>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: "16px", marginBottom: "20px", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "10px" }}>
-            <button 
-                onClick={() => setActiveTab("general")}
-                style={{ background: "none", border: "none", borderBottom: activeTab === "general" ? "2px solid var(--accent-primary)" : "2px solid transparent", color: activeTab === "general" ? "white" : "#666", fontWeight: "600", cursor: "pointer", paddingBottom: "4px" }}
-            >
-                General & LeetCode
-            </button>
-            <button 
-                onClick={() => setActiveTab("templates")}
-                style={{ background: "none", border: "none", borderBottom: activeTab === "templates" ? "2px solid var(--accent-primary)" : "2px solid transparent", color: activeTab === "templates" ? "white" : "#666", fontWeight: "600", cursor: "pointer", paddingBottom: "4px" }}
-            >
-                Templates
-            </button>
-        </div>
-
         <div style={{ flex: 1, overflowY: "auto", paddingRight: "4px" }}>
-        
-        {activeTab === "general" && (
-            <>
-                <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "20px" }}>
-                To submit solutions, provide your LeetCode authentication cookies.
-                </p>
-
-                {/* Auto Fetch Button */}
-                <div style={{ marginBottom: "24px", padding: "12px", background: "rgba(37, 99, 235, 0.1)", borderRadius: "8px", border: "1px solid rgba(37, 99, 235, 0.2)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <span style={{ fontSize: "13px", fontWeight: "600", color: "#60a5fa" }}>Have the Extension?</span>
-                        <button 
-                        onClick={handleAutoFetch}
-                        className="btn-primary" 
-                        style={{ 
-                            padding: "6px 12px", fontSize: "12px", background: "#2563eb", 
-                            display: "flex", alignItems: "center", gap: "6px" 
-                        }}
-                        >
-                            <Radio size={14} /> Auto-Fetch Credentials
-                        </button>
-                    </div>
-                    <p style={{ fontSize: "11px", color: "#888", marginTop: "8px", marginBottom: 0 }}>
-                        Requires the "CodePlay Helper" Chrome Extension installed.
-                    </p>
-                </div>
-
-                {/* Inputs */}
-                <div style={{ marginBottom: "16px" }}>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}>LEETCODE_SESSION</label>
-                <input 
-                    type="password" 
-                    value={cookie}
-                    onChange={(e) => setCookie(e.target.value)}
-                    placeholder="Paste your LEETCODE_SESSION cookie here..."
+            <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "20px" }}>
+                Define your custom boilerplate code for new problems.
+            </p>
+            
+            <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px", color: "#60a5fa" }}>C++ Template (Codeforces / CP)</label>
+                <textarea 
+                    value={cppTemplate}
+                    onChange={(e) => setCppTemplate(e.target.value)}
+                    placeholder="#include <bits/stdc++.h>..."
                     style={{
-                    width: "100%", padding: "10px", borderRadius: "6px",
-                    background: "var(--bg-dark)", border: "1px solid var(--border-subtle)",
-                    color: "white", fontFamily: "monospace", fontSize: "12px", boxSizing: "border-box"
+                        width: "100%", height: "300px", padding: "12px", borderRadius: "6px",
+                        background: "var(--bg-dark)", border: "1px solid var(--border-subtle)",
+                        color: "#eee", fontFamily: "'Fira Code', monospace", fontSize: "13px", 
+                        resize: "vertical", boxSizing: "border-box", lineHeight: "1.5"
                     }}
+                    spellCheck="false"
                 />
+                <div style={{ marginTop: "8px", fontSize: "11px", color: "#666" }}>
+                    This template will be used for all new non-LeetCode C++ files.
                 </div>
-
-                <div style={{ marginBottom: "24px" }}>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}>csrftoken</label>
-                <input 
-                    type="password" 
-                    value={csrfToken}
-                    onChange={(e) => setCsrfToken(e.target.value)}
-                    placeholder="Paste your csrftoken here..."
-                    style={{
-                    width: "100%", padding: "10px", borderRadius: "6px",
-                    background: "var(--bg-dark)", border: "1px solid var(--border-subtle)",
-                    color: "white", fontFamily: "monospace", fontSize: "12px", boxSizing: "border-box"
-                    }}
-                />
-                </div>
-            </>
-        )}
-
-        {activeTab === "templates" && (
-            <>
-                <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "20px" }}>
-                    Define your custom boilerplate code for new problems.
-                </p>
-                
-                <div style={{ marginBottom: "16px" }}>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px", color: "#60a5fa" }}>C++ Template (Codeforces / CP)</label>
-                    <textarea 
-                        value={cppTemplate}
-                        onChange={(e) => setCppTemplate(e.target.value)}
-                        placeholder="#include <bits/stdc++.h>..."
-                        style={{
-                            width: "100%", height: "300px", padding: "12px", borderRadius: "6px",
-                            background: "var(--bg-dark)", border: "1px solid var(--border-subtle)",
-                            color: "#eee", fontFamily: "'Fira Code', monospace", fontSize: "13px", 
-                            resize: "vertical", boxSizing: "border-box", lineHeight: "1.5"
-                        }}
-                        spellCheck="false"
-                    />
-                    <div style={{ marginTop: "8px", fontSize: "11px", color: "#666" }}>
-                        This template will be used for all new non-LeetCode C++ files.
-                    </div>
-                </div>
-            </>
-        )}
-
+            </div>
         </div>
 
         {/* Footer */}

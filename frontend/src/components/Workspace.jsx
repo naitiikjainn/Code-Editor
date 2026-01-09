@@ -19,7 +19,8 @@ import { API_URL } from "../config";
 import io from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
 import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap } from "lucide-react"; 
-import SettingsModal from "./SettingsModal"; 
+import SettingsModal from "./SettingsModal";
+import SettingsPanel from "./SettingsPanel"; 
 
 // Move socket outside to avoid multiple connections
 const socket = io(API_URL);
@@ -518,12 +519,45 @@ export default function Workspace() {
         return;
     }
 
-    const cookie = localStorage.getItem("lc_session");
-    const csrfToken = localStorage.getItem("lc_csrf");
+    let cookie = localStorage.getItem("lc_session");
+    let csrfToken = localStorage.getItem("lc_csrf");
     
+    // AUTO-FETCH CREDENTIALS IF MISSING
     if (!cookie || !csrfToken) {
-        setSettingsModalOpen(true);
-        return;
+        setLogs(prev => [...prev, { type: "info", message: "Credentials missing. Attempting auto-fetch via Extension..." }]);
+        setConsoleOpen(true);
+
+        try {
+            const data = await new Promise((resolve, reject) => {
+                const handler = (event) => {
+                    if (event.data.type === "CODEPLAY_COOKIES_RECEIVED") {
+                        window.removeEventListener("message", handler);
+                        resolve(event.data.payload);
+                    }
+                };
+                window.addEventListener("message", handler);
+                window.postMessage({ type: "CODEPLAY_FETCH_COOKIES" }, "*");
+                setTimeout(() => {
+                    window.removeEventListener("message", handler);
+                    reject(new Error("Timeout: Extension not responding."));
+                }, 5000);
+            });
+
+            if (data.success) {
+                cookie = data.cookie;
+                csrfToken = data.csrfToken;
+                localStorage.setItem("lc_session", cookie);
+                localStorage.setItem("lc_csrf", csrfToken);
+                setLogs(prev => [...prev, { type: "success", message: "Credentials fetched successfully!" }]);
+                // Update local state if settings modal was using them (optional, but good for consistency)
+            } else {
+                throw new Error(data.error || "Extension processing failed.");
+            }
+        } catch (e) {
+            console.error(e);
+            setLogs(prev => [...prev, { type: "error", message: `Auto-Fetch Failed: ${e.message}. CHECK: Extension installed? Logged into LeetCode?` }]);
+            return;
+        }
     }
     
     setIsSubmitting(true);
@@ -796,9 +830,6 @@ int main() {
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <button onClick={() => setSettingsModalOpen(true)} className="btn-secondary" style={{ padding: "6px" }} title="LeetCode Settings">
-                    <Settings size={16} />
-                </button>
                 
                 <div style={{ display: "flex", alignItems: "center", paddingLeft: "8px" }}>
                     {activeUsers.map((u, i) => (
@@ -880,6 +911,7 @@ int main() {
                             }} 
                         />
                     )}
+                    {activeSidebar === "settings" && <SettingsPanel />}
                 </div>
                     {/* RESIZE HANDLE */}
                     <div 
