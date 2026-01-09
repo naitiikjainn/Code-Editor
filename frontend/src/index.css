@@ -129,13 +129,14 @@ body {
   position: absolute;
   border-left: 2px solid var(--accent-secondary);
   height: 100%;
+  box-sizing: border-box;
   min-height: 1.2em;
   z-index: 10;
 }
 
 .yRemoteSelectionHead::after {
   position: absolute;
-  content: attr(data-name);
+  /* Content supplied by injected styles per-user */
   font-size: 10px;
   background-color: var(--accent-secondary);
   color: black;

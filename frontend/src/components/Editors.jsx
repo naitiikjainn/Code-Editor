@@ -16,7 +16,7 @@ const COMMON_OPTIONS = {
   fontLigatures: true,
   automaticLayout: true, 
   wordWrap: "off", // Disable wrapping to prevent "spreading"
-  scrollBeyondLastLine: false,
+  scrollBeyondLastLine: true,
   padding: { top: 16, bottom: 16 },
   lineNumbersMinChars: 4,
   renderLineHighlight: "all", 
@@ -41,7 +41,7 @@ export default function Editors({
   const providerRef = useRef(null);
   const docRef = useRef(null);
   const awarenessRef = useRef(null);
-  const bindingsRef = useRef([]);
+  const bindingRef = useRef(null);
   const [isSynced, setIsSynced] = useState(false);
 
   // --- CLEANUP ---
@@ -59,15 +59,17 @@ export default function Editors({
         awarenessRef.current.destroy();
         awarenessRef.current = null;
     }
-    bindingsRef.current.forEach(b => b.destroy());
-    bindingsRef.current = [];
+    if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+    }
     setIsSynced(false);
   }, []);
 
   // --- LIFECYCLE ---
   useEffect(() => {
     return () => cleanupYjs();
-  }, [cleanupYjs, roomId]);
+  }, [cleanupYjs, roomId, activeFile?._id]); // Cleanup on file switch
 
   // --- USERNAME UPDATE ---
   useEffect(() => {
@@ -84,7 +86,13 @@ export default function Editors({
   const handleMount = useCallback((editor, monaco) => {
     if (!activeFile) return;
 
-    // Make sure we have a valid doc
+    // DESTROY OLD BINDING IF EXISTS (Crucial for file switching)
+    if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+    }
+
+    // Make sure we have a valid doc (Singleton for the room)
     if (!docRef.current) {
         const doc = new Y.Doc();
         docRef.current = doc;
@@ -92,7 +100,8 @@ export default function Editors({
         if (roomId) {
             const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
             const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
-            const roomName = `codeplay-${roomId}-v2`; // Updated room version
+            // CRITICAL FIX: Unique Room PER FILE to prevent ghost cursors across files
+            const roomName = `codeplay-${roomId}-${activeFile._id}`; 
 
             const provider = new WebsocketProvider(baseUrl, roomName, doc, { connect: true });
             providerRef.current = provider;
@@ -143,8 +152,21 @@ export default function Editors({
     const yText = doc.getText(textFieldName);
 
     const initContent = () => {
-        if (yText.toString().length === 0) { 
-            if (activeFile.content) doc.transact(() => yText.insert(0, activeFile.content));
+        const currentContent = yText.toString();
+        if (currentContent.length === 0) { 
+            if (activeFile.content) {
+                // Normalize line endings to LF to prevent index drift
+                const normalizedContent = activeFile.content.replace(/\r\n/g, "\n");
+                doc.transact(() => yText.insert(0, normalizedContent));
+            }
+        } else if (currentContent.includes("\r")) {
+             // AUTO-REPAIR: Fix "Poisoned" history with mixed line endings
+             console.log("🧹 Repairing Line Endings in Yjs Document...");
+             const clean = currentContent.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+             doc.transact(() => {
+                 yText.delete(0, currentContent.length); // Clear
+                 yText.insert(0, clean); // Re-insert clean
+             });
         }
     };
 
@@ -153,7 +175,7 @@ export default function Editors({
     else initContent(); 
 
     const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), awarenessRef.current);
-    bindingsRef.current.push(binding);
+    bindingRef.current = binding;
 
     // Force update parent on immediate bind in case Yjs already has content
     if (editor.getValue()) {
@@ -200,7 +222,11 @@ export default function Editors({
         theme="vs-dark" 
         options={COMMON_OPTIONS}
         defaultValue="" 
-        onMount={(e, m) => handleMount(e, m)} 
+        onMount={(editor, monaco) => {
+            // FORCE LF (Line Feed) End of Line to prevent index drift
+            editor.getModel().setEOL(0); // 0 = LF, 1 = CRLF
+            handleMount(editor, monaco);
+        }} 
        />
     </div>
   );
