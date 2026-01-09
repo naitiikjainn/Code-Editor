@@ -852,7 +852,7 @@ int main() {
                     <div style={{ width: sidebarWidth, height: "100%", overflow: "hidden", background: "var(--bg-panel)", borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
                     {activeSidebar === "files" && <FileExplorer files={files} activeFile={activeFile} onFileSelect={setActiveFile} onFileCreate={handleFileCreate} />}
                     {activeSidebar === "participants" && <ParticipantsPanel users={activeUsers} />}
-                    {activeSidebar === "tests" && <TestPanel testCases={testCases} setTestCases={setTestCases} onRun={handleRun} isRunning={isRunningTests || isSubmitting} />}
+                    {activeSidebar === "tests" && <TestPanel testCases={testCases} setTestCases={setTestCases} runTests={runTests} isRunningTests={isRunningTests || isSubmitting} />}
                     
                     {/* NEW CP PANELS */}
                     {activeSidebar === "codeforces" && (
