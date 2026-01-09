@@ -887,7 +887,15 @@ int main() {
             {activeSidebar && (
                 <>
                     <div style={{ width: sidebarWidth, height: "100%", overflow: "hidden", background: "var(--bg-panel)", borderRight: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column" }}>
-                    {activeSidebar === "files" && <FileExplorer files={files} activeFile={activeFile} onFileSelect={setActiveFile} onFileCreate={handleFileCreate} />}
+                    {activeSidebar === "files" && (
+                        <FileExplorer 
+                            files={files} 
+                            activeFileId={activeFile?._id} 
+                            onSelect={handleFileSelect} 
+                            onCreate={handleFileCreate} 
+                            onDelete={handleFileDelete}
+                        />
+                    )}
                     {activeSidebar === "participants" && <ParticipantsPanel users={activeUsers} />}
                     {activeSidebar === "tests" && <TestPanel testCases={testCases} setTestCases={setTestCases} runTests={runTests} isRunningTests={isRunningTests || isSubmitting} />}
                     
