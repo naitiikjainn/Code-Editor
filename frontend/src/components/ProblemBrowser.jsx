@@ -63,8 +63,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     const [tagFilter, setTagFilter] = useState("");
 
     // --- USER HANDLE (For Verdict Polling) ---
-    const [cfHandle, setCfHandle] = useState(() => localStorage.getItem("cf_handle") || "");
-    useEffect(() => { localStorage.setItem("cf_handle", cfHandle); }, [cfHandle]);
+
 
     // --- INFINITE SCROLL STATE ---
     const [visibleCount, setVisibleCount] = useState(50);
@@ -205,21 +204,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 {provider === "codeforces" ? (
                     <>
                     {/* Handle Input for Polling */}
-                    <div style={{ marginBottom: "10px", display: "flex", gap: "8px" }}>
-                        <div style={{ position: "relative", flex: 1 }}>
-                             <User size={12} style={{ position: "absolute", left: "10px", top: "8px", color: "#666" }} />
-                             <input 
-                                value={cfHandle}
-                                onChange={(e) => setCfHandle(e.target.value)}
-                                placeholder="Your Codeforces Handle (for verdicts)"
-                                style={{
-                                    width: "100%", background: "#18181b", border: "1px solid rgba(255,255,255,0.1)",
-                                    borderRadius: "6px", padding: "6px 12px 6px 30px", fontSize: "11px", color: "white",
-                                    outline: "none", boxSizing: "border-box", fontFamily: "var(--font-mono)"
-                                }}
-                            />
-                        </div>
-                    </div>
+
 
                     <FilterInput icon={<Search size={14}/>} value={searchQuery} onChange={setSearchQuery} placeholder="Search problems (1000+)..." />
                      {/* Filters */}

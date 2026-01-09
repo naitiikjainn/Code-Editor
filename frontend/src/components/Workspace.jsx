@@ -123,6 +123,25 @@ export default function Workspace() {
     localStorage.setItem("rightPanel", JSON.stringify(rightPanel));
   }, [rightPanel]);
 
+  // --- PROBLEM SYNC (Moved from JSX) ---
+  useEffect(() => {
+    if (!socket) return;
+    
+    // Listen for remote problem selection
+    const handleSyncProblem = (problem) => {
+        setRightPanel({ type: "preview", data: problem });
+    };
+
+    socket.on("sync_problem", handleSyncProblem);
+
+    // Fetch initial
+    socket.emit("request_problem_state", { roomId: id });
+
+    return () => {
+        socket.off("sync_problem", handleSyncProblem);
+    };
+  }, [socket, id]);
+
   // --- SOCKET CONFIG ---
   useEffect(() => {
 	  if (!id || authLoading) return; 
@@ -454,16 +473,15 @@ export default function Workspace() {
                     setLogs(prev => [...prev, { type: "success", message: `Codeforces: ${msg}` }]);
                     
                     // --- POLL FOR VERDICT ---
-                    const handle = localStorage.getItem("cf_handle");
-                    if (handle) {
-                        setLogs(prev => [...prev, { type: "info", message: `Polling verdict for ${handle}...` }]);
-                        
-                        let attempts = 0;
-                        const pollInterval = setInterval(() => {
+                    const startPolling = (targetHandle) => {
+                         if (!targetHandle) return;
+                         setLogs(prev => [...prev, { type: "info", message: `Polling verdict for ${targetHandle}...` }]);
+                         let attempts = 0;
+                         const pollInterval = setInterval(() => {
                             attempts++;
-                            if (attempts > 30) { clearInterval(pollInterval); return; } // Stop after 60s
+                            if (attempts > 30) { clearInterval(pollInterval); return; } 
 
-                            fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=5`)
+                            fetch(`https://codeforces.com/api/user.status?handle=${targetHandle}&from=1&count=5`)
                                 .then(r => r.json())
                                 .then(data => {
                                     if (data.status === "OK") {
@@ -472,27 +490,51 @@ export default function Workspace() {
                                         );
                                         if (submission) {
                                             const verdict = submission.verdict;
-                                            const testCount = submission.passedTestCount;
-                                            
-                                            // Update Log (Replace last log if it was a status update, or add new)
                                             if (verdict === "TESTING") {
-                                                 // Optional: console.log(`Running on test ${testCount + 1}`);
+                                                 // Working...
                                             } else {
                                                 clearInterval(pollInterval);
                                                 const isAc = verdict === "OK";
                                                 setLogs(prev => [...prev, { 
                                                     type: isAc ? "success" : "error", 
-                                                    message: `Verdict: ${verdict === "OK" ? "ACCEPTED" : verdict} (${submission.timeConsumedMillis}ms, ${Math.round(submission.memoryConsumedBytes/1024)}KB)` 
+                                                    message: `Verdict: ${verdict === "OK" ? "ACCEPTED" : verdict} (${submission.timeConsumedMillis}ms)` 
                                                 }]);
                                             }
                                         }
                                     }
                                 })
-                                .catch(e => console.error("Poll Error", e));
-                        }, 2000);
+                                .catch(e => console.error(e));
+                         }, 2000);
+                    };
+
+                    let handle = localStorage.getItem("cf_handle");
+                    if (handle) {
+                        startPolling(handle);
                     } else {
-                         setLogs(prev => [...prev, { type: "warning", message: "Tip: Set your handle in the 'User' tab to see live verdicts." }]);
+                        // Try Fetching from Extension
+                        // setLogs(prev => [...prev, { type: "info", message: "Fetching Codeforces handle from Extension..." }]);
+                        const hHandler = (evt) => {
+                            if (evt.data.type === "CODEPLAY_CF_HANDLE_RESULT") {
+                                window.removeEventListener("message", hHandler);
+                                const res = evt.data.payload;
+                                if (res.success && res.handle) {
+                                    localStorage.setItem("cf_handle", res.handle);
+                                    startPolling(res.handle);
+                                } else {
+                                    // Fallback
+                                    startPolling(user?.username);
+                                }
+                            }
+                        };
+                        window.addEventListener("message", hHandler);
+                        window.postMessage({ type: "CODEPLAY_FETCH_CF_HANDLE" }, "*");
+                        // Timeout Fallback
+                        setTimeout(() => {
+                            window.removeEventListener("message", hHandler);
+                            if (!handle) startPolling(user?.username);
+                        }, 3000);
                     }
+
 
                 } else {
                     const err = typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error || "Unknown Error");
@@ -899,12 +941,14 @@ int main() {
                     {activeSidebar === "tests" && <TestPanel testCases={testCases} setTestCases={setTestCases} runTests={runTests} isRunningTests={isRunningTests || isSubmitting} />}
                     
                     {/* NEW CP PANELS */}
+
+                    {/* NEW CP PANELS */}
                     {activeSidebar === "codeforces" && (
                         <ProblemBrowser 
                             provider="codeforces" 
                             onOpenProblem={(p) => {
-                                switchRightPanel("preview", p);
-                                socket.emit("sync_problem_state", { roomId: id, problem: p });
+                                handleCodeNow(p);
+                                socket.emit("sync_problem", { roomId: id, problem: p });
                             }} 
                             activeSheet={null} 
                         />
@@ -913,8 +957,8 @@ int main() {
                          <ProblemBrowser 
                             provider="leetcode" 
                             onOpenProblem={(p) => {
-                                switchRightPanel("preview", p);
-                                socket.emit("sync_problem_state", { roomId: id, problem: p });
+                                handleCodeNow(p);
+                                socket.emit("sync_problem", { roomId: id, problem: p });
                             }} 
                         />
                     )}

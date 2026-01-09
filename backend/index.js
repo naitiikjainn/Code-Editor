@@ -271,6 +271,21 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("wb_view", { pan, scale });
   });
 
+  // SYNC PROBLEM
+  if (!global.roomProblems) global.roomProblems = new Map();
+
+  socket.on("sync_problem", ({ roomId, problem }) => {
+    global.roomProblems.set(roomId, problem);
+    socket.to(roomId).emit("sync_problem", problem);
+  });
+
+  socket.on("request_problem_state", ({ roomId }) => {
+    const problem = global.roomProblems.get(roomId);
+    if (problem) {
+      socket.emit("sync_problem", problem);
+    }
+  });
+
   socket.on("wb_cursor", ({ roomId, x, y, username, color }) => {
     socket.to(roomId).emit("wb_cursor", { x, y, username, color });
   });
