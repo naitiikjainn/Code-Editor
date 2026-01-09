@@ -129,18 +129,21 @@ export default function Workspace() {
     
     // Listen for remote problem selection
     const handleSyncProblem = (problem) => {
+        console.log("Syncing problem:", problem);
         setRightPanel({ type: "preview", data: problem });
     };
 
     socket.on("sync_problem", handleSyncProblem);
 
-    // Fetch initial
-    socket.emit("request_problem_state", { roomId: id });
+    // Fetch initial state when access is granted
+    if (accessStatus === "granted") {
+        socket.emit("request_problem_state", { roomId: id });
+    }
 
     return () => {
         socket.off("sync_problem", handleSyncProblem);
     };
-  }, [socket, id]);
+  }, [socket, id, accessStatus]);
 
   // --- SOCKET CONFIG ---
   useEffect(() => {
