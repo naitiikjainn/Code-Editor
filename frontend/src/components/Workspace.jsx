@@ -698,8 +698,12 @@ ${snippet.code}
                 }
             }
         } else {
-            // Codeforces / Default (Standard CP Template) - Keeps main
-            initialCode = `#include <bits/stdc++.h>
+            // Codeforces / Default (Standard CP Template) - Custom or Default
+            const customTemplate = localStorage.getItem("user_cpp_template");
+            if (customTemplate && customTemplate.trim()) {
+                initialCode = customTemplate;
+            } else {
+                initialCode = `#include <bits/stdc++.h>
 using namespace std;
 
 void solve() {
@@ -714,6 +718,8 @@ int main() {
     return 0;
 }
 `;
+            }
+
             initialTests = (problem.testCases || []).map(tc => ({
                 ...tc,
                 id: Date.now() + Math.random(),
@@ -759,9 +765,9 @@ int main() {
         setActiveCode(targetFile.content || initialCode);
 
         // 4. Import Tests
-        if (initialTests.length > 0) {
-            setTestCases(prev => [...prev, ...initialTests]);
-            if(problem.provider === "leetcode") setActiveSidebar("tests");
+        setTestCases(initialTests);
+        if (initialTests.length > 0 && problem.provider === "leetcode") {
+            setActiveSidebar("tests");
         }
 
         // 5. ENSURE PREVIEW IS AVAILABLE (User might have closed it)
