@@ -50,6 +50,25 @@ export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
                </svg>
             </div>
 
+            {/* CSES */}
+            <div 
+                onClick={() => setActiveTab(activeTab === "cses" && isOpen ? null : "cses")}
+                title="CSES Problem Set"
+                style={{
+                    width: "48px", height: "48px", display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer",
+                    color: activeTab === "cses" && isOpen ? "white" : "var(--text-muted)",
+                    borderLeft: activeTab === "cses" && isOpen ? "2px solid #ea580c" : "2px solid transparent",
+                    background: activeTab === "cses" && isOpen ? "var(--bg-hover)" : "transparent",
+                    transition: "all 0.2s"
+                }}
+            >
+                {/* Simple Logo for CSES (Orange square/Book) */}
+               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+               </svg>
+            </div>
+
             {/* LEETCODE */}
             <div 
                 onClick={() => setActiveTab(activeTab === "leetcode" && isOpen ? null : "leetcode")}

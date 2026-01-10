@@ -59,8 +59,20 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                 <div style={{ 
                     padding: "32px 40px", 
                     background: "linear-gradient(180deg, rgba(30, 27, 75, 0.3) 0%, transparent 100%)",
-                    borderBottom: "1px solid rgba(255,255,255,0.05)"
+                    borderBottom: "1px solid rgba(255,255,255,0.05)",
+                    position: "relative" // For absolute badge positioning
                 }}>
+                    {problem.isSolved && (
+                        <div style={{
+                            position: "absolute", top: "32px", right: "40px",
+                            display: "flex", alignItems: "center", gap: "6px",
+                            background: "rgba(34, 197, 94, 0.1)", color: "#4ade80",
+                            padding: "6px 12px", borderRadius: "20px",
+                            fontSize: "12px", fontWeight: "600", border: "1px solid rgba(34, 197, 94, 0.2)"
+                        }}>
+                            <Check size={14} strokeWidth={3} /> Solved
+                        </div>
+                    )}
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", opacity: 0.8 }}>
                          <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "#a1a1aa", padding: "4px 8px", background: "rgba(255,255,255,0.03)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.05)" }}>
                              {problem.contestId}{problem.index}

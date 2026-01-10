@@ -444,6 +444,56 @@ export default function Workspace() {
   const handleSubmit = async () => {
     if (!rightPanel?.data) return;
 
+    // --- CSES SUBMISSION ---
+    if (rightPanel.data.provider === "cses") {
+        const problemId = rightPanel.data.id || rightPanel.data.index; // CSES uses .id, fall back if needed
+        
+        // TEMPORARY: Disable CSES Submission
+        setLogs(prev => [...prev, { type: "warning", message: "CSES submission is not available for the moment." }]);
+        setConsoleOpen(true);
+        return;
+
+        setIsSubmitting(true);
+        setLogs(prev => [...prev, { type: "info", message: `Submitting problem ${problemId} to CSES...` }]);
+        setConsoleOpen(true);
+        
+        const payload = {
+            problemId,
+            code: activeCode
+        };
+
+        const handleResult = (event) => {
+            if (event.data.type === "CODEPLAY_CSES_SUBMIT_RESULT") {
+                window.removeEventListener("message", handleResult);
+                const res = event.data.payload || { success: false, error: "No response from extension" };
+                setIsSubmitting(false);
+
+                if (res.success) {
+                     setLogs(prev => [...prev, { type: "success", message: `CSES: ${res.message}` }]);
+                } else {
+                     setLogs(prev => [...prev, { type: "error", message: `CSES Failed: ${res.error}` }]);
+                }
+            }
+        };
+
+        window.addEventListener("message", handleResult);
+        window.postMessage({ type: "CODEPLAY_SUBMIT_CSES", payload }, "*");
+
+        // Timeout
+        setTimeout(() => {
+             window.removeEventListener("message", handleResult);
+             setIsSubmitting(prev => {
+                 if (prev) { 
+                     setLogs(p => [...p, { type: "error", message: "Submission Failed: Extension Disconnected. Check if Extension is active." }]);
+                     return false;
+                 }
+                 return prev;
+             });
+        }, 10000);
+        
+        return;
+    }
+
     // --- CODEFORCES SUBMISSION ---
     if (rightPanel.data.provider === "codeforces") {
         const { contestId, index } = rightPanel.data;
@@ -954,6 +1004,15 @@ int main() {
                                 socket.emit("sync_problem", { roomId: id, problem: p });
                             }} 
                             activeSheet={null} 
+                        />
+                    )}
+                    {activeSidebar === "cses" && (
+                         <ProblemBrowser 
+                            provider="cses" 
+                            onOpenProblem={(p) => {
+                                handleCodeNow(p);
+                                socket.emit("sync_problem", { roomId: id, problem: p });
+                            }} 
                         />
                     )}
                     {activeSidebar === "leetcode" && (

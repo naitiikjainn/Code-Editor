@@ -55,12 +55,43 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     // --- STATE ---
     const [cfProblems, setCfProblems] = useState([]);
     const [cfLoading, setCfLoading] = useState(false);
+    const [solvedProblems, setSolvedProblems] = useState(new Set());
+
+    // --- FETCH SOLVED STATUS ---
+    useEffect(() => {
+        if (provider !== "codeforces") return;
+        
+        const handle = localStorage.getItem("cf_handle");
+        if (!handle) return;
+
+        fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=5000`) // Fetch last 5000 submissions
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === "OK") {
+                    const solved = new Set();
+                    data.result.forEach(sub => {
+                        if (sub.verdict === "OK") {
+                            solved.add(`${sub.contestId}${sub.problem.index}`);
+                        }
+                    });
+                    setSolvedProblems(solved);
+                }
+            })
+            .catch(err => console.error("Failed to fetch user status", err));
+    }, [provider]);
     
     // --- FILTERS ---
     const [searchQuery, setSearchQuery] = useState("");
     const [minRating, setMinRating] = useState("");
     const [maxRating, setMaxRating] = useState("");
     const [tagFilter, setTagFilter] = useState("");
+    
+    // --- CSES ACCORDION STATE ---
+    const [expandedCategories, setExpandedCategories] = useState({}); // { "Introductory Problems": true }
+
+    const toggleCategory = (name) => {
+        setExpandedCategories(prev => ({ ...prev, [name]: !prev[name] }));
+    };
 
     // --- USER HANDLE (For Verdict Polling) ---
 
@@ -71,7 +102,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
 
     // --- INITIAL FETCH ---
     useEffect(() => {
-        if (cfProblems.length === 0) {
+        if (provider === "codeforces" && cfProblems.length === 0) {
             setCfLoading(true);
             fetch(`${API_URL}/api/problems/codeforces/list`)
                 .then(res => res.json())
@@ -81,8 +112,18 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 })
                 .catch(console.error)
                 .finally(() => setCfLoading(false));
+        } else if (provider === "cses" && cfProblems.length === 0) {
+            setCfLoading(true);
+            fetch(`${API_URL}/api/problems/cses/list`)
+                .then(res => res.json())
+                .then(data => {
+                     // data.categories is the new structure
+                     setCfProblems(data.categories || []);
+                })
+                .catch(console.error)
+                .finally(() => setCfLoading(false));
         }
-    }, []);
+    }, [provider]);
 
     // --- COMPUTED PROBLEMS ---
     const filteredProblems = useMemo(() => {
@@ -121,6 +162,22 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
 
     // --- ACTION HANDLER ---
     const handleOpen = (p) => {
+        if (provider === "cses") {
+            // CSES OPEN LOGIC
+            // Directly fetch from backend scraper
+             fetch(`${API_URL}/api/problems/cses/problem/${p.index}`)
+                .then(res => res.json())
+                .then(problemData => {
+                    if (problemData.error) throw new Error(problemData.error);
+                    onOpenProblem(problemData);
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert("Failed to load CSES problem: " + err.message);
+                });
+             return;
+        }
+
         const problemObj = {
             provider: "codeforces",
             contestId: p.contestId,
@@ -129,7 +186,8 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
             title: p.name,
             rating: p.rating,
             tags: p.tags,
-            url: `https://codeforces.com/contest/${p.contestId}/problem/${p.index}`
+            url: `https://codeforces.com/contest/${p.contestId}/problem/${p.index}`,
+            isSolved: solvedProblems.has(`${p.contestId}${p.index}`)
         };
 
         const fetchViaExtension = () => {
@@ -192,10 +250,13 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                        {provider === "codeforces" ? 
                            <div style={{background: "#3b82f6", padding: "6px", borderRadius: "6px"}}><Trophy size={16} color="white" /></div> :
-                           <div style={{background: "#ffa116", padding: "6px", borderRadius: "6px"}}><Zap size={16} color="white" /></div>
+                           (provider === "cses" ? 
+                               <div style={{background: "#ea580c", padding: "6px", borderRadius: "6px"}}><Grid size={16} color="white" /></div> :
+                               <div style={{background: "#ffa116", padding: "6px", borderRadius: "6px"}}><Zap size={16} color="white" /></div>
+                           )
                        }
                         <h2 style={{ fontSize: "14px", fontWeight: "700", letterSpacing: "0.5px" }}>
-                            {provider === "codeforces" ? "Codeforces" : "LeetCode"}
+                            {provider === "codeforces" ? "Codeforces" : (provider === "cses" ? "CSES Problem Set" : "LeetCode")}
                         </h2>
                     </div>
                     {provider === "codeforces" && <span style={{ fontSize: "10px", padding: "2px 6px", background: "rgba(255,255,255,0.1)", borderRadius: "4px", color: "#a1a1aa" }}>{filteredProblems.length} Problems</span>}
@@ -221,7 +282,96 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 )}
             </div>
 
-            {/* --- MAIN CONTENT (INFINITE SCROLL) --- */}
+            {/* --- FILTER & SCROLL (CSES has no filters yet) --- */}
+            {provider === "cses" && (
+                <div style={{ padding: "0 16px 16px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <FilterInput icon={<Search size={14}/>} value={searchQuery} onChange={setSearchQuery} placeholder="Search CSES problems..." />
+                </div>
+            )}
+
+
+
+            {/* --- MAIN CONTENT (CSES ACCORDION) --- */}
+            {provider === "cses" && (
+            <div 
+                style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}
+            >
+                {cfLoading ? (
+                    <div style={{ height: "160px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", color: "#6b7280", fontSize: "12px" }}>
+                        <Loader2 className="animate-spin" size={16}/> Loading CSES...
+                    </div>
+                ) : cfProblems.length === 0 ? (
+                    <div style={{ height: "160px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px", color: "#6b7280", fontSize: "12px" }}>
+                        <Grid size={24} style={{ opacity: 0.2 }}/> No problems found
+                    </div>
+                ) : (
+                    <div>
+                         {/* Render Categories */}
+                         {cfProblems.map((category, catIdx) => {
+                             // Filter problems within category if searching
+                             const catProblems = category.problems.filter(p => !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase()));
+                             
+                             if (catProblems.length === 0) return null;
+                             
+                             // State for collapse (using local state map if needed, or simple ID approach)
+                             // Since we are inside a map, we need a parent state. 
+                             // But we can't add hooks inside map. 
+                             // We need to move this mapping to a separate component or add state at top.
+                             
+                             const isExpanded = expandedCategories[category.name]; // Need to add this state
+
+                             return (
+                                 <div key={catIdx} style={{ marginBottom: "0px" }}>
+                                     {/* Category Header */}
+                                     <div 
+                                        onClick={() => toggleCategory(category.name)}
+                                        style={{ 
+                                            padding: "12px 16px", background: "rgba(255,255,255,0.03)", 
+                                            borderBottom: "1px solid rgba(255,255,255,0.05)",
+                                            display: "flex", alignItems: "center", gap: "8px",
+                                            fontSize: "13px", fontWeight: "700", color: "#e4e4e7",
+                                            cursor: "pointer", userSelect: "none"
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
+                                     >
+                                         <div style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "flex" }}>
+                                            <ChevronDown size={14} color="#6b7280" />
+                                         </div>
+                                         {category.name}
+                                         <span style={{ fontSize: "10px", color: "#71717a", marginLeft: "auto" }}>{catProblems.length}</span>
+                                     </div>
+                                     
+                                     {/* Problems List */}
+                                     {isExpanded && (
+                                     <div style={{ background: "rgba(0,0,0,0.2)" }}>
+                                         {catProblems.map((p) => (
+                                             <div 
+                                                key={p.index}
+                                                onClick={() => handleOpen(p)}
+                                                style={{ 
+                                                    display: "flex", alignItems: "center", padding: "8px 16px 8px 36px", 
+                                                    borderBottom: "1px solid rgba(255,255,255,0.02)", cursor: "pointer", 
+                                                    transition: "background 0.2s"
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                                            >
+                                                <div style={{ flex: 1, fontSize: "12px", color: "#a1a1aa" }}>{p.name}</div>
+                                                <div style={{ background: "rgba(234, 88, 12, 0.1)", color: "#ea580c", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}>Solve</div>
+                                             </div>
+                                         ))}
+                                     </div>
+                                     )}
+                                 </div>
+                             );
+                         })}
+                    </div>
+                )}
+            </div>
+            )}
+            
+            {/* --- MAIN CONTENT (CODEFORCES INFINITE SCROLL) --- */}
             {provider === "codeforces" && (
             <div 
                 ref={scrollContainerRef}
@@ -252,22 +402,30 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                         {visibleProblems.map((p) => {
                             const id = `${p.contestId}${p.index}`;
                             const ratingColor = getRatingColor(p.rating);
+                            const isSolved = solvedProblems.has(id);
+                            
                             return (
                                 <div 
                                     key={id}
                                     onClick={() => handleOpen(p)}
                                     style={{ 
                                         display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.02)", cursor: "pointer", position: "relative",
-                                        transition: "background 0.2s"
+                                        transition: "background 0.2s",
+                                        background: isSolved ? "rgba(34, 197, 94, 0.05)" : "transparent"
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = isSolved ? "rgba(34, 197, 94, 0.1)" : "rgba(255,255,255,0.03)"}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = isSolved ? "rgba(34, 197, 94, 0.05)" : "transparent"}
                                 >
-                                    <div style={{ width: "60px", fontSize: "12px", fontFamily: "var(--font-mono)", color: "#71717a" }}>{p.contestId}{p.index}</div>
+                                    <div style={{ width: "60px", fontSize: "12px", fontFamily: "var(--font-mono)", color: isSolved ? "#4ade80" : "#71717a" }}>
+                                        <div style={{display: "flex", alignItems: "center", gap: "4px"}}>
+                                            {isSolved && <CheckCircle2 size={10} color="#4ade80" />}
+                                            {p.contestId}{p.index}
+                                        </div>
+                                    </div>
                                     
                                     <div style={{ flex: 1, minWidth: 0, paddingRight: "16px" }}>
                                         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                                            <span style={{ fontSize: "13px", fontWeight: "500", color: "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                                            <span style={{ fontSize: "13px", fontWeight: "500", color: isSolved ? "#86efac" : "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                                         </div>
                                         <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                                             {p.tags.slice(0, 3).map(t => <TagChip key={t} label={t}/>)}
@@ -291,6 +449,8 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 )}
             </div>
             )}
+
+
         </div>
     );
 }

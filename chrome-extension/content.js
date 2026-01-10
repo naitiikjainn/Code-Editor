@@ -37,4 +37,12 @@ window.addEventListener("message", (event) => {
             window.postMessage({ type: "CODEPLAY_CF_HANDLE_RESULT", payload: response }, "*");
         });
     }
+
+    if (event.data.type === "CODEPLAY_SUBMIT_CSES") {
+        console.log("[CodePlay Helper] Submitting to CSES...", event.data.payload);
+        chrome.runtime.sendMessage({ type: "CODEPLAY_SUBMIT_CSES", payload: event.data.payload }, (response) => {
+            console.log("[CodePlay Helper] CSES Result:", response);
+            window.postMessage({ type: "CODEPLAY_CSES_SUBMIT_RESULT", payload: response }, "*");
+        });
+    }
 });
