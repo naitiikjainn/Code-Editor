@@ -10,16 +10,14 @@ import fileRoutes from "./routes/files.js";
 import roomRoutes from "./routes/rooms.js";
 import problemRoutes from "./routes/problems.js";
 import leetRoutes from "./routes/leettools.js";
-import submissionRoutes from "./routes/submissionRoutes.js"; // <--- NEW
-import profileRoutes from "./routes/profile.js"; // <--- NEW
+import submissionRoutes from "./routes/submissionRoutes.js";
+import profileRoutes from "./routes/profile.js";
 import Room from "./models/Room.js";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
-
 import { WebSocketServer } from 'ws';
 import { createRequire } from 'module';
 
-// Load Y-Websocket Utils
 const require = createRequire(import.meta.url);
 const { setupWSConnection } = require('y-websocket/bin/utils');
 
@@ -31,14 +29,10 @@ app.use(express.json());
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-
-    // Allowed Origins: Localhost and Vercel Deployments
     if (origin.includes("localhost") || origin.includes(".vercel.app") || origin.includes(".onrender.com")) {
       return callback(null, true);
     }
-
     const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
     return callback(new Error(msg), false);
   },
@@ -46,17 +40,14 @@ app.use(cors({
   credentials: true
 }));
 
-// 1. CREATE HTTP SERVER
 const server = http.createServer(app);
 
-// 2. SETUP SOCKET.IO (Attached in Non-Destructive Mode)
 const io = new SocketIOServer(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
   path: '/socket.io/',
-  destroyUpgrade: false // <--- CRITICAL: Lets other WebSockets (Yjs) pass through
+  destroyUpgrade: false
 });
 
-// 3. SETUP YJS WEBSOCKET SERVER
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
@@ -64,12 +55,8 @@ wss.on('connection', (ws, req) => {
   setupWSConnection(ws, req);
 });
 
-// 4. THE TRAFFIC COP (Handle Upgrades Manually)
 server.on('upgrade', (request, socket, head) => {
   const url = request.url;
-
-  // CASE A: Yjs (Code Collaboration)
-  // We grab this FIRST.
   if (url.startsWith('/codeplay-')) {
     console.log(`➡️ Routing to Yjs: ${url}`);
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -77,32 +64,22 @@ server.on('upgrade', (request, socket, head) => {
     });
     return;
   }
-
-  // CASE B: Socket.io
-  // We do NOTHING here. Since we used io.attach(server), 
-  // Socket.io has its own listener that will handle this automatically.
   if (url.startsWith('/socket.io/')) {
     return;
   }
-
-  // CASE C: Unknown -> Destroy to prevent hanging
-  // socket.destroy();
 });
 
-// --- API ROUTES ---
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
 app.use("/api/share", shareRoutes);
-app.use("/api/share", shareRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/rooms", roomRoutes);
-app.use("/api/problems", problemRoutes); // <--- New Route
+app.use("/api/problems", problemRoutes);
 app.use("/api/leettools", leetRoutes);
-app.use("/api/submissions", submissionRoutes); // <--- NEW
-app.use("/api/profile", profileRoutes); // <--- NEW
+app.use("/api/submissions", submissionRoutes);
+app.use("/api/profile", profileRoutes);
 
-// PROXY ROUTE FOR CODECHEF (CORS Fix)
 app.get("/api/proxy/codechef/:handle", async (req, res) => {
   try {
     const { handle } = req.params;
@@ -120,19 +97,14 @@ app.get("/api/proxy/codechef/:handle", async (req, res) => {
   }
 });
 
-
 app.get("/", (req, res) => res.send("API & Collaboration Server is running..."));
 
-// --- SOCKET.IO EVENTS ---
 const userMap = new Map();
 io.on("connection", (socket) => {
   console.log("💬 Chat Connected:", socket.id);
 
   socket.on("join_room", async ({ roomId, username }) => {
-    // 1. Check who is the host
     let room = await Room.findOne({ roomId });
-
-    // AUTO-CREATE if fresh room (First user becomes Host)
     if (!room) {
       room = new Room({ roomId, host: { username } });
       await room.save();
@@ -146,7 +118,6 @@ io.on("connection", (socket) => {
       if (!isHost) console.log(`🔄 Familiar face ${username} re-joining ${roomId}`);
       else console.log(`👑 Host ${username} joined ${roomId}`);
 
-      // AUTO-JOIN
       socket.join(roomId);
       socket.roomId = roomId;
       socket.username = username;
@@ -155,21 +126,17 @@ io.on("connection", (socket) => {
 
       socket.emit("access_granted");
 
-      // Broadcast full list
       const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
       const users = clients.map(clientId => userMap.get(clientId)).filter(u => u);
       io.to(roomId).emit("room_users", users);
 
-      // 🔄 SYNC PROBLEM STATE (Send to the joiner)
       if (room.activeProblem) {
         socket.emit("sync_problem_state", { problem: room.activeProblem });
       }
 
     } else {
-      // GUEST JOINING (New)
       console.log(`👤 New Guest ${username} asking to join ${roomId}`);
 
-      // Find if host is in the room
       const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
       const hostSocketId = clients.find(clientId => {
         const user = userMap.get(clientId);
@@ -177,14 +144,11 @@ io.on("connection", (socket) => {
       });
 
       if (hostSocketId) {
-        // Host is online, ask for permission
         userMap.set(socket.id, { username, isHost: false, status: "pending" });
         socket.roomId = roomId;
-
         io.to(hostSocketId).emit("request_entry", { username, socketId: socket.id });
         socket.emit("status_update", { status: "waiting", message: "Waiting for host approval..." });
       } else {
-        // Host offline
         socket.emit("status_update", { status: "waiting", message: "Waiting for host to join..." });
         socket.join(`${roomId}_waiting`);
         socket.roomId = roomId;
@@ -192,29 +156,16 @@ io.on("connection", (socket) => {
     }
   });
 
-  // HOST DECISION
   socket.on("grant_access", async ({ socketId }) => {
     const targetSocket = io.sockets.sockets.get(socketId);
     if (targetSocket) {
-      const roomId = Array.from(socket.rooms).find(r => r !== socket.id); // Get host's room
-
+      const roomId = Array.from(socket.rooms).find(r => r !== socket.id);
       if (roomId) {
-        targetSocket.leave(`${roomId}_waiting`); // Leave waiting room
+        targetSocket.leave(`${roomId}_waiting`);
         targetSocket.join(roomId);
         targetSocket.roomId = roomId;
-
-        // Retrieve guest username from the temporary request payload or trust client re-sync?
-        // Simpler: The targetSocket.username MIGHT be missing if we didn't set it in join_room (guest path). 
-        // We know we emitted 'request_entry' with username. 
-        // Let's assume we can get it from a pending map or just set a default if missing.
-        // Actually, in the current flow, we can just clear the waiting status.
-        // The Guest component will stay mounted.
-
         targetSocket.emit("access_granted");
 
-        // PERSIST TO DB (So they can re-join later without asking)
-        // We need the guest's username. 
-        // We stored it in userMap as "pending".
         const guestUser = userMap.get(socketId);
         if (guestUser && guestUser.username) {
           await Room.updateOne(
@@ -222,9 +173,10 @@ io.on("connection", (socket) => {
             { $addToSet: { participants: { username: guestUser.username } } }
           );
           console.log(`💾 Saved ${guestUser.username} to persistent allowed list.`);
-
-          // Update userMap to be active
           userMap.set(socketId, { ...guestUser, status: "active" });
+
+          // IMPORTANT: Update socket object itself too
+          targetSocket.username = guestUser.username;
         }
 
         io.to(roomId).emit("room_users", Array.from(io.sockets.adapter.rooms.get(roomId) || []).map(id => userMap.get(id)).filter(u => u));
@@ -232,22 +184,14 @@ io.on("connection", (socket) => {
     }
   });
 
-  // HOST DENY
   socket.on("deny_access", ({ socketId }) => {
     const targetSocket = io.sockets.sockets.get(socketId);
     if (targetSocket) {
       const roomId = Array.from(socket.rooms).find(r => r !== socket.id);
       if (roomId) {
-        targetSocket.leave(`${roomId}_waiting`); // Leave waiting room
-        // Emit denied event to guest
+        targetSocket.leave(`${roomId}_waiting`);
         targetSocket.emit("access_denied");
-
-        // Remove from userMap/Pending List logic
-        // Since we added them as "pending" in userMap, we should ideally remove them?
-        // Or just leave them unconnected. 
-        // Let's remove them from userMap so they don't show up in any list.
         userMap.delete(socketId);
-
         console.log(`⛔ Access Denied for ${socketId}`);
       }
     }
@@ -257,21 +201,16 @@ io.on("connection", (socket) => {
   socket.on("sync_run_trigger", ({ roomId, username }) => socket.to(roomId).emit("sync_run_start", { username }));
   socket.on("sync_run_result", ({ roomId, logs }) => socket.to(roomId).emit("sync_run_complete", { logs }));
 
-  // WHITEBOARD EVENTS
-  // Store history in memory (Note: In production, use Redis or DB)
   if (!global.whiteboardHistory) global.whiteboardHistory = new Map();
 
   socket.on("draw_line", ({ roomId, prev, curr, color, width }) => {
-    // 1. Save to History
     if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
     global.whiteboardHistory.get(roomId).push({ type: "line", prev, curr, color, width });
-
-    // 2. Broadcast
     socket.to(roomId).emit("draw_line", { prev, curr, color, width });
   });
 
   socket.on("clear_board", ({ roomId }) => {
-    global.whiteboardHistory.set(roomId, []); // Clear history
+    global.whiteboardHistory.set(roomId, []);
     socket.to(roomId).emit("clear_board");
   });
 
@@ -281,11 +220,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("draw_text", ({ roomId, x, y, text, color, fontSize }) => {
-    // 1. Save to History
     if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
     global.whiteboardHistory.get(roomId).push({ type: "text", x, y, text, color, fontSize });
-
-    // 2. Broadcast
     socket.to(roomId).emit("draw_text", { x, y, text, color, fontSize });
   });
 
@@ -293,7 +229,6 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("wb_view", { pan, scale });
   });
 
-  // SYNC PROBLEM
   if (!global.roomProblems) global.roomProblems = new Map();
 
   socket.on("sync_problem", ({ roomId, problem }) => {
@@ -312,14 +247,66 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("wb_cursor", { x, y, username, color });
   });
 
+  // --- VOICE CHAT SIGNALING (Mesh + State) ---
+  const voiceUsers = new Map(); // roomId -> Set<{ id, username }>
+
+  socket.on("voice-join-request", ({ roomId }) => {
+    // console.log(`🎤 Voice Join: ${socket.id} (${socket.username}) in ${roomId}`);
+
+    if (!voiceUsers.has(roomId)) voiceUsers.set(roomId, new Set());
+
+    // Store metadata
+    const roomVoiceUsers = voiceUsers.get(roomId);
+
+    // Remove existing entry for this socket if any (to update username/prevent dups)
+    for (const u of roomVoiceUsers) {
+      if (u.id === socket.id) roomVoiceUsers.delete(u);
+    }
+
+    const userData = { id: socket.id, username: socket.username || "Guest" };
+    roomVoiceUsers.add(userData);
+
+    // Notify others with USERNAME
+    socket.to(roomId).emit("voice-new-peer", { peerId: socket.id, username: userData.username });
+
+    // Send the current list to the new joiner
+    const currentVoiceUsers = Array.from(roomVoiceUsers).filter(u => u.id !== socket.id);
+    socket.emit("voice-existing-users", { users: currentVoiceUsers });
+  });
+
+  socket.on("voice-leave", ({ roomId }) => {
+    if (voiceUsers.has(roomId)) {
+      const roomUsers = voiceUsers.get(roomId);
+      for (const u of roomUsers) {
+        if (u.id === socket.id) roomUsers.delete(u);
+      }
+      if (roomUsers.size === 0) voiceUsers.delete(roomId);
+    }
+  });
+
+  socket.on("voice-signal", ({ targetId, signal }) => {
+    // Relay signal (Offer/Answer/ICE) directly to target
+    io.to(targetId).emit("voice-signal", {
+      signal,
+      callerId: socket.id,
+      callerUsername: socket.username // Send name with signal too just in case
+    });
+  });
+
   socket.on("disconnect", () => {
     if (socket.roomId && socket.username) {
       socket.to(socket.roomId).emit("user_left", { username: socket.username });
+
+      // Remove from Voice List
+      if (voiceUsers.has(socket.roomId)) {
+        const roomUsers = voiceUsers.get(socket.roomId);
+        for (const u of roomUsers) {
+          if (u.id === socket.id) roomUsers.delete(u);
+        }
+      }
     }
 
-    // Cleanup Pending Requests on Host
     if (socket.roomId) {
-      // Just tell the room (Host will pick it up) that this socket is gone
       socket.to(socket.roomId).emit("request_cancelled", { socketId: socket.id });
     }
 

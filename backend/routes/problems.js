@@ -1,5 +1,6 @@
 import express from "express";
 import Problem from "../models/Problem.js"; // Import Problem Model
+import redis from "../config/redis.js"; // Import Redis Wrapper
 const router = express.Router();
 
 // Helper to clean Codeforces HTML inputs
@@ -134,11 +135,24 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
     const { contestId, index } = req.params;
     const problemId = `${contestId}${index}`;
 
-    // 1. Check Cache
+    // 1. Check Redis Cache (Fastest)
+    try {
+        const cachedParams = await redis.get(`problem:${problemId}`);
+        if (cachedParams) {
+            console.log(`[Redis] Hit for ${problemId}`);
+            return res.json(JSON.parse(cachedParams));
+        }
+    } catch (e) {
+        console.warn("Redis Check Failed:", e.message);
+    }
+
+    // 2. Check DB Cache (Fast)
     try {
         const cached = await Problem.findOne({ problemId });
         if (cached) {
-            console.log(`[Cache] Hit for ${problemId}`);
+            console.log(`[Mongo] Hit for ${problemId}`);
+            // Save to Redis for next time (TTL: 2 Days = 172800s)
+            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(cached.data)).catch(e => console.error("Redis Save Error", e));
             return res.json(cached.data);
         }
     } catch (e) {
@@ -256,10 +270,14 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
                 testCases: testCases
             };
 
-            // 2. Save to Cache
+            // 2. Save to Cache (Mongo + Redis)
             try {
                 await Problem.create({ problemId, data: problemData });
-                console.log(`[Cache] Saved ${problemId}`);
+                console.log(`[Mongo] Saved ${problemId}`);
+
+                // Save to Redis (TTL: 2 Days)
+                redis.setex(`problem:${problemId}`, 172800, JSON.stringify(problemData)).catch(e => console.error("Redis Save Error", e));
+
             } catch (e) {
                 console.error("Cache Save Error (likely duplicate):", e.message);
             }
