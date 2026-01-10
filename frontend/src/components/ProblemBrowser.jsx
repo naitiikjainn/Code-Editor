@@ -216,6 +216,18 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
             isAttempted: isAttempted
         };
 
+        const fallbackToBasic = (msg) => {
+             onOpenProblem({ 
+                ...problemObj, 
+                description: `<div style="padding:20px; text-align:center; color:#ef4444;">
+                    <h3>Fetch Failed</h3>
+                    <p>${msg}</p>
+                    <p>Codeforces might be blocking automated requests.</p>
+                    <a href="${problemObj.url}" target="_blank" style="color:#60a5fa; text-decoration:underline;">View on Codeforces</a>
+                </div>`
+            });
+        };
+
         const fetchViaExtension = () => {
              return new Promise((resolve, reject) => {
                  const handler = (event) => {
