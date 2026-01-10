@@ -371,6 +371,29 @@ router.get("/codeforces/user/:handle", async (req, res) => {
 router.get("/cses/problem/:id", async (req, res) => {
     try {
         const { id } = req.params;
+        const problemId = `CSES${id}`; // Unique ID for Cache
+
+        // 1. Check Redis
+        try {
+            const cachedParams = await redis.get(`problem:${problemId}`);
+            if (cachedParams) {
+                return res.json(JSON.parse(cachedParams));
+            }
+        } catch (e) {
+            console.warn("Redis Check Failed:", e.message);
+        }
+
+        // 2. Check Mongo
+        try {
+            const cached = await Problem.findOne({ problemId });
+            if (cached) {
+                redis.setex(`problem:${problemId}`, 172800, JSON.stringify(cached.data)).catch(e => console.error("Redis Save Error", e));
+                return res.json(cached.data);
+            }
+        } catch (e) {
+            console.error("Cache Check Error:", e);
+        }
+
         const url = `https://cses.fi/problemset/task/${id}`;
 
         const response = await fetch(url, {
@@ -436,14 +459,24 @@ router.get("/cses/problem/:id", async (req, res) => {
         }
 
 
-        res.json({
+        const problemData = {
             provider: "cses",
             id: id,
             title: title,
             url: url,
             description: description,
             testCases: testCases
-        });
+        };
+
+        // Save to Cache
+        try {
+            await Problem.create({ problemId, data: problemData });
+            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(problemData)).catch(e => console.error("Redis Save Error", e));
+        } catch (e) {
+            console.error("CSES Cache Save Error:", e.message);
+        }
+
+        res.json(problemData);
 
     } catch (err) {
         console.error("CSES Fetch Error:", err);
