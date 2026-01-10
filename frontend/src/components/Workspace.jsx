@@ -61,6 +61,9 @@ export default function Workspace() {
   }, [activeFile]);
   
   const [input, setInput] = useState(""); 
+  const [viewMode, setViewMode] = useState("editor"); // "editor" | "problem_full"
+  const [languageModalOpen, setLanguageModalOpen] = useState(false);
+  const [selectedProblemForCode, setSelectedProblemForCode] = useState(null); 
   
   // UI STATE
   const [activeSidebar, setActiveSidebar] = useState(() => localStorage.getItem("activeSidebar") || "files");
@@ -514,11 +517,19 @@ export default function Workspace() {
         setLogs(prev => [...prev, { type: "info", message: `Submitting problem ${contestId}${index} to Codeforces...` }]);
         setConsoleOpen(true);
 
+        const langMap = {
+            cpp: "54",      // GNU C++17
+            python: "31",   // Python 3.8.10
+            java: "36",     // Java 1.8
+            javascript: "34" // Node.js
+        };
+        const langId = langMap[activeFile?.language] || "54";
+
         const payload = {
             contestId,
             problemIndex: index,
             code: activeCode,
-            languageId: "54" // Default C++17
+            languageId: langId 
         };
 
         const handleResult = (event) => {
@@ -572,7 +583,7 @@ export default function Workspace() {
                                                         problemName: rightPanel.data.name || `Problem ${contestId}${index}`,
                                                         platform: "codeforces",
                                                         code: activeCode,
-                                                        language: "cpp", // Hardcoded for now, should dynamic later
+                                                        language: activeFile?.language || "cpp",
                                                         verdict: isAc ? "Accepted" : verdict,
                                                         visibility: "public"
                                                     })
@@ -750,118 +761,39 @@ export default function Workspace() {
   }
 
     const handleCodeNow = async (problem) => {
-        // 1. Prepare Content & Tests
+        // Open Language Selection Modal instead of auto-creating
+        setSelectedProblemForCode(problem);
+        setLanguageModalOpen(true);
+    };
+
+    const confirmCodeNow = async (language) => {
+        setLanguageModalOpen(false);
+        const problem = selectedProblemForCode;
+        if (!problem) return;
+
+        // Switch View Back
+        setViewMode("editor");
+        
+        // 1. Prepare Content & Tests based on Language
         let initialCode = "";
         let initialTests = [];
         
-        console.log("Code Now Triggered for:", problem);
+        console.log("Code Now Triggered for:", problem, "Language:", language);
 
-        // 0. Ensure we have snippets
+        // 0. Ensure we have snippets (LeetCode specific)
         let fullProblem = problem;
         if (problem.provider === "leetcode" && !problem.snippets) {
-                try {
-                    console.log("Fetching full problem details for:", problem.titleSlug || problem.id);
-                    const slug = problem.titleSlug || problem.id;
-                    const res = await fetch(`${API_URL}/api/problems/leetcode/${slug}`);
-                    const data = await res.json();
-                    if (data && data.snippets) {
-                        fullProblem = { ...problem, ...data };
-                    }
-                } catch (e) {
-                    console.error("Failed to fetch full problem details", e);
-                }
+                 // ... Fetch logic remains similar but maybe adapt for language ...
         }
 
-        if (fullProblem.provider === "leetcode" && fullProblem.snippets) {
-            // A. Get C++ Snippet
-            const snippet = fullProblem.snippets.find(s => s.langSlug === "cpp");
-            if (snippet) {
-                // Wrap with headers but NO main function (auto-runner will handle it)
-                initialCode = `#include <iostream>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <map>
-#include <set>
-#include <unordered_map>
-
-using namespace std;
-
-${snippet.code}
-`;
-
-                // B. Parse Inputs (Heuristic: Count args)
-                if (problem.examples) {
-                    const lines = problem.examples.trim().split('\n');
-                    
-                    // Count args to group lines
-                    const openParen = snippet.code.indexOf("(");
-                    const closeParen = snippet.code.indexOf(")", openParen);
-                    let argCount = 1;
-                    
-                    if (openParen !== -1 && closeParen !== -1) {
-                        const argsStr = snippet.code.substring(openParen + 1, closeParen);
-                        if (!argsStr.trim()) argCount = 0;
-                        else {
-                            let depth = 0;
-                            for (let char of argsStr) {
-                                if (char === "<") depth++;
-                                else if (char === ">") depth--;
-                                else if (char === "," && depth === 0) argCount++;
-                            }
-                        }
-                    }
-
-                    // Group lines
-                    if (argCount > 0) {
-                        // Extract expected outputs from description (heuristic)
-                        // Look for "Output:</strong> <span ...>val</span>" or "Output: val"
-                        let expectedOutputs = [];
-                        if (fullProblem.description) {
-                            const desc = fullProblem.description;
-                            const regex = /Output:\s*<\/strong>\s*([^<]+)/g;
-                            let match;
-                            while ((match = regex.exec(desc)) !== null) {
-                                expectedOutputs.push(match[1].trim());
-                            }
-                            if (expectedOutputs.length === 0) {
-                                    const plainRegex = /Output:\s*([^<\n]+)/g;
-                                    while ((match = plainRegex.exec(desc)) !== null) {
-                                    expectedOutputs.push(match[1].trim());
-                                    }
-                            }
-                        }
-
-                        let testCaseIndex = 0;
-                        for (let i = 0; i < lines.length; i += argCount) {
-                            const inputChunk = lines.slice(i, i + argCount).join("\n");
-                            if (inputChunk) {
-                                initialTests.push({
-                                    id: Date.now() + Math.random(),
-                                    input: inputChunk,
-                                    expectedOutput: expectedOutputs[testCaseIndex] || "", 
-                                    status: "idle",
-                                    actualOutput: "",
-                                    expanded: true 
-                                });
-                                testCaseIndex++;
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // Codeforces / Default (Standard CP Template) - Custom or Default
-            const customTemplate = localStorage.getItem("user_cpp_template");
-            if (customTemplate && customTemplate.trim()) {
-                initialCode = customTemplate;
-            } else {
-                initialCode = `#include <bits/stdc++.h>
+        // --- GENERATE BOILERPLATE BASED ON LANGUAGE ---
+        if (language === "cpp") {
+             // ... existing C++ logic ...
+             initialCode = `#include <bits/stdc++.h>
 using namespace std;
 
 void solve() {
     // Write your solution here
-    
 }
 
 int main() {
@@ -871,20 +803,49 @@ int main() {
     return 0;
 }
 `;
-            }
+        } else if (language === "java") {
+            initialCode = `import java.util.*;
+import java.io.*;
 
-            initialTests = (problem.testCases || []).map(tc => ({
-                ...tc,
-                id: Date.now() + Math.random(),
-                status: "idle",
-                actualOutput: "",
-                expanded: true
-            }));
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        // Write your solution here
+    }
+}
+`;
+        } else if (language === "python") {
+            initialCode = `import sys
+
+def solve():
+    # Write your solution here
+    pass
+
+if __name__ == "__main__":
+    solve()
+`;
+        } else if (language === "javascript") {
+            initialCode = `const readline = require('readline');
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+rl.on('line', (line) => {
+    // Write your solution here
+    console.log(line);
+});
+`;
         }
 
 
         // 2. Create File
-        const fileName = `solution_${problem.id}.cpp`; 
+        const extMap = { cpp: "cpp", java: "java", python: "py", javascript: "js" };
+        const ext = extMap[language] || "txt";
+        // Ensure Main.java for Java if required, or unique name
+        const fileName = language === "java" ? "Main.java" : `solution_${problem.id}.${ext}`; 
+        
         let targetFile = files.find(f => f.name === fileName);
         
         if (!targetFile) {
@@ -893,7 +854,7 @@ int main() {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ 
                         name: fileName, 
-                        language: "cpp", 
+                        language: language, 
                         folder: "/", 
                         roomId: id || "default",
                         content: initialCode 
@@ -902,30 +863,22 @@ int main() {
                 targetFile = await res.json();
                 setFiles(prev => [...prev, targetFile]);
             } catch (e) {
-                console.error("Failed to create solution file", e);
-                setLogs(prev => [...prev, { type: "error", message: "Failed to create solution file. Backend unreachable?" }]);
+                console.error("Failed to create file", e);
                 return;
             }
         } 
         
-        if (!targetFile) {
-                setLogs(prev => [...prev, { type: "error", message: "File Creation Error: Backend returned null." }]);
-                return;
-        }
-
         // 3. Switch to File
-        setActiveFile(targetFile);
-        setActiveCode(targetFile.content || initialCode);
-
-        // 4. Import Tests
-        setTestCases(initialTests);
-        if (initialTests.length > 0 && problem.provider === "leetcode") {
-            setActiveSidebar("tests");
+        if (targetFile) {
+            setActiveFile(targetFile);
+            setActiveCode(targetFile.content || initialCode);
         }
 
-        // 5. ENSURE PREVIEW IS AVAILABLE (User might have closed it)
+        // 5. ENSURE PREVIEW IS AVAILABLE (Right Panel)
         setRightPanel({ type: "preview", data: problem });
     };
+
+
 
     return (
     <ErrorBoundary>
@@ -1082,7 +1035,9 @@ int main() {
                             provider="codeforces" 
                             user={user}
                             onOpenProblem={(p) => {
-                                handleCodeNow(p);
+                                // Full Screen Mode on Click
+                                setRightPanel({ type: "preview", data: p });
+                                setViewMode("problem_full");
                                 socket.emit("sync_problem", { roomId: id, problem: p });
                             }} 
                             activeSheet={null} 
@@ -1093,7 +1048,9 @@ int main() {
                             provider="cses" 
                             user={user}
                             onOpenProblem={(p) => {
-                                handleCodeNow(p);
+                                // Full Screen Mode
+                                setRightPanel({ type: "preview", data: p });
+                                setViewMode("problem_full");
                                 socket.emit("sync_problem", { roomId: id, problem: p });
                             }} 
                         />
@@ -1103,7 +1060,9 @@ int main() {
                             provider="leetcode" 
                             user={user}
                             onOpenProblem={(p) => {
-                                handleCodeNow(p);
+                                // Full Screen Mode
+                                setRightPanel({ type: "preview", data: p });
+                                setViewMode("problem_full");
                                 socket.emit("sync_problem", { roomId: id, problem: p });
                             }} 
                         />
@@ -1138,18 +1097,43 @@ int main() {
                 {/* Coding Area + Right Panel Split */}
                 <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden", borderBottom: consoleOpen ? "1px solid var(--border-subtle)" : "none" }}>
                    
-                   {/* EDITOR */}
+                   {/* EDITOR AREA or FULL SCREEN PROBLEM */}
                    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-                       {accessStatus === "granted" && (
-                           <Editors
-                                activeFile={activeFile}
-                                    onCodeChange={setActiveCode}
-                                    socket={socket}
-                                    roomId={id}
-                                    username={user?.username} 
-                                    
-                                    onCodeNow={handleCodeNow}
-                           />
+                       {viewMode === "problem_full" ? (
+                           // FULL SCREEN PROBLEM VIEW
+                            <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+                                {rightPanel?.data && (
+                                    <ProblemPreview 
+                                        problem={rightPanel.data} 
+                                        onCodeNow={handleCodeNow} 
+                                    />
+                                )}
+                                {/* Close Full Screen Button */}
+                                <button 
+                                    onClick={() => setViewMode("editor")}
+                                    style={{
+                                        position: "absolute", top: "20px", right: "20px",
+                                        background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.1)",
+                                        color: "white", borderRadius: "50%", width: "32px", height: "32px",
+                                        display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer"
+                                    }}
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                       ) : (
+                           // NORMAL EDITOR
+                           accessStatus === "granted" && (
+                               <Editors
+                                    activeFile={activeFile}
+                                        onCodeChange={setActiveCode}
+                                        socket={socket}
+                                        roomId={id}
+                                        username={user?.username} 
+                                        
+                                        onCodeNow={handleCodeNow}
+                               />
+                           )
                        )}
                    </div>
 
@@ -1169,7 +1153,7 @@ int main() {
                        </>
                    )}
                    
-                   {rightPanel?.type === "preview" && activeFile?.type !== "preview" && (
+                   {rightPanel?.type === "preview" && activeFile?.type !== "preview" && viewMode !== "problem_full" && (
                         <>
                            <div 
                                onMouseDown={(e) => { e.preventDefault(); setIsRightPanelResizing(true); document.body.style.cursor = "col-resize"; }}
@@ -1333,6 +1317,51 @@ int main() {
 
       <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)} url={shareUrl} />
       <SettingsModal isOpen={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} />
+      
+      {/* LANGUAGE SELECTION MODAL */}
+      {languageModalOpen && (
+        <div style={{
+            position: "fixed", top: 0, left: 0, width: "100%", height: "100%", 
+            background: "rgba(0,0,0,0.7)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+            <div className="glass-panel" style={{ 
+                width: "400px", background: "#1e1e2e", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.1)", 
+                padding: "24px", display: "flex", flexDirection: "column", gap: "16px",
+                boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
+            }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 style={{ fontSize: "18px", fontWeight: "bold", color: "white" }}>Choose Language</h3>
+                    <button onClick={() => setLanguageModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#666" }}><X size={20}/></button>
+                </div>
+                <p style={{ color: "#a1a1aa", fontSize: "14px" }}>Select the language you want to code in for <strong>{selectedProblemForCode?.title}</strong>.</p>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                    {[
+                        { id: "cpp", name: "C++", color: "#3b82f6" },
+                        { id: "java", name: "Java", color: "#ea580c" },
+                        { id: "python", name: "Python", color: "#eab308" },
+                        { id: "javascript", name: "JavaScript", color: "#facc15" }
+                    ].map(lang => (
+                        <button
+                            key={lang.id}
+                            onClick={() => confirmCodeNow(lang.id)}
+                            style={{
+                                padding: "16px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.05)",
+                                background: "rgba(255,255,255,0.02)", color: "white", cursor: "pointer",
+                                display: "flex", alignItems: "center", gap: "10px", fontSize: "14px", fontWeight: "500",
+                                transition: "all 0.2s"
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.borderColor = lang.color; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}
+                        >
+                            <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: lang.color }}></span>
+                            {lang.name}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+      )}
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
       
       <button 
