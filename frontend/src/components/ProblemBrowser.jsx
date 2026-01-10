@@ -59,6 +59,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     const [solvedNames, setSolvedNames] = useState(new Set());
     const [attemptedProblems, setAttemptedProblems] = useState(new Set());
     const [attemptedNames, setAttemptedNames] = useState(new Set());
+    const [openingId, setOpeningId] = useState(null); // Prevents multi-click
 
     // --- FETCH SOLVED STATUS ---
     useEffect(() => {
@@ -182,9 +183,15 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
 
     // --- ACTION HANDLER ---
     const handleOpen = (p) => {
+        const uniqueKey = p.id || `${p.contestId}${p.index}`; // Handle Codeforces vs CSES keys
+        if (openingId) return; // Block double clicks
+
+        setOpeningId(uniqueKey);
+
+        const finalize = () => setOpeningId(null);
+
         if (provider === "cses") {
             // CSES OPEN LOGIC
-            // Directly fetch from backend scraper
              fetch(`${API_URL}/api/problems/cses/problem/${p.index}`)
                 .then(res => res.json())
                 .then(problemData => {
@@ -194,7 +201,8 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 .catch(err => {
                     console.error(err);
                     alert("Failed to load CSES problem: " + err.message);
-                });
+                })
+                .finally(finalize);
              return;
         }
 
@@ -259,6 +267,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                      }
                      console.log(`[ProblemBrowser] Backend Hit!`);
                      onOpenProblem(d);
+                     finalize();
                  })
                  .catch(apiErr => {
                      console.warn("[ProblemBrowser] Backend Failed/Empty, trying Extension...", apiErr.message);
@@ -271,6 +280,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 .then(html => {
                     const parsed = parseCodeforcesProblem(html, p.contestId, p.index);
                     onOpenProblem({ ...problemObj, ...parsed });
+                    finalize();
                     
                     // NEW: Save this successful scrape to Backend for other users!
                     console.log("[ProblemBrowser] Extension Success! Caching to backend...");
@@ -286,6 +296,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 .catch(extErr => {
                     console.error("All Fetches Failed", extErr);
                     fallbackToBasic("Both Backend and Extension failed to load this problem.");
+                    finalize();
                 });
         };
 
@@ -475,7 +486,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                 >
                                     <div style={{ width: "60px", fontSize: "12px", fontFamily: "var(--font-mono)", color: isSolved ? "#4ade80" : (isAttempted ? "#ef4444" : "#71717a") }}>
                                         <div style={{display: "flex", alignItems: "center", gap: "4px"}}>
-                                            {isSolved ? <CheckCircle2 size={10} color="#4ade80" /> : (isAttempted ? <X size={10} color="#ef4444" strokeWidth={3}/> : null)}
+                                            {openingId === id ? <Loader2 className="animate-spin" size={10} /> : (isSolved ? <CheckCircle2 size={10} color="#4ade80" /> : (isAttempted ? <X size={10} color="#ef4444" strokeWidth={3}/> : null))}
                                             {p.contestId}{p.index}
                                         </div>
                                     </div>
