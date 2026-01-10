@@ -9,8 +9,10 @@ import authRoutes from "./routes/auth.js";
 import fileRoutes from "./routes/files.js";
 import roomRoutes from "./routes/rooms.js";
 import problemRoutes from "./routes/problems.js";
-import leetRoutes from "./routes/leettools.js"; // <--- Import for leetRoutes
-import Room from "./models/Room.js"; // <--- NEW
+import leetRoutes from "./routes/leettools.js";
+import submissionRoutes from "./routes/submissionRoutes.js"; // <--- NEW
+import profileRoutes from "./routes/profile.js"; // <--- NEW
+import Room from "./models/Room.js";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 
@@ -96,7 +98,27 @@ app.use("/api/share", shareRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/problems", problemRoutes); // <--- New Route
-app.use("/api/leettools", leetRoutes); // <--- Register // <--- New Route
+app.use("/api/leettools", leetRoutes);
+app.use("/api/submissions", submissionRoutes); // <--- NEW
+app.use("/api/profile", profileRoutes); // <--- NEW
+
+// PROXY ROUTE FOR CODECHEF (CORS Fix)
+app.get("/api/proxy/codechef/:handle", async (req, res) => {
+  try {
+    const { handle } = req.params;
+    const response = await fetch(`https://codechef-api.vercel.app/handle/${handle}`);
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: "CodeChef API Error", status: response.status });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("Proxy Error:", error);
+    res.status(500).json({ error: "Failed to connect to CodeChef API", details: error.message });
+  }
+});
 
 
 app.get("/", (req, res) => res.send("API & Collaboration Server is running..."));

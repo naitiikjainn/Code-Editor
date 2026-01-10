@@ -42,29 +42,48 @@ export default function Editors({
   const docRef = useRef(null);
   const awarenessRef = useRef(null);
   const bindingRef = useRef(null);
+  const editorRef = useRef(null);
   const [isSynced, setIsSynced] = useState(false);
 
   // --- CLEANUP ---
   const cleanupYjs = useCallback(() => {
+    console.log("[Editors] Cleanup Triggered");
+    
+    if (bindingRef.current) {
+        try {
+            // Only destroy binding if model is potentially still alive
+            if (editorRef.current && editorRef.current.getModel() && !editorRef.current.getModel().isDisposed()) {
+                 bindingRef.current.destroy();
+            } else {
+                 console.log("[Editors] Model already disposed, skipping binding.destroy()");
+                 // Manually nullify if needed or just let it go
+                 bindingRef.current = null;
+            }
+        } catch (e) { 
+            console.warn("Yjs binding cleanup warning:", e); 
+        }
+        bindingRef.current = null;
+    }
+    
+    if (awarenessRef.current) {
+        try { awarenessRef.current.destroy(); } catch (e) { /* ignore */ }
+        awarenessRef.current = null;
+    }
     if (providerRef.current) {
-        providerRef.current.disconnect();
-        providerRef.current.destroy();
+        try { 
+            providerRef.current.disconnect();
+            providerRef.current.destroy(); 
+        } catch (e) { /* ignore */ }
         providerRef.current = null;
     }
     if (docRef.current) {
-        docRef.current.destroy();
+        try { docRef.current.destroy(); } catch (e) { /* ignore */ }
         docRef.current = null;
     }
-    if (awarenessRef.current) {
-        awarenessRef.current.destroy();
-        awarenessRef.current = null;
-    }
-    if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-    }
     setIsSynced(false);
+    editorRef.current = null;
   }, []);
+
 
   // --- LIFECYCLE ---
   useEffect(() => {
@@ -85,6 +104,7 @@ export default function Editors({
   // --- MOUNT HANDLER ---
   const handleMount = useCallback((editor, monaco) => {
     if (!activeFile) return;
+    editorRef.current = editor;
 
     // DESTROY OLD BINDING IF EXISTS (Crucial for file switching)
     if (bindingRef.current) {

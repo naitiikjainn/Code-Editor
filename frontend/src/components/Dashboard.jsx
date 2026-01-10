@@ -48,7 +48,9 @@ export default function Dashboard() {
         <div>
             {user ? (
                 <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-                    <span style={{ color: "var(--text-muted)" }}>Hello, <span style={{ color: "white" }}>{user.username}</span></span>
+                    <Link to="/profile" style={{ textDecoration: "none" }}>
+                        <span style={{ color: "var(--text-muted)", cursor: "pointer" }}>Hello, <span style={{ color: "white", fontWeight: "600" }}>{user.username}</span></span>
+                    </Link>
                     <button onClick={logout} className="btn-secondary">Logout</button>
                 </div>
             ) : (

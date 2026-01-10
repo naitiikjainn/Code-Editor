@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, Zap } from "lucide-react";
+import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, Zap, X } from "lucide-react";
 import { API_URL } from "../config";
 import { parseCodeforcesProblem } from "../utils/codeforces";
 
@@ -50,35 +50,55 @@ const FilterInput = ({ value, onChange, placeholder, icon }) => (
     </div>
 );
 
-export default function ProblemBrowser({ onOpenProblem, activeSheet: initialSheet, provider = "codeforces" }) {
+export default function ProblemBrowser({ onOpenProblem, activeSheet: initialSheet, provider = "codeforces", user }) {
     
     // --- STATE ---
     const [cfProblems, setCfProblems] = useState([]);
     const [cfLoading, setCfLoading] = useState(false);
     const [solvedProblems, setSolvedProblems] = useState(new Set());
+    const [solvedNames, setSolvedNames] = useState(new Set());
+    const [attemptedProblems, setAttemptedProblems] = useState(new Set());
+    const [attemptedNames, setAttemptedNames] = useState(new Set());
 
     // --- FETCH SOLVED STATUS ---
     useEffect(() => {
         if (provider !== "codeforces") return;
         
-        const handle = localStorage.getItem("cf_handle");
-        if (!handle) return;
+        const handle = localStorage.getItem("cf_handle") || user?.platforms?.codeforces;
+        console.log("[ProblemBrowser] Fetching status for handle:", handle);
 
-        fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=5000`) // Fetch last 5000 submissions
+        if (!handle) return;
+        
+        // Use Backend Proxy to avoid CORS
+        fetch(`${API_URL}/api/problems/codeforces/status/${handle}`) 
             .then(res => res.json())
             .then(data => {
                 if (data.status === "OK") {
                     const solved = new Set();
+                    const sNames = new Set();
+                    const attempted = new Set();
+                    const aNames = new Set();
+                    
                     data.result.forEach(sub => {
+                        const id = `${sub.contestId}${sub.problem.index}`;
+                        const name = sub.problem.name;
+                        
                         if (sub.verdict === "OK") {
-                            solved.add(`${sub.contestId}${sub.problem.index}`);
+                            solved.add(id);
+                            sNames.add(name);
+                        } else {
+                            attempted.add(id);
+                            aNames.add(name);
                         }
                     });
                     setSolvedProblems(solved);
+                    setSolvedNames(sNames);
+                    setAttemptedProblems(attempted);
+                    setAttemptedNames(aNames);
                 }
             })
             .catch(err => console.error("Failed to fetch user status", err));
-    }, [provider]);
+    }, [provider, user]);
     
     // --- FILTERS ---
     const [searchQuery, setSearchQuery] = useState("");
@@ -178,16 +198,22 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
              return;
         }
 
+        // Check ID or Name (Parallel Contests fix)
+        const id = `${p.contestId}${p.index}`;
+        const isSolved = solvedProblems.has(id) || solvedNames.has(p.name);
+        const isAttempted = !isSolved && (attemptedProblems.has(id) || attemptedNames.has(p.name));
+
         const problemObj = {
             provider: "codeforces",
             contestId: p.contestId,
             index: p.index,
-            id: `${p.contestId}${p.index}`,
+            id: id,
             title: p.name,
             rating: p.rating,
             tags: p.tags,
             url: `https://codeforces.com/contest/${p.contestId}/problem/${p.index}`,
-            isSolved: solvedProblems.has(`${p.contestId}${p.index}`)
+            isSolved: isSolved,
+            isAttempted: isAttempted
         };
 
         const fetchViaExtension = () => {
@@ -356,9 +382,9 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                                 }}
                                                 onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
                                                 onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                                            >
-                                                <div style={{ flex: 1, fontSize: "12px", color: "#a1a1aa" }}>{p.name}</div>
-                                                <div style={{ background: "rgba(234, 88, 12, 0.1)", color: "#ea580c", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}>Solve</div>
+                                             >
+                                                 <div style={{ flex: 1, fontSize: "12px", color: "#a1a1aa" }}>{p.name}</div>
+                                                 <div style={{ background: "rgba(234, 88, 12, 0.1)", color: "#ea580c", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}>Solve</div>
                                              </div>
                                          ))}
                                      </div>
@@ -402,7 +428,10 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                         {visibleProblems.map((p) => {
                             const id = `${p.contestId}${p.index}`;
                             const ratingColor = getRatingColor(p.rating);
-                            const isSolved = solvedProblems.has(id);
+                            
+                            // Check ID or Name (Parallel Contests fix)
+                            const isSolved = solvedProblems.has(id) || solvedNames.has(p.name);
+                            const isAttempted = !isSolved && (attemptedProblems.has(id) || attemptedNames.has(p.name));
                             
                             return (
                                 <div 
@@ -411,21 +440,21 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                     style={{ 
                                         display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.02)", cursor: "pointer", position: "relative",
                                         transition: "background 0.2s",
-                                        background: isSolved ? "rgba(34, 197, 94, 0.05)" : "transparent"
+                                        background: isSolved ? "rgba(34, 197, 94, 0.05)" : (isAttempted ? "rgba(239, 68, 68, 0.1)" : "transparent")
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = isSolved ? "rgba(34, 197, 94, 0.1)" : "rgba(255,255,255,0.03)"}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = isSolved ? "rgba(34, 197, 94, 0.05)" : "transparent"}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = isSolved ? "rgba(34, 197, 94, 0.1)" : (isAttempted ? "rgba(239, 68, 68, 0.15)" : "rgba(255,255,255,0.03)")}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = isSolved ? "rgba(34, 197, 94, 0.05)" : (isAttempted ? "rgba(239, 68, 68, 0.1)" : "transparent")}
                                 >
-                                    <div style={{ width: "60px", fontSize: "12px", fontFamily: "var(--font-mono)", color: isSolved ? "#4ade80" : "#71717a" }}>
+                                    <div style={{ width: "60px", fontSize: "12px", fontFamily: "var(--font-mono)", color: isSolved ? "#4ade80" : (isAttempted ? "#ef4444" : "#71717a") }}>
                                         <div style={{display: "flex", alignItems: "center", gap: "4px"}}>
-                                            {isSolved && <CheckCircle2 size={10} color="#4ade80" />}
+                                            {isSolved ? <CheckCircle2 size={10} color="#4ade80" /> : (isAttempted ? <X size={10} color="#ef4444" strokeWidth={3}/> : null)}
                                             {p.contestId}{p.index}
                                         </div>
                                     </div>
                                     
                                     <div style={{ flex: 1, minWidth: 0, paddingRight: "16px" }}>
                                         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                                            <span style={{ fontSize: "13px", fontWeight: "500", color: isSolved ? "#86efac" : "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                                            <span style={{ fontSize: "13px", fontWeight: "500", color: isSolved ? "#86efac" : (isAttempted ? "#fca5a5" : "#e4e4e7"), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                                         </div>
                                         <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                                             {p.tags.slice(0, 3).map(t => <TagChip key={t} label={t}/>)}

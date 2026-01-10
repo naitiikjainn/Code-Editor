@@ -114,6 +114,20 @@ router.get("/leetcode/:slug", async (req, res) => {
     }
 });
 
+// --- CODEFORCES STATUS PROXY (Must be before generic /:contestId/:index) ---
+router.get("/codeforces/status/:handle", async (req, res) => {
+    try {
+        const { handle } = req.params;
+        console.log(`[Proxy] Fetching status for ${handle}`);
+        const response = await fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=5000`);
+        const data = await response.json();
+        res.json(data);
+    } catch (err) {
+        console.error("CF Status Proxy Error:", err);
+        res.status(500).json({ error: "Failed to fetch status" });
+    }
+});
+
 // --- CODEFORCES API ---
 router.get("/codeforces/:contestId/:index", async (req, res) => {
     const { contestId, index } = req.params;

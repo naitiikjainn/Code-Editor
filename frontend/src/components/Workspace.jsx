@@ -552,6 +552,24 @@ export default function Workspace() {
                                                     type: isAc ? "success" : "error", 
                                                     message: `Verdict: ${verdict === "OK" ? "ACCEPTED" : verdict} (${submission.timeConsumedMillis}ms)` 
                                                 }]);
+
+                                                // SAVE TO DB
+                                                fetch(`${API_URL}/api/submissions`, {
+                                                    method: "POST",
+                                                    headers: { 
+                                                        "Content-Type": "application/json",
+                                                        Authorization: `Bearer ${localStorage.getItem("codeplay_token")}`
+                                                    },
+                                                    body: JSON.stringify({
+                                                        problemId: `${contestId}${index}`,
+                                                        problemName: rightPanel.data.name || `Problem ${contestId}${index}`,
+                                                        platform: "codeforces",
+                                                        code: activeCode,
+                                                        language: "cpp", // Hardcoded for now, should dynamic later
+                                                        verdict: isAc ? "Accepted" : verdict,
+                                                        visibility: "public"
+                                                    })
+                                                }).catch(e => console.error("Failed to save submission:", e));
                                             }
                                         }
                                     }
@@ -999,6 +1017,7 @@ int main() {
                     {activeSidebar === "codeforces" && (
                         <ProblemBrowser 
                             provider="codeforces" 
+                            user={user}
                             onOpenProblem={(p) => {
                                 handleCodeNow(p);
                                 socket.emit("sync_problem", { roomId: id, problem: p });
@@ -1009,6 +1028,7 @@ int main() {
                     {activeSidebar === "cses" && (
                          <ProblemBrowser 
                             provider="cses" 
+                            user={user}
                             onOpenProblem={(p) => {
                                 handleCodeNow(p);
                                 socket.emit("sync_problem", { roomId: id, problem: p });
@@ -1018,6 +1038,7 @@ int main() {
                     {activeSidebar === "leetcode" && (
                          <ProblemBrowser 
                             provider="leetcode" 
+                            user={user}
                             onOpenProblem={(p) => {
                                 handleCodeNow(p);
                                 socket.emit("sync_problem", { roomId: id, problem: p });

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Play, Clock, Database, Tag, Copy, Check, Globe } from "lucide-react";
+import { Play, Clock, Database, Tag, Copy, Check, Globe, X } from "lucide-react";
 import "katex/dist/katex.min.css";
 import katex from "katex";
 
@@ -71,6 +71,17 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                             fontSize: "12px", fontWeight: "600", border: "1px solid rgba(34, 197, 94, 0.2)"
                         }}>
                             <Check size={14} strokeWidth={3} /> Solved
+                        </div>
+                    )}
+                    {problem.isAttempted && (
+                        <div style={{
+                            position: "absolute", top: "32px", right: "40px",
+                            display: "flex", alignItems: "center", gap: "6px",
+                            background: "rgba(239, 68, 68, 0.1)", color: "#ef4444",
+                            padding: "6px 12px", borderRadius: "20px",
+                            fontSize: "12px", fontWeight: "600", border: "1px solid rgba(239, 68, 68, 0.2)"
+                        }}>
+                            <X size={14} strokeWidth={3} /> Attempted
                         </div>
                     )}
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", opacity: 0.8 }}>
