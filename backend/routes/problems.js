@@ -130,6 +130,31 @@ router.get("/codeforces/status/:handle", async (req, res) => {
     }
 });
 
+// --- MANUAL CACHE ENDPOINT (For Extension Pipeline) ---
+router.post("/cache", async (req, res) => {
+    try {
+        const { problemId, data } = req.body;
+        if (!problemId || !data) return res.status(400).json({ error: "Missing data" });
+
+        console.log(`[Cache] Manual update for ${problemId}`);
+
+        // 1. Save to Mongo
+        await Problem.findOneAndUpdate(
+            { problemId },
+            { problemId, data },
+            { upsert: true, new: true }
+        );
+
+        // 2. Save to Redis (TTL 2 Days)
+        redis.setex(`problem:${problemId}`, 172800, JSON.stringify(data)).catch(e => console.error("Redis Save Error", e));
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error("Manual Cache Error:", e);
+        res.status(500).json({ error: "Failed to cache" });
+    }
+});
+
 // --- CODEFORCES API ---
 router.get("/codeforces/:contestId/:index", async (req, res) => {
     const { contestId, index } = req.params;
@@ -187,8 +212,8 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
 
             const text = await response.text();
 
-            if (text.includes("Redirecting") || text.includes("Just a moment") || text.includes("security check")) {
-                throw new Error("Anti-Bot Protection");
+            if (text.includes("Redirecting") || text.includes("Just a moment") || text.includes("security check") || text.includes("Enter »")) {
+                throw new Error("Anti-Bot Protection or Contest Entry Page");
             }
 
             // --- URL FIX ---
@@ -270,16 +295,20 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
                 testCases: testCases
             };
 
-            // 2. Save to Cache (Mongo + Redis)
-            try {
-                await Problem.create({ problemId, data: problemData });
-                console.log(`[Mongo] Saved ${problemId}`);
+            // 2. Save to Cache (Mongo + Redis) IF VALID
+            if (description !== "<p>No description available.</p>") {
+                try {
+                    await Problem.create({ problemId, data: problemData });
+                    console.log(`[Mongo] Saved ${problemId}`);
 
-                // Save to Redis (TTL: 2 Days)
-                redis.setex(`problem:${problemId}`, 172800, JSON.stringify(problemData)).catch(e => console.error("Redis Save Error", e));
+                    // Save to Redis (TTL: 2 Days)
+                    redis.setex(`problem:${problemId}`, 172800, JSON.stringify(problemData)).catch(e => console.error("Redis Save Error", e));
 
-            } catch (e) {
-                console.error("Cache Save Error (likely duplicate):", e.message);
+                } catch (e) {
+                    console.error("Cache Save Error (likely duplicate):", e.message);
+                }
+            } else {
+                console.warn(`[CF] Scrape incomplete for ${problemId}, skipping cache.`);
             }
 
             return res.json(problemData);

@@ -45,7 +45,8 @@ const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
   path: '/socket.io/',
-  destroyUpgrade: false
+  destroyUpgrade: false,
+  maxHttpBufferSize: 1e8 // 100 MB
 });
 
 const wss = new WebSocketServer({ noServer: true });

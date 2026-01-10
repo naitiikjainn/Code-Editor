@@ -232,36 +232,52 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
              });
         };
 
-        const fallbackToBasic = (msg) => {
-             onOpenProblem({ 
-                ...problemObj, 
-                description: `<div style="padding:20px; text-align:center; color:#ef4444;">
-                    <h3>Fetch Failed</h3>
-                    <p>${msg}</p>
-                    <p>Codeforces might be blocking automated requests.</p>
-                    <a href="${problemObj.url}" target="_blank" style="color:#60a5fa; text-decoration:underline;">View on Codeforces</a>
-                </div>`
-            });
+        // STRATEGY: Backend (Redis/Cache) -> Extension (Fallback) -> Cache Result
+        const tryBackendFirst = () => {
+             console.log(`[ProblemBrowser] Checking Backend for ${id}...`);
+             fetch(`${API_URL}/api/problems/codeforces/${p.contestId}/${p.index}`)
+                 .then(res => {
+                     if (!res.ok) throw new Error("Backend miss or error");
+                     return res.json();
+                 })
+                 .then(d => {
+                     // CRITICAL: If backend returns "No description", treat as MISS
+                     if (d.error || !d.description || d.description.includes("No description available")) {
+                         throw new Error("Backend has no description (Anti-Bot)");
+                     }
+                     console.log(`[ProblemBrowser] Backend Hit!`);
+                     onOpenProblem(d);
+                 })
+                 .catch(apiErr => {
+                     console.warn("[ProblemBrowser] Backend Failed/Empty, trying Extension...", apiErr.message);
+                     tryExtensionFallback();
+                 });
         };
 
-        fetchViaExtension()
-            .then(html => {
-                const parsed = parseCodeforcesProblem(html, p.contestId, p.index);
-                onOpenProblem({ ...problemObj, ...parsed });
-            })
-            .catch(extErr => {
-                console.warn("Extension Fetch Failed, trying backend...", extErr);
-                fetch(`${API_URL}/api/problems/codeforces/${p.contestId}/${p.index}`)
-                     .then(res => res.json())
-                     .then(d => {
-                         if (d.error) throw new Error(d.error);
-                         onOpenProblem(d);
-                     })
-                     .catch(apiErr => {
-                         console.error("Backend Fetch Failed", apiErr);
-                         fallbackToBasic(extErr.toString());
-                     });
-            });
+        const tryExtensionFallback = () => {
+             fetchViaExtension()
+                .then(html => {
+                    const parsed = parseCodeforcesProblem(html, p.contestId, p.index);
+                    onOpenProblem({ ...problemObj, ...parsed });
+                    
+                    // NEW: Save this successful scrape to Backend for other users!
+                    console.log("[ProblemBrowser] Extension Success! Caching to backend...");
+                    fetch(`${API_URL}/api/problems/cache`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                            problemId: id, 
+                            data: { ...problemObj, ...parsed } 
+                        })
+                    }).catch(err => console.error("Failed to cache extension result:", err));
+                })
+                .catch(extErr => {
+                    console.error("All Fetches Failed", extErr);
+                    fallbackToBasic("Both Backend and Extension failed to load this problem.");
+                });
+        };
+
+        tryBackendFirst();
     };
 
     return (

@@ -130,7 +130,7 @@ export default function Workspace() {
     
     // Listen for remote problem selection
     const handleSyncProblem = (problem) => {
-        console.log("Syncing problem:", problem);
+        console.log(`📥 Syncing problem: ${problem?.title} (Desc Len: ${problem?.description?.length})`);
         setRightPanel({ type: "preview", data: problem });
     };
 
