@@ -1,4 +1,5 @@
 import express from "express";
+import Problem from "../models/Problem.js"; // Import Problem Model
 const router = express.Router();
 
 // Helper to clean Codeforces HTML inputs
@@ -131,6 +132,18 @@ router.get("/codeforces/status/:handle", async (req, res) => {
 // --- CODEFORCES API ---
 router.get("/codeforces/:contestId/:index", async (req, res) => {
     const { contestId, index } = req.params;
+    const problemId = `${contestId}${index}`;
+
+    // 1. Check Cache
+    try {
+        const cached = await Problem.findOne({ problemId });
+        if (cached) {
+            console.log(`[Cache] Hit for ${problemId}`);
+            return res.json(cached.data);
+        }
+    } catch (e) {
+        console.error("Cache Check Error:", e);
+    }
 
     const urls = [
         `https://codeforces.com/contest/${contestId}/problem/${index}`,
@@ -234,14 +247,24 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
                 expectedOutput: outputs[i] || ""
             }));
 
-            return res.json({
+            const problemData = {
                 provider: "codeforces",
                 id: `${contestId}${index}`,
                 title: title,
                 url: url,
                 description: description, // <--- ADDED
                 testCases: testCases
-            });
+            };
+
+            // 2. Save to Cache
+            try {
+                await Problem.create({ problemId, data: problemData });
+                console.log(`[Cache] Saved ${problemId}`);
+            } catch (e) {
+                console.error("Cache Save Error (likely duplicate):", e.message);
+            }
+
+            return res.json(problemData);
 
         } catch (err) {
             console.warn(`[CF] Failed ${url}: ${err.message}`);
