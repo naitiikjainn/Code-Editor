@@ -1,18 +1,9 @@
 import express from "express";
 import Problem from "../models/Problem.js"; // Import Problem Model
 import redis from "../config/redis.js"; // Import Redis Wrapper
+
 const router = express.Router();
 
-// Helper to clean Codeforces HTML inputs
-const cleanCFText = (html) => {
-    return html
-        .replace(/<br>/g, "\n")
-        .replace(/<[^>]*>/g, "")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&amp;/g, "&")
-        .trim();
-};
 
 // --- LEETCODE API ---
 router.get("/leetcode/:slug", async (req, res) => {
@@ -141,7 +132,11 @@ router.post("/cache", async (req, res) => {
         // 1. Save to Mongo
         await Problem.findOneAndUpdate(
             { problemId },
-            { problemId, data },
+            {
+                problemId,
+                data,
+                lastAccessed: new Date() // Reset TTL
+            },
             { upsert: true, new: true }
         );
 
@@ -152,6 +147,32 @@ router.post("/cache", async (req, res) => {
     } catch (e) {
         console.error("Manual Cache Error:", e);
         res.status(500).json({ error: "Failed to cache" });
+    }
+});
+
+// --- CLEAR CACHE ENDPOINT ---
+router.delete("/cache", async (req, res) => {
+    try {
+        console.log("[Cache] Clearing Codeforces cache...");
+
+        // 1. Clear Redis Keys (pattern: problem:*)
+        const keys = await redis.keys("problem:*");
+        if (keys.length > 0) {
+            await redis.del(keys);
+            console.log(`[Redis] Deleted ${keys.length} keys`);
+        }
+
+        // 2. Clear MongoDB (Provider: Codeforces or all)
+        // Assuming data structure has provider inside data or we just wipe all for now as 'cp31' implies all relevant CF problems.
+        // But let's be safe and only delete if problemId looks like CF or we can filter if the schema allows.
+        // For now, wiping 'Problem' collection is effectively what is asked since mostly it stores fetched problems.
+        await Problem.deleteMany({});
+        console.log("[Mongo] Cleared Problem collection");
+
+        res.json({ success: true, message: "Cache cleared" });
+    } catch (e) {
+        console.error("Clear Cache Error:", e);
+        res.status(500).json({ error: "Failed to clear cache" });
     }
 });
 
@@ -176,6 +197,11 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
         const cached = await Problem.findOne({ problemId });
         if (cached) {
             console.log(`[Mongo] Hit for ${problemId}`);
+
+            // Sliding TTL: Update lastAccessed to keep it alive
+            cached.lastAccessed = new Date();
+            cached.save().catch(e => console.error("TTL Update Error:", e));
+
             // Save to Redis for next time (TTL: 2 Days = 172800s)
             redis.setex(`problem:${problemId}`, 172800, JSON.stringify(cached.data)).catch(e => console.error("Redis Save Error", e));
             return res.json(cached.data);
@@ -184,142 +210,9 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
         console.error("Cache Check Error:", e);
     }
 
-    const urls = [
-        `https://codeforces.com/contest/${contestId}/problem/${index}`,
-        `https://codeforces.com/problemset/problem/${contestId}/${index}`,
-        `https://mirror.codeforces.com/contest/${contestId}/problem/${index}`,
-        `https://m1.codeforces.com/contest/${contestId}/problem/${index}`
-    ];
-
-    const headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-    };
-
-    let lastError = null;
-
-    for (const url of urls) {
-        try {
-            console.log(`[CF] Trying ${url}...`);
-            if (urls.indexOf(url) > 0) await new Promise(r => setTimeout(r, 500));
-
-            const response = await fetch(url, { headers });
-
-            if (!response.ok) {
-                if (response.status === 404) throw new Error("Problem not found (404)");
-                throw new Error(`Status ${response.status}`);
-            }
-
-            const text = await response.text();
-
-            if (text.includes("Redirecting") || text.includes("Just a moment") || text.includes("security check") || text.includes("Enter »")) {
-                throw new Error("Anti-Bot Protection or Contest Entry Page");
-            }
-
-            // --- URL FIX ---
-            // Codeforces uses relative URLs for images (e.g. src="/predownloaded/...")
-            // We need to replace them with absolute URLs to make them visible
-            // Also MathJax might be broken, but we can't fix that easily without client-side scripts.
-            const baseUrl = new URL(url).origin;
-            const fixedText = text.replace(/src="\//g, `src="${baseUrl}/`);
-
-            // --- TITLE ---
-            let title = `${contestId}${index}`;
-            const titleDivMatch = fixedText.match(/<div class="title">([^<]*)<\/div>/);
-            const titleTagMatch = fixedText.match(/<title>(.*?)<\/title>/);
-
-            if (titleDivMatch) {
-                title = titleDivMatch[1].trim();
-            } else if (titleTagMatch) {
-                title = titleTagMatch[1].replace(" - Codeforces", "").trim();
-            }
-
-            // --- DESCRIPTION SCRAPING ---
-            // Look for <div class="problem-statement"> ... <div class="sample-tests">
-            // This captures Header + Legend + Input Spec + Output Spec
-            let description = "<p>No description available.</p>";
-
-            const startMarker = '<div class="problem-statement">';
-            const endMarker = '<div class="sample-tests">';
-
-            const startIndex = fixedText.indexOf(startMarker);
-            if (startIndex !== -1) {
-                const endIndex = fixedText.indexOf(endMarker, startIndex);
-                if (endIndex !== -1) {
-                    description = fixedText.substring(startIndex, endIndex) + "</div>"; // Close the div implicitly or close specific tags? 
-                    // Actually, cutting off at sample-tests leaves open divs.
-                    // But browser HTML parsers (innerHTML) are usually forgiving. 
-                    // Let's try to include the end div of problem-statement? No, that's at the very end.
-                    // We'll just wrap it in a div just in case.
-                    description = `<div>${description}</div>`;
-                } else {
-                    // Maybe no sample tests? Just take a chunk or look for another marker like "output-specification" + some buffer?
-                    // Fallback: Take everything from problem-statement start for 5000 chars?
-                    // Better: look for Note?
-                    const noteIndex = fixedText.indexOf('<div class="note">', startIndex);
-                    if (noteIndex !== -1) {
-                        description = fixedText.substring(startIndex, noteIndex) + "</div>";
-                    } else {
-                        // Just take reasonable amount
-                        description = fixedText.substring(startIndex, startIndex + 6000) + "...</div>";
-                    }
-                }
-            }
-
-            // --- INPUTS/OUTPUTS ---
-            const inputs = [];
-            const outputs = [];
-
-            const inputRegex = /<div class="input">[\s\S]*?<pre>([\s\S]*?)<\/pre>/g;
-            const outputRegex = /<div class="output">[\s\S]*?<pre>([\s\S]*?)<\/pre>/g;
-
-            let match;
-            while ((match = inputRegex.exec(fixedText)) !== null) {
-                inputs.push(cleanCFText(match[1]));
-            }
-            while ((match = outputRegex.exec(fixedText)) !== null) {
-                outputs.push(cleanCFText(match[1]));
-            }
-
-            const testCases = inputs.map((inp, i) => ({
-                input: inp,
-                expectedOutput: outputs[i] || ""
-            }));
-
-            const problemData = {
-                provider: "codeforces",
-                id: `${contestId}${index}`,
-                title: title,
-                url: url,
-                description: description, // <--- ADDED
-                testCases: testCases
-            };
-
-            // 2. Save to Cache (Mongo + Redis) IF VALID
-            if (description !== "<p>No description available.</p>") {
-                try {
-                    await Problem.create({ problemId, data: problemData });
-                    console.log(`[Mongo] Saved ${problemId}`);
-
-                    // Save to Redis (TTL: 2 Days)
-                    redis.setex(`problem:${problemId}`, 172800, JSON.stringify(problemData)).catch(e => console.error("Redis Save Error", e));
-
-                } catch (e) {
-                    console.error("Cache Save Error (likely duplicate):", e.message);
-                }
-            } else {
-                console.warn(`[CF] Scrape incomplete for ${problemId}, skipping cache.`);
-            }
-
-            return res.json(problemData);
-
-        } catch (err) {
-            console.warn(`[CF] Failed ${url}: ${err.message}`);
-            lastError = err;
-        }
-    }
-
-    res.status(500).json({ error: `Failed to fetch Codeforces problem. Last error: ${lastError?.message}` });
+    // 3. If Cache Miss, Return 404 (Force Extension Fetch)
+    console.log(`[Backend] Cache miss for ${problemId}. Delegating to Extension.`);
+    return res.status(404).json({ error: "Not found in cache", requiresExtension: true });
 });
 
 // --- CODEFORCES LIST ---
@@ -363,6 +256,45 @@ router.get("/codeforces/user/:handle", async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: "Failed to fetch user stats" });
     }
+});
+
+// --- CODEFORCES API ---
+router.get("/codeforces/:contestId/:index", async (req, res) => {
+    const { contestId, index } = req.params;
+    const problemId = `${contestId}${index}`;
+
+    // 1. Check Redis Cache (Fastest)
+    try {
+        const cachedParams = await redis.get(`problem:${problemId}`);
+        if (cachedParams) {
+            console.log(`[Redis] Hit for ${problemId}`);
+            return res.json(JSON.parse(cachedParams));
+        }
+    } catch (e) {
+        console.warn("Redis Check Failed:", e.message);
+    }
+
+    // 2. Check DB Cache (Fast)
+    try {
+        const cached = await Problem.findOne({ problemId });
+        if (cached) {
+            console.log(`[Mongo] Hit for ${problemId}`);
+
+            // Sliding TTL: Update lastAccessed to keep it alive
+            cached.lastAccessed = new Date();
+            cached.save().catch(e => console.error("TTL Update Error:", e));
+
+            // Save to Redis for next time (TTL: 2 Days = 172800s)
+            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(cached.data)).catch(e => console.error("Redis Save Error", e));
+            return res.json(cached.data);
+        }
+    } catch (e) {
+        console.error("Cache Check Error:", e);
+    }
+
+    // 3. If Cache Miss, Return 404 (Force Extension Fetch)
+    console.log(`[Backend] Cache miss for ${problemId}. Delegating to Extension.`);
+    return res.status(404).json({ error: "Not found in cache", requiresExtension: true });
 });
 
 // --- CSES API ---

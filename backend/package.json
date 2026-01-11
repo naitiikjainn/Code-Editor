@@ -21,6 +21,7 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.11",
     "nodemon": "^3.1.11",
+    "puppeteer": "^24.34.0",
     "socket.io": "^4.8.1",
     "ws": "^8.18.3",
     "y-websocket": "^1.5.4"

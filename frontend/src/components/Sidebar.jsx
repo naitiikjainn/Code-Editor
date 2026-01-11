@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Files, MessageSquare, Settings, FolderOpen, ChevronLeft, Users, FlaskConical, Trophy, PenTool } from "lucide-react";
+import { Files, MessageSquare, Settings, FolderOpen, ChevronLeft, Users, FlaskConical, Trophy, PenTool, ListOrdered } from "lucide-react";
 
 export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
   
@@ -84,6 +84,21 @@ export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                     <path d="M13.483 0a1.374 1.374 0 0 0-.961.403L5.36 7.565l-2.454-2.452-.036-.036a1.272 1.272 0 0 0-1.802 0 1.272 1.272 0 0 0 0 1.802l3.393 3.393L.403 14.331a1.277 1.277 0 0 0 0 1.805 1.27 1.27 0 0 0 1.805 0l4.058-4.058 7.217 7.217a1.375 1.375 0 0 0 2.336-.972c0-.363-.143-.714-.403-.972l-6.248-6.248L15.357 5.01a1.275 1.275 0 1 0-1.805-1.805L7.494 9.263 12.522 4.234a1.374 1.374 0 0 0 .961-4.234z" fill="#FFA116"/>
                </svg>
+            </div>
+
+            {/* CP-31 SHEET */}
+            <div 
+                onClick={() => setActiveTab(activeTab === "cp31" && isOpen ? null : "cp31")}
+                title="CP-31 Sheet"
+                style={{
+                    width: "48px", height: "48px", display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer",
+                    color: activeTab === "cp31" && isOpen ? "white" : "var(--text-muted)",
+                    borderLeft: activeTab === "cp31" && isOpen ? "2px solid #22c55e" : "2px solid transparent",
+                    background: activeTab === "cp31" && isOpen ? "var(--bg-hover)" : "transparent",
+                    transition: "all 0.2s"
+                }}
+            >
+               <ListOrdered size={22} />
             </div>
 
             {renderIcon("tests", FlaskConical, "Test Cases")}

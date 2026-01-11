@@ -17,8 +17,12 @@ const problemSchema = new mongoose.Schema({
     },
     createdAt: {
         type: Date,
+        default: Date.now
+    },
+    lastAccessed: {
+        type: Date,
         default: Date.now,
-        expires: '30d' // TTL Index: Automatically deletes after 30 days
+        expires: '30d' // TTL: Deletes if not accessed (updated) for 30 days
     }
 });
 

@@ -6,16 +6,47 @@ import katex from "katex";
 // --- MATH RENDERER ---
 const renderMath = (html) => {
     if (!html) return "";
-    return html.replace(/\$\$\$(.*?)\$\$\$/g, (match, tex) => {
-        try {
-            const decodedTex = tex.replace(/&lt;/g, "<")
-                                  .replace(/&gt;/g, ">")
-                                  .replace(/&amp;/g, "&")
-                                  .replace(/&nbsp;/g, " ");
-            return katex.renderToString(decodedTex, { throwOnError: false });
-        } catch (e) { return match; }
-    });
+    
+    // Helper to clean LaTeX source (strip HTML tags, decode entities)
+    const cleanTex = (tex) => {
+        return tex.replace(/<[^>]*>/g, "") // Strip <br>, <i>, <font> etc.
+                  .replace(/&lt;/g, "<")
+                  .replace(/&gt;/g, ">")
+                  .replace(/&amp;/g, "&")
+                  .replace(/&nbsp;/g, " ")
+                  .trim();
+    };
+
+    return html
+        // 1. Handle Codeforces $$$...$$$
+        .replace(/\$\$\$([\s\S]*?)\$\$\$/g, (match, tex) => {
+            try {
+                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
+            } catch (e) { return match; }
+        })
+        // 2. Handle standard \[ ... \]
+        .replace(/\\\[([\s\S]*?)\\\]/g, (match, tex) => { 
+             try {
+                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: true });
+            } catch (e) { return match; }
+        })
+        // 3. Handle standard \( ... \) inline
+        .replace(/\\\(([\s\S]*?)\\\)/g, (match, tex) => {
+             try {
+                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
+            } catch (e) { return match; }
+        })
+        // 4. Handle Legacy Codeforces <span class="tex-span">...</span>
+        .replace(/<span class="tex-span">([\s\S]*?)<\/span>/g, (match, tex) => {
+             try {
+                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
+            } catch (e) { return match; }
+        });
 };
+
+/* ... */
+
+
 
 const CopyButton = ({ text }) => {
     const [copied, setCopied] = useState(false);
@@ -50,7 +81,7 @@ export default function ProblemPreview({ problem, onCodeNow }) {
     const processedNote = React.useMemo(() => renderMath(problem.note), [problem.note]);
 
     return (
-        <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#09090b", color: "#e4e4e7", fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#09090b", color: "#e4e4e7", fontFamily: "verdana, arial, sans-serif" }}>
             
             {/* CONTENT SCROLL AREA */}
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
@@ -138,6 +169,7 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                             border-radius: 6px; 
                         }
                         .problem-content img { max-width: 100%; height: auto; }
+                        .problem-content .header, .problem-content .sample-tests, .problem-content .title { display: none !important; }
                         `}
                     </style>
                     <div 
@@ -146,7 +178,7 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                         dangerouslySetInnerHTML={{ __html: processedDescription || "<p style='opacity:0.5'>No description content.</p>" }}
                     />
 
-                    {/* 3. TEST CASES (Cards) */}
+                    {/* 3. TEST CASES (Stacked Layout - Codeforces Style) */}
                     {problem.testCases && problem.testCases.length > 0 && (
                          <div style={{ marginTop: "48px" }}>
                              <h3 style={{ fontSize: "14px", fontWeight: "700", marginBottom: "20px", color: "#fff", textTransform: "uppercase", letterSpacing: "1px", opacity: 0.7 }}>Test Cases</h3>
@@ -154,30 +186,26 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                              <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
                                  {problem.testCases.map((tc, idx) => (
                                      <div key={idx} style={{ 
-                                         background: "#18181b", 
-                                         borderRadius: "12px", 
-                                         border: "1px solid rgba(255,255,255,0.05)",
-                                         overflow: "hidden" 
+                                         display: "grid", gridTemplateColumns: "1fr 1fr", 
+                                         border: "1px solid rgba(255,255,255,0.05)", borderRadius: "6px", overflow: "hidden",
+                                         background: "#18181b" 
                                      }}>
-                                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                                              {/* HEADER ROW */}
-                                              <div style={{ padding: "8px 16px", background: "rgba(0,0,0,0.2)", display: "flex", justifyContent: "space-between", fontSize: "11px", fontWeight:"600", color:"#71717a", borderRight: "1px solid rgba(255,255,255,0.05)" }}>
-                                                  INPUT
-                                                  <CopyButton text={tc.input} />
-                                              </div>
-                                              <div style={{ padding: "8px 16px", background: "rgba(0,0,0,0.2)", display: "flex", justifyContent: "space-between", fontSize: "11px", fontWeight:"600", color:"#71717a" }}>
-                                                  OUTPUT
-                                              </div>
+                                         {/* INPUT COLUMN */}
+                                         <div style={{ borderRight: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column" }}>
+                                             <div style={{ padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                 <span style={{ fontSize: "11px", fontWeight: "700", color: "#a1a1aa", letterSpacing: "0.5px" }}>INPUT</span>
+                                                 <CopyButton text={tc.input} />
+                                             </div>
+                                             <pre style={{ margin: 0, padding: "12px", flex: 1, fontFamily: "Consolas, Monaco, 'Andale Mono', monospace", fontSize: "13px", color: "#e4e4e7", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: "1.5" }}>{tc.input}</pre>
                                          </div>
-                                         
-                                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-                                             {/* CONTENT ROW */}
-                                             <div style={{ padding: "16px", fontFamily: "var(--font-mono)", fontSize: "13px", color: "#e4e4e7", borderRight: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.01)" }}>
-                                                 <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{tc.input}</pre>
+
+                                         {/* OUTPUT COLUMN */}
+                                         <div style={{ display: "flex", flexDirection: "column" }}>
+                                             <div style={{ padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                 <span style={{ fontSize: "11px", fontWeight: "700", color: "#a1a1aa", letterSpacing: "0.5px" }}>OUTPUT</span>
+                                                 <CopyButton text={tc.expectedOutput} />
                                              </div>
-                                             <div style={{ padding: "16px", fontFamily: "var(--font-mono)", fontSize: "13px", color: "#e4e4e7" }}>
-                                                 <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{tc.expectedOutput}</pre>
-                                             </div>
+                                             <pre style={{ margin: 0, padding: "12px", flex: 1, fontFamily: "Consolas, Monaco, 'Andale Mono', monospace", fontSize: "13px", color: "#e4e4e7", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: "1.5" }}>{tc.expectedOutput}</pre>
                                          </div>
                                      </div>
                                  ))}

@@ -11,6 +11,7 @@ import ParticipantsPanel from "./ParticipantsPanel";
 import TestPanel from "./TestPanel";
 import { generateCppRunner } from "../utils/cppRunner"; 
 import ProblemBrowser from "./ProblemBrowser"; 
+import CP31Browser from "./CP31Browser";
 import ProblemPreview from "./ProblemPreview"; 
 import ErrorBoundary from "./ErrorBoundary"; 
 import useDebounce from "../hooks/useDebounce"; 
@@ -61,7 +62,11 @@ export default function Workspace() {
   }, [activeFile]);
   
   const [input, setInput] = useState(""); 
-  const [viewMode, setViewMode] = useState("editor"); // "editor" | "problem_full"
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem("viewMode") || "editor"); // "editor" | "problem_full"
+  
+  // Persist View Mode
+  useEffect(() => { localStorage.setItem("viewMode", viewMode); }, [viewMode]);
+
   const [languageModalOpen, setLanguageModalOpen] = useState(false);
   const [selectedProblemForCode, setSelectedProblemForCode] = useState(null); 
   
@@ -79,9 +84,10 @@ export default function Workspace() {
   const [shareUrl, setShareUrl] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState([]);
-  const [consoleHeight, setConsoleHeight] = useState(250); 
+  // LAYOUT PERSISTENCE
+  const [consoleHeight, setConsoleHeight] = useState(() => parseInt(localStorage.getItem("consoleHeight")) || 250); 
   const [isResizing, setIsResizing] = useState(false); 
-  const [sidebarWidth, setSidebarWidth] = useState(380);
+  const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(localStorage.getItem("sidebarWidth")) || 380);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false); 
 
   // RIGHT PANEL STATE (CPH Style)
@@ -91,9 +97,14 @@ export default function Workspace() {
         return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   }); // { type: 'preview', data: problem } or null 
-  const [rightPanelWidth, setRightPanelWidth] = useState(600);
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => parseInt(localStorage.getItem("rightPanelWidth")) || 600);
   const [isRightPanelResizing, setIsRightPanelResizing] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+
+  // SAVE LAYOUT CHANGES
+  useEffect(() => { localStorage.setItem("consoleHeight", consoleHeight); }, [consoleHeight]);
+  useEffect(() => { localStorage.setItem("sidebarWidth", sidebarWidth); }, [sidebarWidth]);
+  useEffect(() => { localStorage.setItem("rightPanelWidth", rightPanelWidth); }, [rightPanelWidth]);
 
 
   // COLLAB STATE
@@ -232,6 +243,8 @@ export default function Workspace() {
 	   setPendingGuests(prev => prev.filter(g => g.socketId !== socketId));
   };
   
+
+
   // --- FETCH FILES ---
   const fetchFiles = async () => {
 	  try {
@@ -639,12 +652,12 @@ export default function Workspace() {
              window.removeEventListener("message", handleResult);
              setIsSubmitting(prev => {
                  if (prev) { 
-                     setLogs(p => [...p, { type: "error", message: "Submission Failed: Extension Disconnected. Please REFRESH the page to reconnect." }]);
+                     setLogs(p => [...p, { type: "error", message: "Submission Timeout: Extension took too long to respond. The code might have been submitted." }]);
                      return false;
                  }
                  return prev;
              });
-        }, 8000);
+        }, 30000); // Increased to 30s for Codeforces latency
         
         return;
     }
@@ -787,9 +800,13 @@ export default function Workspace() {
         }
 
         // --- GENERATE BOILERPLATE BASED ON LANGUAGE ---
+        // --- GENERATE BOILERPLATE BASED ON LANGUAGE ---
         if (language === "cpp") {
-             // ... existing C++ logic ...
-             initialCode = `#include <bits/stdc++.h>
+             const userTmp = localStorage.getItem("user_cpp_template");
+             if (userTmp && userTmp.trim().length > 0) {
+                 initialCode = userTmp;
+             } else {
+                 initialCode = `#include <bits/stdc++.h>
 using namespace std;
 
 void solve() {
@@ -803,6 +820,7 @@ int main() {
     return 0;
 }
 `;
+             }
         } else if (language === "java") {
             initialCode = `import java.util.*;
 import java.io.*;
@@ -870,12 +888,29 @@ rl.on('line', (line) => {
         
         // 3. Switch to File
         if (targetFile) {
+            // FIX: Editors.jsx uses activeFile.content to init YJS.
+            // If the file is new or empty, we MUST ensure the object passed to setActiveFile has content.
+            if (!targetFile.content || targetFile.content.trim().length === 0) {
+                 // Create a copy to avoid mutating state directly if it came from 'files'
+                 targetFile = { ...targetFile, content: initialCode };
+            }
+            
             setActiveFile(targetFile);
-            setActiveCode(targetFile.content || initialCode);
+            setActiveCode(targetFile.content);
         }
 
         // 5. ENSURE PREVIEW IS AVAILABLE (Right Panel)
         setRightPanel({ type: "preview", data: problem });
+
+        // 6. SYNC TEST CASES (Critical Fix)
+        if (problem.testCases) {
+            setTestCases(problem.testCases.map(tc => ({
+                input: tc.input || "",
+                expectedOutput: tc.expectedOutput || tc.output || ""
+            })));
+        } else {
+            setTestCases([]);
+        }
     };
 
 
@@ -1058,6 +1093,17 @@ rl.on('line', (line) => {
                     {activeSidebar === "leetcode" && (
                          <ProblemBrowser 
                             provider="leetcode" 
+                            user={user}
+                            onOpenProblem={(p) => {
+                                // Full Screen Mode
+                                setRightPanel({ type: "preview", data: p });
+                                setViewMode("problem_full");
+                                socket.emit("sync_problem", { roomId: id, problem: p });
+                            }} 
+                        />
+                    )}
+                    {activeSidebar === "cp31" && (
+                         <CP31Browser 
                             user={user}
                             onOpenProblem={(p) => {
                                 // Full Screen Mode

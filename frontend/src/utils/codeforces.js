@@ -70,21 +70,57 @@ export const parseCodeforcesProblem = (html, contestId, index) => {
 
         const processPre = (pre) => {
             if (!pre) return "";
-            // Hybrid Approach:
-            // 1. Get raw HTML
-            let html = pre.innerHTML;
 
-            // 2. Force newlines on block endings using Regex
-            // This is safer than DOM traversal for "hidden" breaks
-            html = html.replace(/<br\s*\/?>/gi, "\n");
-            html = html.replace(/<\/div>/gi, "\n</div>");
-            html = html.replace(/<\/p>/gi, "\n</p>");
-            html = html.replace(/<\/li>/gi, "\n</li>");
+            // Log raw HTML for debugging
+            console.log("[CF Parser] Raw PRE HTML:", pre.innerHTML);
 
-            // 3. Decode entities and strip tags via temporary DOM element
-            const temp = document.createElement("div");
-            temp.innerHTML = html;
-            return temp.textContent.trim();
+            let result = "";
+            let lastWasBlock = false;
+
+            const parseNode = (node) => {
+                // Text Node: 3
+                if (node.nodeType === 3) {
+                    const text = node.textContent; // Don't trim yet, pre content matters
+                    if (text) {
+                        result += text;
+                        lastWasBlock = false;
+                    }
+                }
+                // Element Node: 1
+                else if (node.nodeType === 1) {
+                    const tag = node.tagName;
+
+                    if (tag === "BR") {
+                        result += "\n";
+                        lastWasBlock = true;
+                    }
+                    else if (["DIV", "P", "LI", "TR"].includes(tag)) {
+                        // Block Element
+                        if (!lastWasBlock && result.length > 0 && !result.endsWith("\n")) {
+                            result += "\n"; // Ensure break before
+                        }
+
+                        node.childNodes.forEach(parseNode);
+
+                        if (!result.endsWith("\n")) {
+                            result += "\n"; // Ensure break after
+                        }
+                        lastWasBlock = true;
+                    }
+                    else {
+                        // Inline (span, b, code, etc.)
+                        node.childNodes.forEach(parseNode);
+                        lastWasBlock = false;
+                    }
+                }
+            };
+
+            pre.childNodes.forEach(parseNode);
+
+            // Cleanup: reduce 3+ newlines to 2, trim start/end
+            const final = result.replace(/\n{3,}/g, "\n\n").trim();
+            console.log("[CF Parser] Parsed Result:", final);
+            return final;
         };
 
         inputPres.forEach((inp, i) => {
