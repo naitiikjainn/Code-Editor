@@ -573,16 +573,25 @@ export default function Workspace() {
                                             s.contestId == contestId && s.problem.index == index
                                         );
                                         if (submission) {
+
                                             const verdict = submission.verdict;
                                             if (verdict === "TESTING") {
-                                                 // Working...
+                                                 const testCount = submission.passedTestCount + 1;
+                                                 setLogs(prev => {
+                                                     // Remove previous "Running on test" logs to avoid clutter
+                                                     const filtered = prev.filter(l => !l.message.startsWith("Running on test"));
+                                                     return [...filtered, { type: "info", message: `Running on test ${testCount}...` }];
+                                                 });
                                             } else {
                                                 clearInterval(pollInterval);
                                                 const isAc = verdict === "OK";
-                                                setLogs(prev => [...prev, { 
-                                                    type: isAc ? "success" : "error", 
-                                                    message: `Verdict: ${verdict === "OK" ? "ACCEPTED" : verdict} (${submission.timeConsumedMillis}ms)` 
-                                                }]);
+                                                setLogs(prev => {
+                                                     const filtered = prev.filter(l => !l.message.startsWith("Running on test"));
+                                                     return [...filtered, { 
+                                                        type: isAc ? "success" : "error", 
+                                                        message: `Verdict: ${verdict === "OK" ? "ACCEPTED" : verdict} (${submission.timeConsumedMillis}ms) [Tests: ${submission.passedTestCount}]` 
+                                                    }];
+                                                });
 
                                                 // SAVE TO DB
                                                 fetch(`${API_URL}/api/submissions`, {
@@ -657,7 +666,7 @@ export default function Workspace() {
                  }
                  return prev;
              });
-        }, 30000); // Increased to 30s for Codeforces latency
+        }, 60000); // Increased to 60s for Codeforces latency
         
         return;
     }

@@ -1,6 +1,7 @@
 import express from "express";
 import Problem from "../models/Problem.js"; // Import Problem Model
 import redis from "../config/redis.js"; // Import Redis Wrapper
+import { fetchCodeforcesProblem } from "../utils/codeforcesScraper.js";
 
 const router = express.Router();
 
@@ -292,8 +293,32 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
         console.error("Cache Check Error:", e);
     }
 
-    // 3. If Cache Miss, Return 404 (Force Extension Fetch)
-    console.log(`[Backend] Cache miss for ${problemId}. Delegating to Extension.`);
+    // 3. Try Server-Side Scrape (Fallback)
+    try {
+        console.log(`[Backend] Cache miss for ${problemId}. Attempting server-side scrape...`);
+        const scrapedData = await fetchCodeforcesProblem(contestId, index);
+
+        if (scrapedData) {
+            console.log(`[Backend] Scrape successful for ${problemId}`);
+
+            // Save to Mongo
+            await Problem.findOneAndUpdate(
+                { problemId },
+                { problemId, data: scrapedData, lastAccessed: new Date() },
+                { upsert: true, new: true }
+            );
+
+            // Save to Redis
+            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(scrapedData)).catch(e => console.error("Redis Save Error", e));
+
+            return res.json(scrapedData);
+        }
+    } catch (scrapeErr) {
+        console.warn(`[Backend] Scrape failed for ${problemId}: ${scrapeErr.message}`);
+    }
+
+    // 4. If All Fails, Return 404 (Force Extension Fetch)
+    console.log(`[Backend] All methods failed for ${problemId}. Delegating to Extension.`);
     return res.status(404).json({ error: "Not found in cache", requiresExtension: true });
 });
 

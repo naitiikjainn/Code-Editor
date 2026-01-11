@@ -8,12 +8,13 @@
         "activeTab",
         "scripting",
         "declarativeNetRequest",
-        "declarativeNetRequestWithHostAccess"
+        "declarativeNetRequestWithHostAccess",
+        "storage",
+        "offscreen"
     ],
     "host_permissions": [
         "https://leetcode.com/*",
         "https://codeforces.com/*",
-        "https://cses.fi/*",
         "https://code-editor-phi-two.vercel.app/*",
         "http://localhost/*",
         "http://127.0.0.1/*",
