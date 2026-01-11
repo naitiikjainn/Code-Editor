@@ -72,7 +72,8 @@ const CP31Browser = ({ onOpenProblem, user }) => {
         // STRATEGY: Backend (Cache) -> Extension -> Save to Cache
         try {
              // 1. Try Backend
-             const res = await fetch(`${API_URL}/api/problems/codeforces/${problem.contestId}/${problem.index}?_t=${Date.now()}`);
+             // Force backend to bypass Redis cache using refresh=true
+             const res = await fetch(`${API_URL}/api/problems/codeforces/${problem.contestId}/${problem.index}?refresh=true`);
              const data = await res.json();
 
              if (!data.error && data.description && !data.description.includes("No description available")) {

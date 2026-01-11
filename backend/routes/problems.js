@@ -188,14 +188,18 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
     res.set("Expires", "0");
 
     // 1. Check Redis Cache (Fastest)
-    try {
-        const cachedParams = await redis.get(`problem:${problemId}`);
-        if (cachedParams) {
-            console.log(`[Redis] Hit for ${problemId}`);
-            return res.json(JSON.parse(cachedParams));
+    if (req.query.refresh !== 'true') {
+        try {
+            const cachedParams = await redis.get(`problem:${problemId}`);
+            if (cachedParams) {
+                console.log(`[Redis] Hit for ${problemId}`);
+                return res.json(JSON.parse(cachedParams));
+            }
+        } catch (e) {
+            console.warn("Redis Check Failed:", e.message);
         }
-    } catch (e) {
-        console.warn("Redis Check Failed:", e.message);
+    } else {
+        console.log(`[Redis] Bypass for ${problemId} (refresh=true)`);
     }
 
     // 2. Check DB Cache (Fast)

@@ -54,7 +54,7 @@ export default function SettingsPanel() {
                             <div style={{ fontSize: "13px", fontWeight: "500" }}>Add or Edit Template</div>
                         </div>
                         <ChevronRight size={16} color="#666" />
-                    </div>
+                        </div>
                 </div>
             )}
 
