@@ -65,7 +65,7 @@ const CP31Browser = ({ onOpenProblem, user }) => {
                  };
                  window.addEventListener("message", handler);
                  window.postMessage({ type: "CODEPLAY_FETCH_CF_HTML", payload: { url: problemObj.url } }, "*");
-                 setTimeout(() => { window.removeEventListener("message", handler); reject("Timeout: Extension did not respond"); }, 8000);
+                 setTimeout(() => { window.removeEventListener("message", handler); reject("Timeout: Extension did not respond"); }, 30000);
              });
         };
 
@@ -127,13 +127,12 @@ const CP31Browser = ({ onOpenProblem, user }) => {
             {/* Header */}
             <div style={{ padding: "16px", borderBottom: "1px solid #27272a", background: "#09090b", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <h2 style={{ fontSize: "18px", fontWeight: "bold", color: "white", display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
-                    <span style={{ fontSize: "20px" }}>🏆</span> 
                     <span style={{ background: "linear-gradient(to right, #4ade80, #3b82f6)", WebkitBackgroundClip: "text", color: "transparent" }}>
                         CP-31 Sheet
                     </span>
                 </h2>
                 <span style={{ fontSize: "10px", background: "#18181b", padding: "4px 8px", borderRadius: "4px", color: "#a1a1aa", border: "1px solid #27272a" }}>
-                    1600-1900
+                    800-1900
                 </span>
             </div>
 
