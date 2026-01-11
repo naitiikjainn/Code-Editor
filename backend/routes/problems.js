@@ -182,6 +182,11 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
     const { contestId, index } = req.params;
     const problemId = `${contestId}${index}`;
 
+    // Disable Browser Caching for this endpoint
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+
     // 1. Check Redis Cache (Fastest)
     try {
         const cachedParams = await redis.get(`problem:${problemId}`);

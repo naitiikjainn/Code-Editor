@@ -41,6 +41,12 @@ const renderMath = (html) => {
              try {
                 return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
             } catch (e) { return match; }
+        })
+        // 5. Handle Single $ ... $ (General Markdown Math)
+        .replace(/\$([^\$\n]+?)\$/g, (match, tex) => {
+             try {
+                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
+            } catch (e) { return match; }
         });
 };
 
