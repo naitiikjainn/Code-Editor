@@ -78,7 +78,8 @@ const CP31Browser = ({ onOpenProblem, user }) => {
 
              if (!data.error && data.description && !data.description.includes("No description available")) {
                  console.log("[CP31Browser] Backend Hit!");
-                 onOpenProblem(data);
+                 // Merge with original problemObj to ensure IDs are present
+                 onOpenProblem({ ...problemObj, ...data });
                  finalize();
                  return;
              }

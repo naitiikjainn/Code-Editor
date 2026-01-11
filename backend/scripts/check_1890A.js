@@ -13,11 +13,11 @@ async function check() {
 
     const problem = await Problem.findOne({ problemId: PROBLEM_ID });
     if (problem) {
-        console.log("--- DESCRIPTION START ---");
-        // Log a substring to check the specific part
-        const snippet = problem.data.description.match(/\$\$\$(.*?)\$\$\$/g);
-        console.log("Math Snippets Found:", snippet);
-        console.log("--- DESCRIPTION END ---");
+        console.log("--- DATA START ---");
+        console.log("contestId:", problem.data.contestId);
+        console.log("index:", problem.data.index);
+        console.log("title:", problem.data.title);
+        console.log("--- DATA END ---");
     } else {
         console.log("❌ Problem not found.");
     }

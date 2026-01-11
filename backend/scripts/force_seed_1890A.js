@@ -10,6 +10,8 @@ const PROBLEM_ID = "1890A";
 const DATA = {
     provider: "codeforces",
     id: "1890A",
+    contestId: "1890",
+    index: "A",
     title: "Doremy's Paint 3",
     url: "https://codeforces.com/contest/1890/problem/A",
     description: `
