@@ -42,6 +42,12 @@ const renderMath = (html) => {
                 return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
             } catch (e) { return match; }
         })
+        // 4b. Handle explicit \begin{...} ... \end{...} blocks (e.g. cases, pmatrix)
+        .replace(/(\\begin\{([a-zA-Z0-9*]+)\}[\s\S]*?\\end\{\2\})/g, (match, tex) => {
+             try {
+                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: true });
+            } catch (e) { return match; }
+        })
         // 5. Handle Single $ ... $ (General Markdown Math)
         .replace(/\$([^\$\n]+?)\$/g, (match, tex) => {
              try {
