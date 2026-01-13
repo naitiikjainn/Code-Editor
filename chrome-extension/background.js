@@ -12,27 +12,10 @@ chrome.runtime.onStartup.addListener(() => {
 function updateNetRules() {
     if (chrome.declarativeNetRequest) {
         chrome.declarativeNetRequest.updateDynamicRules({
-            addRules: [
-
-                // RULE 2: Codeforces User-Agent Spoofing (Fixes Cloudflare/Description Block)
-                {
-                    "id": 2,
-                    "priority": 1,
-                    "action": {
-                        "type": "modifyHeaders",
-                        "requestHeaders": [
-                            { "header": "User-Agent", "operation": "set", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
-                        ]
-                    },
-                    "condition": {
-                        "urlFilter": "codeforces.com",
-                        "resourceTypes": ["xmlhttprequest"]
-                    }
-                }
-            ],
-            removeRuleIds: [1, 2] // Reset rules to avoid duplicates
+            addRules: [],
+            removeRuleIds: [1, 2] // Clean up old rules
         });
-        console.log("Stealth Mode Rules Updated (CSES + Codeforces)");
+        console.log("Stealth Mode Disabled (Clean Slate)");
     }
 }
 
@@ -116,40 +99,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === "SUBMIT_CODEFORCES") {
         const { contestId, problemIndex, code, languageId } = message.payload;
+        const submitUrl = `https://codeforces.com/contest/${contestId}/submit`;
+
         (async () => {
-            // ... Codeforces logic (unchanged) ...
             try {
-                const submitPageUrl = `https://codeforces.com/contest/${contestId}/submit`;
-                const pageRes = await fetch(submitPageUrl);
-                const pageText = await pageRes.text();
-                const csrfMatch = pageText.match(/data-csrf='([^']+)'/);
-                if (!csrfMatch) throw new Error("Could not find CSRF token. Are you logged in?");
-                const csrfToken = csrfMatch[1];
-                const formData = new FormData();
-                formData.append("csrf_token", csrfToken);
-                formData.append("ftaa", "");
-                formData.append("bfaa", "");
-                formData.append("action", "submitSolution");
-                formData.append("contestId", contestId);
-                formData.append("submittedProblemIndex", problemIndex);
-                formData.append("programTypeId", languageId || "54");
-                formData.append("source", code);
-                formData.append("tabSize", "4");
-                formData.append("_tta", "594");
-                const submitRes = await fetch(`${submitPageUrl}?csrf_token=${csrfToken}`, {
-                    method: "POST",
-                    body: formData
+                // 1. Open Tab (Inactive)
+                console.log(`[CodePlay] Opening Submit Tab for ${contestId}${problemIndex}...`);
+                const tab = await chrome.tabs.create({ url: submitUrl, active: false });
+
+                // 2. Wait for Load & Submit
+                const submitResult = await new Promise((resolve, reject) => {
+                    let attempts = 0;
+                    const interval = setInterval(() => {
+                        attempts++;
+                        if (attempts > 40) { // 20s
+                            clearInterval(interval);
+                            reject(new Error("Submit Page Timeout"));
+                            return;
+                        }
+
+                        // Send "PERFORM_SUBMIT"
+                        chrome.tabs.sendMessage(tab.id, {
+                            type: "CODEPLAY_PERFORM_SUBMIT",
+                            payload: { contestId, problemIndex, code, languageId }
+                        }, (response) => {
+                            if (chrome.runtime.lastError) return; // Script not ready
+
+                            if (response) {
+                                clearInterval(interval);
+                                resolve(response);
+                            }
+                        });
+                    }, 500);
                 });
-                if (submitRes.redirected && submitRes.url.includes("/my")) {
+
+                // 3. Close Tab
+                chrome.tabs.remove(tab.id);
+
+                // 4. Handle Result
+                if (submitResult.success) {
                     sendResponse({ success: true, message: "Submission queued!" });
-
-                    // --- START BACKGROUND POLLING (Feature 1: Notifications) ---
+                    // Start Polling (Feature 1)
                     pollVerdict(contestId, problemIndex, languageId);
-
                 } else {
-                    sendResponse({ success: false, error: "Submission failed. Check if you are logged in or already submitted." });
+                    sendResponse({ success: false, error: submitResult.error });
                 }
+
             } catch (err) {
+                console.error("[CodePlay] Submit Error:", err);
                 sendResponse({ success: false, error: err.message });
             }
         })();
@@ -203,7 +200,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }, 3000);
     }
 
-    // CODEFORCES DEBUG FETCH (Now w/ STEALTH HEADERS + CREDENTIALS)
+    // CODEFORCES TAB SCRAPER (Reliable Bypass for Cloudflare 403)
     if (message.type === "FETCH_CODEFORCES_PROBLEM") {
         const { url } = message.payload;
         (async () => {
@@ -216,31 +213,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     return;
                 }
 
-                console.log(`[CodePlay] Cache MISS for ${url}. Fetching...`);
-                const res = await fetch(url, {
-                    credentials: 'include', // Send cookies to look like logged-in user
-                    // User-Agent is handled by DeclarativeNetRequest Rule #2
+                console.log(`[CodePlay] Opening Tab for ${url}...`);
+
+                // 2. Open Tab (Inactive/Minimized)
+                const tab = await chrome.tabs.create({ url: url, active: false });
+
+                // 3. Wait for Load & Scrape
+                const scrapeResult = await new Promise((resolve, reject) => {
+                    let attempts = 0;
+
+                    const interval = setInterval(() => {
+                        attempts++;
+                        if (attempts > 30) {
+                            clearInterval(interval);
+                            reject(new Error("Tab Load Timeout"));
+                            return;
+                        }
+
+                        chrome.tabs.sendMessage(tab.id, { type: "CODEPLAY_SCRAPE_CURRENT_TAB" }, (response) => {
+                            if (chrome.runtime.lastError) return;
+                            if (response && response.success) {
+                                clearInterval(interval);
+                                resolve(response.html);
+                            }
+                        });
+                    }, 500);
                 });
 
-                if (!res.ok) throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
-                const html = await res.text();
+                // 4. Close Tab
+                chrome.tabs.remove(tab.id);
 
-                // Verify content sanity
-                if (html.length < 500) {
-                    // Likely a block verification page (Cloudflare)
-                    console.error("CodePlay: Content too short:", html);
+                // 5. Verify & Cache
+                const html = scrapeResult;
+                if (html.length < 500 && !html.trim().startsWith('{')) {
                     throw new Error("Content Blocked (Cloudflare/Short Response)");
                 }
 
-                if (html.includes("Just a moment...") || html.includes("Checking your browser")) {
-                    throw new Error("Cloudflare Blocked Request (Try opening CF in a tab first)");
-                }
-
-                // 2. Save to Cache
                 chrome.storage.local.set({ [url]: html });
                 sendResponse({ success: true, html });
+
             } catch (err) {
-                console.error("[CodePlay] CF Fetch Error:", err);
+                console.error("[CodePlay] Tab Scrape Error:", err);
                 sendResponse({ success: false, error: err.message });
             }
         })();

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, Zap, X } from "lucide-react";
 import { API_URL } from "../config";
-import { parseCodeforcesProblem } from "../utils/codeforces";
+import { fetchCodeforcesProblem, fetchCSESProblem } from "../utils/problemFetcher";
 
 // --- MOCK DATA ---
 const CP31_SHEET = {
@@ -182,125 +182,67 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     };
 
     // --- ACTION HANDLER ---
-    const handleOpen = (p) => {
-        const uniqueKey = p.id || `${p.contestId}${p.index}`; // Handle Codeforces vs CSES keys
+    const handleOpen = async (p) => {
+        const uniqueKey = p.id || `${p.contestId}${p.index}`;
         if (openingId) return; // Block double clicks
 
         setOpeningId(uniqueKey);
 
-        const finalize = () => setOpeningId(null);
+        try {
+            if (provider === "cses") {
+                // CSES: Use new fetcher
+                const result = await fetchCSESProblem(p.index);
+                if (result.success) {
+                    onOpenProblem(result.data);
+                } else {
+                    onOpenProblem(result.data); // Will show error message
+                }
+                return;
+            }
 
-        if (provider === "cses") {
-            // CSES OPEN LOGIC
-             fetch(`${API_URL}/api/problems/cses/problem/${p.index}`)
-                .then(res => res.json())
-                .then(problemData => {
-                    if (problemData.error) throw new Error(problemData.error);
-                    onOpenProblem(problemData);
-                })
-                .catch(err => {
-                    console.error(err);
-                    alert("Failed to load CSES problem: " + err.message);
-                })
-                .finally(finalize);
-             return;
-        }
+            // Codeforces: Use new fetcher with built-in fallback
+            const id = `${p.contestId}${p.index}`;
+            const isSolved = solvedProblems.has(id) || solvedNames.has(p.name);
+            const isAttempted = !isSolved && (attemptedProblems.has(id) || attemptedNames.has(p.name));
 
-        // Check ID or Name (Parallel Contests fix)
-        const id = `${p.contestId}${p.index}`;
-        const isSolved = solvedProblems.has(id) || solvedNames.has(p.name);
-        const isAttempted = !isSolved && (attemptedProblems.has(id) || attemptedNames.has(p.name));
+            console.log(`[ProblemBrowser] Fetching ${id}...`);
 
-        const problemObj = {
-            provider: "codeforces",
-            contestId: p.contestId,
-            index: p.index,
-            id: id,
-            title: p.name,
-            rating: p.rating,
-            tags: p.tags,
-            url: `https://codeforces.com/contest/${p.contestId}/problem/${p.index}`,
-            isSolved: isSolved,
-            isAttempted: isAttempted
-        };
+            const result = await fetchCodeforcesProblem(p.contestId, p.index);
 
-        const fallbackToBasic = (msg) => {
-             onOpenProblem({ 
-                ...problemObj, 
+            // Merge with local status info
+            const problemData = {
+                ...result.data,
+                title: result.data.title || p.name,
+                rating: p.rating,
+                tags: p.tags,
+                isSolved,
+                isAttempted
+            };
+
+            if (result.source) {
+                console.log(`[ProblemBrowser] Loaded ${id} from ${result.source}`);
+            }
+
+            onOpenProblem(problemData);
+
+        } catch (err) {
+            console.error("[ProblemBrowser] Error:", err);
+            onOpenProblem({
+                provider: provider === "cses" ? "cses" : "codeforces",
+                id: uniqueKey,
+                title: p.name || uniqueKey,
+                url: provider === "cses" 
+                    ? `https://cses.fi/problemset/task/${p.index}`
+                    : `https://codeforces.com/contest/${p.contestId}/problem/${p.index}`,
                 description: `<div style="padding:20px; text-align:center; color:#ef4444;">
-                    <h3>Fetch Failed</h3>
-                    <p>${msg}</p>
-                    <p>Codeforces might be blocking automated requests.</p>
-                    <a href="${problemObj.url}" target="_blank" style="color:#60a5fa; text-decoration:underline;">View on Codeforces</a>
-                </div>`
+                    <h3>Failed to Load Problem</h3>
+                    <p>${err.message}</p>
+                </div>`,
+                testCases: []
             });
-        };
-
-        const fetchViaExtension = () => {
-             return new Promise((resolve, reject) => {
-                 const handler = (event) => {
-                     // Accept HTML result or explicit error
-                     if (event.data.type === "CODEPLAY_CF_HTML_RESULT") {
-                         window.removeEventListener("message", handler);
-                         if (event.data.payload.success) resolve(event.data.payload.html);
-                         else reject(event.data.payload.error);
-                     }
-                 };
-                 window.addEventListener("message", handler);
-                 window.postMessage({ type: "CODEPLAY_FETCH_CF_HTML", payload: { url: problemObj.url } }, "*");
-                 setTimeout(() => { window.removeEventListener("message", handler); reject("Timeout: Extension did not respond"); }, 8000);
-             });
-        };
-
-        // STRATEGY: Backend (Redis/Cache) -> Extension (Fallback) -> Cache Result
-        const tryBackendFirst = () => {
-             console.log(`[ProblemBrowser] Checking Backend for ${id}...`);
-             fetch(`${API_URL}/api/problems/codeforces/${p.contestId}/${p.index}`)
-                 .then(res => {
-                     if (!res.ok) throw new Error("Backend miss or error");
-                     return res.json();
-                 })
-                 .then(d => {
-                     // CRITICAL: If backend returns "No description", treat as MISS
-                     if (d.error || !d.description || d.description.includes("No description available")) {
-                         throw new Error("Backend has no description (Anti-Bot)");
-                     }
-                     console.log(`[ProblemBrowser] Backend Hit!`);
-                     onOpenProblem(d);
-                     finalize();
-                 })
-                 .catch(apiErr => {
-                     console.warn("[ProblemBrowser] Backend Failed/Empty, trying Extension...", apiErr.message);
-                     tryExtensionFallback();
-                 });
-        };
-
-        const tryExtensionFallback = () => {
-             fetchViaExtension()
-                .then(html => {
-                    const parsed = parseCodeforcesProblem(html, p.contestId, p.index);
-                    onOpenProblem({ ...problemObj, ...parsed });
-                    finalize();
-                    
-                    // NEW: Save this successful scrape to Backend for other users!
-                    console.log("[ProblemBrowser] Extension Success! Caching to backend...");
-                    fetch(`${API_URL}/api/problems/cache`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ 
-                            problemId: id, 
-                            data: { ...problemObj, ...parsed } 
-                        })
-                    }).catch(err => console.error("Failed to cache extension result:", err));
-                })
-                .catch(extErr => {
-                    console.error("All Fetches Failed", extErr);
-                    fallbackToBasic("Both Backend and Extension failed to load this problem.");
-                    finalize();
-                });
-        };
-
-        tryBackendFirst();
+        } finally {
+            setOpeningId(null);
+        }
     };
 
     return (
@@ -496,7 +438,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                             <span style={{ fontSize: "13px", fontWeight: "500", color: isSolved ? "#86efac" : (isAttempted ? "#fca5a5" : "#e4e4e7"), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                                         </div>
                                         <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                                            {p.tags.slice(0, 3).map(t => <TagChip key={t} label={t}/>)}
+                                            {p.tags.slice(0, 3).map((t, idx) => <TagChip key={`${t}-${idx}`} label={t}/>)}
                                         </div>
                                     </div>
 

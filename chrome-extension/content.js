@@ -62,3 +62,69 @@ window.addEventListener("message", (event) => {
         });
     }
 });
+
+// --- NEW: DIRECT SCRAPING & SUBMIT FOR CODEFORCES TAB ---
+if (window.location.hostname.includes("codeforces.com")) {
+
+    // Scrape/Submit Listener
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+
+        // 1. Scrape HTML (For Problem Parsing)
+        if (request.type === "CODEPLAY_SCRAPE_CURRENT_TAB") {
+            console.log("[CodePlay Helper] Scraping requested by Background...");
+            const html = document.documentElement.outerHTML;
+            sendResponse({ success: true, html: html });
+        }
+
+        // 2. Perform Submit (For Submission)
+        if (request.type === "CODEPLAY_PERFORM_SUBMIT") {
+            console.log("[CodePlay Helper] Performing Tab-based Submission...");
+            const { contestId, problemIndex, code, languageId } = request.payload;
+
+            // Find CSRF Token (try meta first, then data-csrf)
+            let csrfToken = "";
+            const meta = document.querySelector('meta[name="X-Csrf-Token"]');
+            if (meta) csrfToken = meta.content;
+
+            if (!csrfToken) {
+                const match = document.body.innerHTML.match(/data-csrf='([^']+)'/);
+                if (match) csrfToken = match[1];
+            }
+
+            if (!csrfToken) {
+                sendResponse({ success: false, error: "Could not find CSRF token. Are you logged in?" });
+                return true; // async
+            }
+
+            // Prepare FormData
+            const formData = new FormData();
+            formData.append("csrf_token", csrfToken);
+            formData.append("ftaa", "");
+            formData.append("bfaa", "");
+            formData.append("action", "submitSolution");
+            formData.append("contestId", contestId);
+            formData.append("submittedProblemIndex", problemIndex);
+            formData.append("programTypeId", languageId || "54");
+            formData.append("source", code);
+            formData.append("tabSize", "4");
+            formData.append("_tta", "594");
+
+            fetch(`https://codeforces.com/contest/${contestId}/submit?csrf_token=${csrfToken}`, {
+                method: "POST",
+                body: formData
+            })
+                .then(res => {
+                    if (res.redirected && res.url.includes("/my")) {
+                        sendResponse({ success: true, message: "Submission queued!" });
+                    } else {
+                        sendResponse({ success: false, error: "Submission failed. Check if you are logged in or already submitted." });
+                    }
+                })
+                .catch(err => {
+                    sendResponse({ success: false, error: err.message });
+                });
+
+            return true; // Keep channel open
+        }
+    });
+}

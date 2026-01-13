@@ -1,7 +1,7 @@
 import express from "express";
 import Problem from "../models/Problem.js"; // Import Problem Model
 import redis from "../config/redis.js"; // Import Redis Wrapper
-import { fetchCodeforcesProblem } from "../utils/codeforcesScraper.js";
+import scraperService from "../utils/scraperService.js";
 
 const router = express.Router();
 
@@ -177,66 +177,35 @@ router.delete("/cache", async (req, res) => {
     }
 });
 
-// --- CODEFORCES API ---
-router.get("/codeforces/:contestId/:index", async (req, res) => {
-    const { contestId, index } = req.params;
-    const problemId = `${contestId}${index}`;
 
-    // Disable Browser Caching for this endpoint
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    res.set("Pragma", "no-cache");
-    res.set("Expires", "0");
-
-    // 1. Check Redis Cache (Fastest)
-    if (req.query.refresh !== 'true') {
-        try {
-            const cachedParams = await redis.get(`problem:${problemId}`);
-            if (cachedParams) {
-                console.log(`[Redis] Hit for ${problemId}`);
-                return res.json(JSON.parse(cachedParams));
-            }
-        } catch (e) {
-            console.warn("Redis Check Failed:", e.message);
-        }
-    } else {
-        console.log(`[Redis] Bypass for ${problemId} (refresh=true)`);
-    }
-
-    // 2. Check DB Cache (Fast)
-    try {
-        const cached = await Problem.findOne({ problemId });
-        if (cached) {
-            console.log(`[Mongo] Hit for ${problemId}`);
-
-            // Sliding TTL: Update lastAccessed to keep it alive
-            cached.lastAccessed = new Date();
-            cached.save().catch(e => console.error("TTL Update Error:", e));
-
-            // Save to Redis for next time (TTL: 2 Days = 172800s)
-            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(cached.data)).catch(e => console.error("Redis Save Error", e));
-            return res.json(cached.data);
-        }
-    } catch (e) {
-        console.error("Cache Check Error:", e);
-    }
-
-    // 3. If Cache Miss, Return 404 (Force Extension Fetch)
-    console.log(`[Backend] Cache miss for ${problemId}. Delegating to Extension.`);
-    return res.status(404).json({ error: "Not found in cache", requiresExtension: true });
-});
 
 // --- CODEFORCES LIST ---
 router.get("/codeforces/list", async (req, res) => {
     try {
-        const response = await fetch("https://codeforces.com/api/problemset.problems");
-        const data = await response.json();
+        let response;
+        try {
+            // Increased timeouts significantly as the problem set JSON is very large (~5-10MB)
+            response = await fetch("https://codeforces.com/api/problemset.problems", { signal: AbortSignal.timeout(15000) });
+        } catch (e) {
+            console.warn("[Backend] Main API failed, trying mirror...", e.message);
+            // Mirror might be slower, give it more time
+            response = await fetch("https://mirror.codeforces.com/api/problemset.problems", { signal: AbortSignal.timeout(30000) });
+        }
 
-        if (data.status === "OK") {
-            // Filter/Map if needed to reduce payload? 
-            // Sending all might be heavy (~5MB). Let's send it all for now, client can cache.
-            res.json(data.result);
-        } else {
-            res.status(500).json({ error: "Codeforces API Error: " + data.comment });
+        if (!response || !response.ok) {
+            throw new Error(`API returned ${response?.status || 'network error'} ${response?.statusText || ''}`);
+        }
+
+        const text = await response.text();
+        try {
+            const data = JSON.parse(text);
+            if (data.status === "OK") {
+                res.json(data.result);
+            } else {
+                res.status(500).json({ error: "Codeforces API Error: " + data.comment });
+            }
+        } catch (jsonErr) {
+            throw new Error(`Invalid JSON response: ${text.substring(0, 100)}...`);
         }
     } catch (err) {
         console.error("CF List Error:", err);
@@ -268,67 +237,60 @@ router.get("/codeforces/user/:handle", async (req, res) => {
     }
 });
 
+// --- CODEFORCES BLOG PROXY (NEW) ---
+router.get("/codeforces/blog/:blogId", async (req, res) => {
+    try {
+        const { blogId } = req.params;
+        // Fetch from Codeforces API server-side
+        const response = await fetch(`https://codeforces.com/api/blogEntry.view?blogEntryId=${blogId}`, { signal: AbortSignal.timeout(10000) });
+        const data = await response.json();
+
+        if (data.status === "OK") {
+            res.json(data);
+        } else {
+            res.status(400).json({ error: data.comment || "Codeforces API Error" });
+        }
+    } catch (e) {
+        console.error("Blog Fetch Error", e);
+        res.status(500).json({ error: "Failed to fetch blog via proxy" });
+    }
+});
+
 // --- CODEFORCES API ---
 router.get("/codeforces/:contestId/:index", async (req, res) => {
     const { contestId, index } = req.params;
     const problemId = `${contestId}${index}`;
 
-    // 1. Check Redis Cache (Fastest)
     try {
-        const cachedParams = await redis.get(`problem:${problemId}`);
-        if (cachedParams) {
-            console.log(`[Redis] Hit for ${problemId}`);
-            return res.json(JSON.parse(cachedParams));
+        // Use unified scraper service (handles caching internally)
+        const problemData = await scraperService.fetchCodeforces(contestId, index);
+        
+        if (problemData && problemData.description && !problemData.description.includes("No description available")) {
+            console.log(`[Backend] Successfully fetched ${problemId}`);
+            return res.json(problemData);
         }
-    } catch (e) {
-        console.warn("Redis Check Failed:", e.message);
-    }
-
-    // 2. Check DB Cache (Fast)
-    try {
-        const cached = await Problem.findOne({ problemId });
-        if (cached) {
-            console.log(`[Mongo] Hit for ${problemId}`);
-
-            // Sliding TTL: Update lastAccessed to keep it alive
-            cached.lastAccessed = new Date();
-            cached.save().catch(e => console.error("TTL Update Error:", e));
-
-            // Save to Redis for next time (TTL: 2 Days = 172800s)
-            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(cached.data)).catch(e => console.error("Redis Save Error", e));
-            return res.json(cached.data);
-        }
-    } catch (e) {
-        console.error("Cache Check Error:", e);
-    }
-
-    // 3. Try Server-Side Scrape (Fallback)
-    try {
-        console.log(`[Backend] Cache miss for ${problemId}. Attempting server-side scrape...`);
-        const scrapedData = await fetchCodeforcesProblem(contestId, index);
-
-        if (scrapedData) {
-            console.log(`[Backend] Scrape successful for ${problemId}`);
-
-            // Save to Mongo
-            await Problem.findOneAndUpdate(
-                { problemId },
-                { problemId, data: scrapedData, lastAccessed: new Date() },
-                { upsert: true, new: true }
-            );
-
-            // Save to Redis
-            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(scrapedData)).catch(e => console.error("Redis Save Error", e));
-
-            return res.json(scrapedData);
-        }
+        
+        throw new Error("Invalid or empty problem data");
     } catch (scrapeErr) {
         console.warn(`[Backend] Scrape failed for ${problemId}: ${scrapeErr.message}`);
+        
+        // If we have partial data from API, return it with 206 Partial Content
+        if (scrapeErr.partialData) {
+            console.log(`[Backend] Returning partial data for ${problemId}`);
+            return res.status(206).json({
+                ...scrapeErr.partialData,
+                partialData: true,
+                requiresExtension: true
+            });
+        }
+        
+        // Return 404 to trigger extension fallback on frontend
+        return res.status(404).json({ 
+            error: "Not found in cache", 
+            message: scrapeErr.message,
+            requiresExtension: scrapeErr.requiresExtension || true 
+        });
     }
-
-    // 4. If All Fails, Return 404 (Force Extension Fetch)
-    console.log(`[Backend] All methods failed for ${problemId}. Delegating to Extension.`);
-    return res.status(404).json({ error: "Not found in cache", requiresExtension: true });
 });
 
 // --- CSES API ---
@@ -337,116 +299,18 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
 router.get("/cses/problem/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        const problemId = `CSES${id}`; // Unique ID for Cache
 
-        // 1. Check Redis
-        try {
-            const cachedParams = await redis.get(`problem:${problemId}`);
-            if (cachedParams) {
-                return res.json(JSON.parse(cachedParams));
-            }
-        } catch (e) {
-            console.warn("Redis Check Failed:", e.message);
+        // Use unified scraper service
+        const problemData = await scraperService.fetchCSES(id);
+        
+        if (problemData) {
+            return res.json(problemData);
         }
-
-        // 2. Check Mongo
-        try {
-            const cached = await Problem.findOne({ problemId });
-            if (cached) {
-                redis.setex(`problem:${problemId}`, 172800, JSON.stringify(cached.data)).catch(e => console.error("Redis Save Error", e));
-                return res.json(cached.data);
-            }
-        } catch (e) {
-            console.error("Cache Check Error:", e);
-        }
-
-        const url = `https://cses.fi/problemset/task/${id}`;
-
-        const response = await fetch(url, {
-            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" }
-        });
-        if (!response.ok) throw new Error("Problem not found");
-
-        const text = await response.text();
-
-        // --- PARSE ---
-        // Title: <div class="title-block"><h1>Problem Name</h1>...
-        // Content: <div class="content">...</div>
-
-        const titleMatch = text.match(/<div class="title-block">\s*<h1>(.*?)<\/h1>/);
-        const title = titleMatch ? titleMatch[1].trim() : `CSES Problem ${id}`;
-
-        // Extract content
-        const contentStart = '<div class="content">';
-        const contentEnd = '<div class="footer-block">'; // Assuming footer follows content
-
-        let description = "";
-        const idxStart = text.indexOf(contentStart);
-        if (idxStart !== -1) {
-            const idxEnd = text.indexOf('</div>', text.lastIndexOf('<p class="copyright">')); // Rough guess, or scan stack?
-            // Actually, the content div wraps everything. Let's find end of content div.
-            // Simple hack: Take substring until finding the specific footer or nav marker.
-
-            // Better: CSES structure is simple. 
-            // <div class="content"> ... </div> <div class="nav sidebar">
-            const idxEndCandidate = text.indexOf('<div class="nav sidebar">');
-            if (idxEndCandidate !== -1) {
-                description = text.substring(idxStart, idxEndCandidate);
-            } else {
-                description = text.substring(idxStart, idxStart + 5000) + "</div>";
-            }
-        }
-
-        // Fix relative images or links if any
-        description = description.replace(/src="\//g, 'src="https://cses.fi/');
-
-        // Extract Test Cases (Inputs/Outputs)
-        // Format: <code>Input:</code><pre>...</pre>
-        // Or just <pre>...</pre> blocks.
-        // Usually: <div class="md"><p>Input:</p><pre>...</pre><p>Output:</p><pre>...</pre></div>
-
-        const testCases = [];
-        const inputs = [];
-        const outputs = [];
-
-        const codeBlockRegex = /<pre>([\s\S]*?)<\/pre>/g;
-        let match;
-        while ((match = codeBlockRegex.exec(description)) !== null) {
-            // Alternating input/output usually
-            if (inputs.length === outputs.length) {
-                inputs.push(match[1].trim());
-            } else {
-                outputs.push(match[1].trim());
-            }
-        }
-
-        for (let i = 0; i < Math.min(inputs.length, outputs.length); i++) {
-            testCases.push({ input: inputs[i], expectedOutput: outputs[i] });
-        }
-
-
-        const problemData = {
-            provider: "cses",
-            id: id,
-            title: title,
-            url: url,
-            description: description,
-            testCases: testCases
-        };
-
-        // Save to Cache
-        try {
-            await Problem.create({ problemId, data: problemData });
-            redis.setex(`problem:${problemId}`, 172800, JSON.stringify(problemData)).catch(e => console.error("Redis Save Error", e));
-        } catch (e) {
-            console.error("CSES Cache Save Error:", e.message);
-        }
-
-        res.json(problemData);
-
+        
+        throw new Error("Failed to fetch CSES problem");
     } catch (err) {
         console.error("CSES Fetch Error:", err);
-        res.status(500).json({ error: "Failed to fetch CSES problem" });
+        res.status(500).json({ error: "Failed to fetch CSES problem", message: err.message });
     }
 });
 
@@ -498,6 +362,76 @@ router.get("/cses/list", async (req, res) => {
     } catch (err) {
         console.error("CSES List Error:", err);
         res.status(500).json({ error: "Failed to fetch CSES list" });
+    }
+});
+
+// --- ATCODER API ---
+router.get("/atcoder/:contestId/:taskId", async (req, res) => {
+    try {
+        const { contestId, taskId } = req.params;
+
+        const problemData = await scraperService.fetchAtCoder(contestId, taskId);
+        
+        if (problemData) {
+            return res.json(problemData);
+        }
+        
+        throw new Error("Failed to fetch AtCoder problem");
+    } catch (err) {
+        console.error("AtCoder Fetch Error:", err);
+        res.status(500).json({ error: "Failed to fetch AtCoder problem", message: err.message });
+    }
+});
+
+// --- SCRAPER HEALTH CHECK ---
+router.get("/health", async (req, res) => {
+    try {
+        const health = await scraperService.healthCheck();
+        const allHealthy = Object.values(health).every(v => v);
+        
+        res.status(allHealthy ? 200 : 503).json({
+            status: allHealthy ? "healthy" : "degraded",
+            services: health,
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        res.status(500).json({ 
+            status: "error", 
+            message: err.message 
+        });
+    }
+});
+
+// --- CACHE INVALIDATION ---
+router.delete("/cache/:problemId", async (req, res) => {
+    try {
+        const { problemId } = req.params;
+        await scraperService.cache.invalidate(problemId);
+        res.json({ success: true, message: `Cache cleared for ${problemId}` });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to invalidate cache", message: err.message });
+    }
+});
+
+// --- FORCE REFRESH (bypass cache) ---
+router.get("/refresh/codeforces/:contestId/:index", async (req, res) => {
+    try {
+        const { contestId, index } = req.params;
+        const problemId = `${contestId}${index}`;
+
+        // Invalidate existing cache
+        await scraperService.cache.invalidate(problemId);
+
+        // Fetch fresh
+        const problemData = await scraperService.fetchCodeforces(contestId, index);
+        
+        res.json({
+            success: true,
+            message: "Refreshed from source",
+            data: problemData
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Refresh failed", message: err.message });
     }
 });
 

@@ -1,7 +1,9 @@
 import React, { useState } from "react";
-import { Play, Clock, Database, Tag, Copy, Check, Globe, X } from "lucide-react";
+import { Play, Clock, Database, Tag, Copy, Check, Globe, X, BookOpen, Loader2 } from "lucide-react";
 import "katex/dist/katex.min.css";
 import katex from "katex";
+import { fetchCodeforcesEditorial } from "../utils/problemFetcher";
+import { parseEditorial } from "../utils/codeforces";
 
 // --- MATH RENDERER ---
 const renderMath = (html) => {
@@ -88,6 +90,46 @@ const CopyButton = ({ text }) => {
 
 export default function ProblemPreview({ problem, onCodeNow }) {
     if (!problem) return <div style={{ padding: "24px", color: "#666" }}>Select a problem to view details.</div>;
+
+    // --- EDITORIAL STATE ---
+    const [showEditorial, setShowEditorial] = useState(false);
+    const [editorialContent, setEditorialContent] = useState(null);
+    const [loadingEditorial, setLoadingEditorial] = useState(false);
+
+    const handleOpenEditorial = async () => {
+        if (!problem.tutorialUrl) {
+            alert("No tutorial link available for this problem.");
+            return;
+        }
+        setShowEditorial(true);
+        if (editorialContent) return; // Already loaded
+
+        setLoadingEditorial(true);
+        try {
+            const result = await fetchCodeforcesEditorial(problem.tutorialUrl, problem);
+            
+            if (result.success) {
+                setEditorialContent(renderMath(result.html));
+            } else {
+                setEditorialContent(`<div style="color:#ef4444; padding:20px;">
+                    Failed to load editorial: ${result.error}. 
+                    <br/><br/>
+                    Try opening it directly: 
+                    <a href="${problem.tutorialUrl}" target="_blank" style="color:#3b82f6">Open Link</a>
+                </div>`);
+            }
+        } catch (e) {
+            console.error("Editorial Load Failed", e);
+            setEditorialContent(`<div style="color:#ef4444; padding:20px;">
+                Failed to load editorial: ${e.message}. 
+                <br/><br/>
+                Try opening it directly: 
+                <a href="${problem.tutorialUrl}" target="_blank" style="color:#3b82f6">Open Link</a>
+            </div>`);
+        } finally {
+            setLoadingEditorial(false);
+        }
+    };
 
     const processedDescription = React.useMemo(() => renderMath(problem.description), [problem.description]);
     const processedNote = React.useMemo(() => renderMath(problem.note), [problem.note]);
@@ -243,6 +285,23 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                 padding: "16px 40px", borderTop: "1px solid rgba(255,255,255,0.05)", background: "#09090b",
                 display: "flex", justifyContent: "flex-end"
             }}>
+                {problem.tutorialUrl && (
+                    <button 
+                        onClick={handleOpenEditorial}
+                        title={problem.tutorialUrl}
+                        style={{ 
+                            padding: "12px 20px", fontSize: "14px", fontWeight: "600", 
+                            background: "rgba(255,255,255,0.05)", 
+                            color: "#a1a1aa", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)",
+                            display: "flex", alignItems: "center", gap: "8px", marginRight: "12px",
+                            cursor: "pointer", transition: "all 0.2s"
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color="white"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color="#a1a1aa"; }}
+                    >
+                        <BookOpen size={16} /> Read Editorial
+                    </button>
+                )}
                 <button 
                     onClick={() => onCodeNow(problem)}
                     style={{ 
@@ -265,6 +324,122 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                 .problem-content strong { color: white; font-weight: 600; }
                 .problem-content pre { background: rgba(255,255,255,0.05); padding: 8px; borderRadius: 4px; overflow-x: auto; }
             `}</style>
+
+            {/* EDITORIAL MODAL */}
+            {showEditorial && (
+                <div style={{
+                    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+                    background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)",
+                    zIndex: 50, display: "flex", justifyContent: "center", alignItems: "center"
+                }}>
+                    <div style={{
+                        width: "90%", maxWidth: "800px", height: "85%",
+                        background: "#09090b", border: "1px solid #27272a", borderRadius: "12px",
+                        display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
+                    }}>
+                        {/* Header */}
+                        <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                           <h2 style={{ fontSize: "18px", fontWeight: "600", color: "#fff" }}>Editorial: {problem.title}</h2>
+                           <button onClick={() => setShowEditorial(false)} style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer" }}><X size={20}/></button>
+                        </div>
+                        
+                        {/* Content */}
+                        <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+                            {loadingEditorial ? (
+                                <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#a1a1aa", gap: "12px" }}>
+                                    <Loader2 size={32} className="animate-spin" />
+                                    <span>Fetching editorial via extension...</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <style>{`
+                                        /* Spoiler Styles */
+                                        .spoiler .spoiler-title {
+                                            cursor: pointer;
+                                            color: #60a5fa !important;
+                                            font-weight: bold;
+                                            margin-bottom: 4px;
+                                            display: inline-block;
+                                        }
+                                        .spoiler .spoiler-title:hover {
+                                            text-decoration: underline;
+                                        }
+                                        .spoiler .spoiler-title::before {
+                                            content: "▶ ";
+                                            font-size: 0.8em;
+                                            display: inline-block;
+                                            transition: transform 0.2s;
+                                        }
+                                        .spoiler.open .spoiler-title::before {
+                                            transform: rotate(90deg);
+                                        }
+                                        .spoiler .spoiler-content {
+                                            display: none;
+                                            padding: 12px;
+                                            background: rgba(255,255,255,0.03);
+                                            border-left: 2px solid #3b82f6;
+                                            margin-bottom: 12px;
+                                            border-radius: 0 4px 4px 0;
+                                        }
+                                        .spoiler.open .spoiler-content {
+                                            display: block;
+                                            animation: fadeIn 0.2s ease-in-out;
+                                        }
+                                        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+                                    `}</style>
+                                    <div 
+                                        className="problem-content"
+                                        style={{ lineHeight: "1.7", fontSize: "15px", color: "#d4d4d8" }}
+                                        dangerouslySetInnerHTML={{ __html: editorialContent || "No content loaded." }}
+                                        onClick={(e) => {
+                                            // 1. Handle Spoiler Clicks
+                                            let target = e.target;
+                                            if (!target.classList.contains("spoiler-title")) {
+                                                target = target.closest(".spoiler-title");
+                                            }
+
+                                            if (target && target.classList.contains("spoiler-title")) {
+                                                const spoiler = target.closest(".spoiler");
+                                                if (spoiler) {
+                                                    spoiler.classList.toggle("open");
+                                                    const content = spoiler.querySelector(".spoiler-content");
+                                                    if (content) {
+                                                        content.style.display = spoiler.classList.contains("open") ? "block" : "none";
+                                                    }
+                                                }
+                                                return; // handled
+                                            }
+
+                                            // 2. Handle Links
+                                            const link = e.target.closest("a");
+                                            if (link) {
+                                                const href = link.getAttribute("href");
+                                                if (href) {
+                                                    // Check if it matches current problem (by URL or strict ID check)
+                                                    // problem.url example: https://codeforces.com/contest/2183/problem/F
+                                                    const isCurrent = (problem.url && href.includes(problem.url)) || 
+                                                                    (href.includes("codeforces.com") && href.includes(problem.contestId) && href.includes(problem.index));
+                                                    
+                                                    if (isCurrent) {
+                                                        e.preventDefault();
+                                                        setShowEditorial(false); // Close editorial -> User sees problem
+                                                        return;
+                                                    }
+
+                                                    // For other links, force open in new tab to preserve App state
+                                                    if (link.target !== "_blank") {
+                                                        link.target = "_blank";
+                                                    }
+                                                }
+                                            }
+                                        }}
+                                    />
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
