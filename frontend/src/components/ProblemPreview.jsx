@@ -1,10 +1,8 @@
 import React, { useState } from "react";
-import { Play, Clock, Database, Tag, Copy, Check, Globe, X, BookOpen, Loader2, ExternalLink, Youtube, Search } from "lucide-react";
+import { Play, Clock, Database, Tag, Copy, Check, Globe, X, BookOpen, Loader2, ExternalLink, Youtube, Search, Code } from "lucide-react";
 import "katex/dist/katex.min.css";
 import katex from "katex";
-import { fetchCodeforcesEditorial } from "../utils/problemFetcher";
-import { parseEditorial } from "../utils/codeforces";
-import { getEditorial, getExternalSources } from "../utils/editorialService";
+import { getEditorial, extractCodeBlocks } from "../utils/editorialService";
 
 // --- MATH RENDERER ---
 const renderMath = (html) => {
@@ -94,47 +92,72 @@ export default function ProblemPreview({ problem, onCodeNow }) {
 
     // --- EDITORIAL STATE ---
     const [showEditorial, setShowEditorial] = useState(false);
-    const [editorialContent, setEditorialContent] = useState(null);
+    const [editorial, setEditorial] = useState(null);
     const [loadingEditorial, setLoadingEditorial] = useState(false);
-    const [showExternalResources, setShowExternalResources] = useState(false);
-
-    // Get external resources for the problem
-    const externalResources = getExternalSources(problem.contestId, problem.index);
+    const [editorialTab, setEditorialTab] = useState('tutorial'); // 'tutorial' or 'code'
+    const [codeBlocks, setCodeBlocks] = useState([]);
+    const [copiedCodeIndex, setCopiedCodeIndex] = useState(-1);
 
     const handleOpenEditorial = async () => {
-        if (!problem.tutorialUrl) {
-            // No tutorial URL - show external resources panel instead
-            setShowExternalResources(true);
-            return;
-        }
         setShowEditorial(true);
-        if (editorialContent) return; // Already loaded
+        if (editorial) return; // Already loaded
 
         setLoadingEditorial(true);
         try {
-            const result = await fetchCodeforcesEditorial(problem.tutorialUrl, problem);
+            // Fetch official Codeforces tutorial via backend API
+            const result = await getEditorial(problem.contestId, problem.index);
+            setEditorial(result);
             
-            if (result.success) {
-                setEditorialContent(renderMath(result.html));
-            } else {
-                setEditorialContent(`<div style="color:#ef4444; padding:20px;">
-                    Failed to load editorial: ${result.error}. 
-                    <br/><br/>
-                    Try opening it directly: 
-                    <a href="${problem.tutorialUrl}" target="_blank" style="color:#3b82f6">Open Link</a>
-                </div>`);
+            // Extract code blocks if successful
+            if (result.success && result.content) {
+                const codes = extractCodeBlocks(result.problemSection || result.content);
+                setCodeBlocks(codes);
             }
         } catch (e) {
             console.error("Editorial Load Failed", e);
-            setEditorialContent(`<div style="color:#ef4444; padding:20px;">
-                Failed to load editorial: ${e.message}. 
-                <br/><br/>
-                Try opening it directly: 
-                <a href="${problem.tutorialUrl}" target="_blank" style="color:#3b82f6">Open Link</a>
-            </div>`);
+            setEditorial({
+                success: false,
+                error: e.message || "Failed to load editorial"
+            });
         } finally {
             setLoadingEditorial(false);
         }
+    };
+
+    const copyCode = (code, index) => {
+        navigator.clipboard.writeText(code);
+        setCopiedCodeIndex(index);
+        setTimeout(() => setCopiedCodeIndex(-1), 2000);
+    };
+
+    // Process HTML content for display - transforms Codeforces spoiler structure
+    const processEditorialContent = (html) => {
+        if (!html) return '';
+        
+        let processed = renderMath(html);
+        
+        // Codeforces uses: <div class="spoiler"><b class="spoiler-title">Title</b><div class="spoiler-content" style="display: none;">...</div></div>
+        // We need to transform this to work with our CSS that uses .spoiler.open to toggle visibility
+        
+        // Step 1: Convert <b class="spoiler-title"> to <div class="spoiler-title">
+        processed = processed.replace(/<b\s+class="spoiler-title">/gi, '<div class="spoiler-title">');
+        processed = processed.replace(/<\/b>(\s*)<div class="spoiler-content"/gi, '</div>$1<div class="spoiler-content"');
+        
+        // Step 2: Remove the inline "display: none" style from spoiler-content (our CSS handles this)
+        processed = processed.replace(/<div class="spoiler-content"\s*style="[^"]*display:\s*none[^"]*">/gi, '<div class="spoiler-content">');
+        processed = processed.replace(/<div class="spoiler-content"\s*style="display:\s*none;">/gi, '<div class="spoiler-content">');
+        
+        // Step 3: Handle the arrow format some blogs use
+        processed = processed.replace(/►\s*<span[^>]*>([^<]*)<\/span>/gi, '<div class="spoiler"><div class="spoiler-title">$1</div><div class="spoiler-content">');
+        
+        // Step 4: Make CF problem links styled nicely
+        processed = processed.replace(/<a[^>]*href="([^"]*\/problem\/[^"]*)"[^>]*>([^<]*)<\/a>/gi, 
+            '<a href="https://codeforces.com$1" target="_blank" style="color:#60a5fa;font-weight:600;text-decoration:none;">$2</a>');
+        
+        // Step 5: Make CF blog links point to codeforces.com
+        processed = processed.replace(/<a[^>]*href="\/([^"]*)"[^>]*>/gi, '<a href="https://codeforces.com/$1" target="_blank">');
+        
+        return processed;
     };
 
     const processedDescription = React.useMemo(() => renderMath(problem.description), [problem.description]);
@@ -291,10 +314,10 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                 padding: "16px 40px", borderTop: "1px solid rgba(255,255,255,0.05)", background: "#09090b",
                 display: "flex", justifyContent: "flex-end", gap: "12px"
             }}>
-                {/* Editorial/Resources Button - Always show */}
+                {/* Editorial Button */}
                 <button 
                     onClick={handleOpenEditorial}
-                    title={problem.tutorialUrl || "Find solutions and resources"}
+                    title="View official Codeforces tutorial"
                     style={{ 
                         padding: "12px 20px", fontSize: "14px", fontWeight: "600", 
                         background: "rgba(255,255,255,0.05)", 
@@ -305,7 +328,7 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                     onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color="white"; }}
                     onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color="#a1a1aa"; }}
                 >
-                    <BookOpen size={16} /> {problem.tutorialUrl ? "Read Editorial" : "Find Solutions"}
+                    <BookOpen size={16} /> Tutorial
                 </button>
                 <button 
                     onClick={() => onCodeNow(problem)}
@@ -338,188 +361,314 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                     zIndex: 50, display: "flex", justifyContent: "center", alignItems: "center"
                 }}>
                     <div style={{
-                        width: "90%", maxWidth: "800px", height: "85%",
+                        width: "90%", maxWidth: "850px", height: "85%",
                         background: "#09090b", border: "1px solid #27272a", borderRadius: "12px",
                         display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
                     }}>
                         {/* Header */}
                         <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                           <h2 style={{ fontSize: "18px", fontWeight: "600", color: "#fff" }}>Editorial: {problem.title}</h2>
-                           <button onClick={() => setShowEditorial(false)} style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer" }}><X size={20}/></button>
+                            <div>
+                                <h2 style={{ fontSize: "18px", fontWeight: "600", color: "#fff", margin: 0 }}>
+                                    Tutorial: {problem.contestId}{problem.index}
+                                </h2>
+                                {editorial?.author && (
+                                    <span style={{ fontSize: "12px", color: "#71717a" }}>
+                                        by <a href={`https://codeforces.com/profile/${editorial.author}`} target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa" }}>{editorial.author}</a>
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                {editorial?.url && (
+                                    <a
+                                        href={editorial.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{
+                                            display: "flex", alignItems: "center", gap: "6px",
+                                            padding: "8px 14px", backgroundColor: "#3b82f6", color: "#fff",
+                                            textDecoration: "none", borderRadius: "6px", fontSize: "13px"
+                                        }}
+                                    >
+                                        <ExternalLink size={14} /> Open on CF
+                                    </a>
+                                )}
+                                <button onClick={() => setShowEditorial(false)} style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer" }}><X size={20}/></button>
+                            </div>
                         </div>
+                        
+                        {/* Tabs */}
+                        {editorial?.success && (
+                            <div style={{ display: "flex", borderBottom: "1px solid #27272a", backgroundColor: "#0a0a0a" }}>
+                                <button
+                                    onClick={() => setEditorialTab('tutorial')}
+                                    style={{
+                                        padding: "12px 24px", background: editorialTab === 'tutorial' ? '#09090b' : 'transparent',
+                                        border: "none", borderBottom: editorialTab === 'tutorial' ? '2px solid #3b82f6' : '2px solid transparent',
+                                        color: editorialTab === 'tutorial' ? '#fff' : '#71717a', cursor: "pointer",
+                                        display: "flex", alignItems: "center", gap: "8px"
+                                    }}
+                                >
+                                    <BookOpen size={16} /> Tutorial
+                                </button>
+                                <button
+                                    onClick={() => setEditorialTab('code')}
+                                    style={{
+                                        padding: "12px 24px", background: editorialTab === 'code' ? '#09090b' : 'transparent',
+                                        border: "none", borderBottom: editorialTab === 'code' ? '2px solid #3b82f6' : '2px solid transparent',
+                                        color: editorialTab === 'code' ? '#fff' : '#71717a', cursor: "pointer",
+                                        display: "flex", alignItems: "center", gap: "8px"
+                                    }}
+                                >
+                                    <Code size={16} /> Code ({codeBlocks.length})
+                                </button>
+                            </div>
+                        )}
                         
                         {/* Content */}
                         <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+                            {/* Spoiler Styles for Codeforces dropdowns */}
+                            <style>{`
+                                @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                                
+                                /* Codeforces Spoiler Styles - exact match */
+                                .editorial-content .spoiler {
+                                    margin: 16px 0;
+                                    border: 1px solid #3f3f46;
+                                    border-radius: 8px;
+                                    overflow: hidden;
+                                    background: #18181b;
+                                }
+                                .editorial-content .spoiler-title {
+                                    display: flex;
+                                    align-items: center;
+                                    gap: 10px;
+                                    padding: 14px 18px;
+                                    background: linear-gradient(135deg, #1f1f23 0%, #27272a 100%);
+                                    cursor: pointer;
+                                    font-weight: 700;
+                                    font-size: 14px;
+                                    color: #60a5fa;
+                                    user-select: none;
+                                    transition: all 0.2s;
+                                    border: none;
+                                }
+                                .editorial-content .spoiler-title:hover {
+                                    background: linear-gradient(135deg, #27272a 0%, #3f3f46 100%);
+                                    color: #93c5fd;
+                                }
+                                .editorial-content .spoiler-title::before {
+                                    content: "▶";
+                                    font-size: 11px;
+                                    transition: transform 0.3s ease;
+                                    color: #71717a;
+                                    flex-shrink: 0;
+                                }
+                                .editorial-content .spoiler.open .spoiler-title {
+                                    background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%);
+                                    color: #93c5fd;
+                                }
+                                .editorial-content .spoiler.open .spoiler-title::before {
+                                    transform: rotate(90deg);
+                                    color: #60a5fa;
+                                }
+                                .editorial-content .spoiler-content {
+                                    display: none;
+                                    padding: 20px;
+                                    border-top: 1px solid #3f3f46;
+                                    background: #0f0f11;
+                                    line-height: 1.8;
+                                }
+                                .editorial-content .spoiler.open .spoiler-content {
+                                    display: block !important;
+                                    animation: slideDown 0.25s ease-out;
+                                }
+                                @keyframes slideDown {
+                                    from { opacity: 0; transform: translateY(-10px); }
+                                    to { opacity: 1; transform: translateY(0); }
+                                }
+                                
+                                /* Code blocks inside editorial */
+                                .editorial-content pre {
+                                    background: #0a0a0a !important;
+                                    border: 1px solid #27272a;
+                                    border-radius: 6px;
+                                    padding: 16px !important;
+                                    overflow-x: auto;
+                                    font-family: 'JetBrains Mono', Consolas, monospace;
+                                    font-size: 13px;
+                                    line-height: 1.5;
+                                    margin: 12px 0;
+                                }
+                                .editorial-content code {
+                                    background: #27272a;
+                                    padding: 2px 6px;
+                                    border-radius: 4px;
+                                    font-family: 'JetBrains Mono', Consolas, monospace;
+                                    font-size: 0.9em;
+                                }
+                                .editorial-content pre code {
+                                    background: transparent;
+                                    padding: 0;
+                                }
+                                
+                                /* Links */
+                                .editorial-content a {
+                                    color: #60a5fa;
+                                    text-decoration: none;
+                                }
+                                .editorial-content a:hover {
+                                    text-decoration: underline;
+                                }
+                                
+                                /* Problem sections */
+                                .editorial-content h1, .editorial-content h2, .editorial-content h3 {
+                                    color: #fff;
+                                    margin-top: 24px;
+                                    margin-bottom: 12px;
+                                }
+                                .editorial-content p {
+                                    margin-bottom: 12px;
+                                }
+                                .editorial-content ul, .editorial-content ol {
+                                    padding-left: 24px;
+                                    margin-bottom: 12px;
+                                }
+                                .editorial-content li {
+                                    margin-bottom: 6px;
+                                }
+                                .editorial-content img {
+                                    max-width: 100%;
+                                    border-radius: 8px;
+                                    margin: 12px 0;
+                                }
+                                .editorial-content table {
+                                    border-collapse: collapse;
+                                    width: 100%;
+                                    margin: 12px 0;
+                                }
+                                .editorial-content th, .editorial-content td {
+                                    border: 1px solid #27272a;
+                                    padding: 8px 12px;
+                                    text-align: left;
+                                }
+                                .editorial-content th {
+                                    background: #1f1f23;
+                                }
+                                
+                                /* MathJax fix */
+                                .editorial-content .MathJax {
+                                    font-size: 100% !important;
+                                }
+                            `}</style>
+                            
                             {loadingEditorial ? (
                                 <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#a1a1aa", gap: "12px" }}>
-                                    <Loader2 size={32} className="animate-spin" />
-                                    <span>Fetching editorial via extension...</span>
+                                    <Loader2 size={32} style={{ animation: "spin 1s linear infinite" }} />
+                                    <span>Fetching tutorial from Codeforces...</span>
                                 </div>
-                            ) : (
-                                <>
-                                    <style>{`
-                                        /* Spoiler Styles */
-                                        .spoiler .spoiler-title {
-                                            cursor: pointer;
-                                            color: #60a5fa !important;
-                                            font-weight: bold;
-                                            margin-bottom: 4px;
-                                            display: inline-block;
-                                        }
-                                        .spoiler .spoiler-title:hover {
-                                            text-decoration: underline;
-                                        }
-                                        .spoiler .spoiler-title::before {
-                                            content: "▶ ";
-                                            font-size: 0.8em;
-                                            display: inline-block;
-                                            transition: transform 0.2s;
-                                        }
-                                        .spoiler.open .spoiler-title::before {
-                                            transform: rotate(90deg);
-                                        }
-                                        .spoiler .spoiler-content {
-                                            display: none;
-                                            padding: 12px;
-                                            background: rgba(255,255,255,0.03);
-                                            border-left: 2px solid #3b82f6;
-                                            margin-bottom: 12px;
-                                            border-radius: 0 4px 4px 0;
-                                        }
-                                        .spoiler.open .spoiler-content {
-                                            display: block;
-                                            animation: fadeIn 0.2s ease-in-out;
-                                        }
-                                        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-                                    `}</style>
+                            ) : editorial?.success ? (
+                                editorialTab === 'tutorial' ? (
+                                    /* Tutorial Tab */
                                     <div 
-                                        className="problem-content"
+                                        className="editorial-content problem-content"
                                         style={{ lineHeight: "1.7", fontSize: "15px", color: "#d4d4d8" }}
-                                        dangerouslySetInnerHTML={{ __html: editorialContent || "No content loaded." }}
+                                        dangerouslySetInnerHTML={{ 
+                                            __html: processEditorialContent(editorial.content) || "No content available." 
+                                        }}
                                         onClick={(e) => {
-                                            // 1. Handle Spoiler Clicks
-                                            let target = e.target;
-                                            if (!target.classList.contains("spoiler-title")) {
-                                                target = target.closest(".spoiler-title");
-                                            }
-
-                                            if (target && target.classList.contains("spoiler-title")) {
-                                                const spoiler = target.closest(".spoiler");
+                                            // Handle spoiler toggle clicks
+                                            const spoilerTitle = e.target.closest('.spoiler-title');
+                                            if (spoilerTitle) {
+                                                const spoiler = spoilerTitle.closest('.spoiler');
                                                 if (spoiler) {
-                                                    spoiler.classList.toggle("open");
-                                                    const content = spoiler.querySelector(".spoiler-content");
-                                                    if (content) {
-                                                        content.style.display = spoiler.classList.contains("open") ? "block" : "none";
-                                                    }
+                                                    spoiler.classList.toggle('open');
                                                 }
-                                                return; // handled
+                                                e.preventDefault();
+                                                return;
                                             }
-
-                                            // 2. Handle Links
-                                            const link = e.target.closest("a");
-                                            if (link) {
-                                                const href = link.getAttribute("href");
-                                                if (href) {
-                                                    // Check if it matches current problem (by URL or strict ID check)
-                                                    // problem.url example: https://codeforces.com/contest/2183/problem/F
-                                                    const isCurrent = (problem.url && href.includes(problem.url)) || 
-                                                                    (href.includes("codeforces.com") && href.includes(problem.contestId) && href.includes(problem.index));
-                                                    
-                                                    if (isCurrent) {
-                                                        e.preventDefault();
-                                                        setShowEditorial(false); // Close editorial -> User sees problem
-                                                        return;
-                                                    }
-
-                                                    // For other links, force open in new tab to preserve App state
-                                                    if (link.target !== "_blank") {
-                                                        link.target = "_blank";
-                                                    }
-                                                }
+                                            
+                                            // Handle links - open in new tab
+                                            const link = e.target.closest('a');
+                                            if (link && link.href) {
+                                                link.target = '_blank';
                                             }
                                         }}
                                     />
-                                </>
+                                ) : (
+                                    /* Code Tab */
+                                    codeBlocks.length > 0 ? (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                                            {codeBlocks.map((block, idx) => (
+                                                <div key={idx} style={{ backgroundColor: "#18181b", borderRadius: "8px", border: "1px solid #27272a", overflow: "hidden" }}>
+                                                    <div style={{ padding: "10px 16px", backgroundColor: "#0a0a0a", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                        <span style={{ color: "#71717a", fontSize: "12px" }}>Solution {idx + 1} ({block.language.toUpperCase()})</span>
+                                                        <button
+                                                            onClick={() => copyCode(block.code, idx)}
+                                                            style={{
+                                                                padding: "6px 12px", backgroundColor: "#27272a", border: "none",
+                                                                borderRadius: "4px", color: "#d4d4d8", cursor: "pointer",
+                                                                display: "flex", alignItems: "center", gap: "6px", fontSize: "12px"
+                                                            }}
+                                                        >
+                                                            {copiedCodeIndex === idx ? <Check size={12} /> : <Copy size={12} />}
+                                                            {copiedCodeIndex === idx ? 'Copied!' : 'Copy'}
+                                                        </button>
+                                                    </div>
+                                                    <pre style={{ margin: 0, padding: "16px", overflow: "auto", maxHeight: "400px", fontSize: "13px", fontFamily: "'JetBrains Mono', Consolas, monospace", color: "#d4d4d8", lineHeight: 1.5 }}>
+                                                        {block.code}
+                                                    </pre>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div style={{ textAlign: "center", padding: "60px 20px", color: "#71717a" }}>
+                                            <Code size={48} style={{ marginBottom: "15px", opacity: 0.5 }} />
+                                            <p style={{ margin: "0 0 10px 0" }}>No code blocks found in this tutorial.</p>
+                                            <p style={{ fontSize: "13px" }}>Check the Tutorial tab for the solution approach.</p>
+                                        </div>
+                                    )
+                                )
+                            ) : (
+                                /* Not Found State */
+                                <div style={{ textAlign: "center", padding: "40px" }}>
+                                    <div style={{ fontSize: "64px", marginBottom: "20px" }}>📝</div>
+                                    <h3 style={{ color: "#fff", marginBottom: "10px" }}>Tutorial Not Available</h3>
+                                    <p style={{ color: "#71717a", marginBottom: "25px", maxWidth: "400px", margin: "0 auto 25px" }}>
+                                        {editorial?.error || "The official tutorial for this contest hasn't been found or may not be published yet."}
+                                    </p>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "center" }}>
+                                        <a
+                                            href={`https://codeforces.com/search?query=${problem.contestId}+tutorial`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                                display: "inline-flex", alignItems: "center", gap: "8px",
+                                                padding: "12px 24px", backgroundColor: "#3b82f6", color: "#fff",
+                                                textDecoration: "none", borderRadius: "6px", fontWeight: "500"
+                                            }}
+                                        >
+                                            <Search size={16} /> Search on Codeforces
+                                        </a>
+                                        <a
+                                            href={`https://www.youtube.com/results?search_query=codeforces+${problem.contestId}+${problem.index}+tutorial`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                                display: "inline-flex", alignItems: "center", gap: "8px",
+                                                padding: "12px 24px", backgroundColor: "#c4302b", color: "#fff",
+                                                textDecoration: "none", borderRadius: "6px", fontWeight: "500"
+                                            }}
+                                        >
+                                            <Youtube size={16} /> YouTube Tutorials
+                                        </a>
+                                    </div>
+                                </div>
                             )}
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* EXTERNAL RESOURCES MODAL */}
-            {showExternalResources && (
-                <div style={{
-                    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-                    background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)",
-                    zIndex: 50, display: "flex", justifyContent: "center", alignItems: "center"
-                }}>
-                    <div style={{
-                        width: "90%", maxWidth: "500px",
-                        background: "#09090b", border: "1px solid #27272a", borderRadius: "12px",
-                        display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
-                    }}>
-                        {/* Header */}
-                        <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                           <h2 style={{ fontSize: "18px", fontWeight: "600", color: "#fff" }}>
-                               📚 Find Solutions - {problem.contestId}{problem.index}
-                           </h2>
-                           <button onClick={() => setShowExternalResources(false)} style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer" }}><X size={20}/></button>
-                        </div>
-                        
-                        {/* Content */}
-                        <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "12px" }}>
-                            {externalResources.map((resource, idx) => (
-                                <a
-                                    key={idx}
-                                    href={resource.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        padding: "16px",
-                                        backgroundColor: "#18181b",
-                                        borderRadius: "8px",
-                                        textDecoration: "none",
-                                        color: "#d4d4d8",
-                                        border: "1px solid #27272a",
-                                        transition: "all 0.2s"
-                                    }}
-                                    onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#27272a'; e.currentTarget.style.borderColor = '#3b82f6'; }}
-                                    onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#18181b'; e.currentTarget.style.borderColor = '#27272a'; }}
-                                >
-                                    <span style={{ fontSize: "24px", marginRight: "15px" }}>
-                                        {resource.icon}
-                                    </span>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: "600", color: "#fff" }}>{resource.name}</div>
-                                        <div style={{ fontSize: "12px", color: "#71717a", marginTop: "2px" }}>
-                                            Click to search for solutions
-                                        </div>
-                                    </div>
-                                    <ExternalLink size={16} style={{ color: "#71717a" }} />
-                                </a>
-                            ))}
-
-                            {/* Tips */}
-                            <div style={{
-                                marginTop: "16px",
-                                padding: "16px",
-                                backgroundColor: "rgba(59, 130, 246, 0.1)",
-                                borderRadius: "8px",
-                                borderLeft: "3px solid #3b82f6"
-                            }}>
-                                <h5 style={{ color: "#60a5fa", margin: "0 0 8px 0", fontSize: "13px" }}>💡 Tips</h5>
-                                <ul style={{ color: "#a1a1aa", margin: 0, paddingLeft: "16px", fontSize: "12px", lineHeight: 1.8 }}>
-                                    <li>Try solving for 30-60 minutes first</li>
-                                    <li>Read hints before full solutions</li>
-                                    <li>Implement without looking at code</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

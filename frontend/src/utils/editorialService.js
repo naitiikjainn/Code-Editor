@@ -1,127 +1,112 @@
 /**
  * Editorial Service
- * Fetches problem editorials from multiple sources
+ * Fetches official Codeforces tutorials/editorials
  */
 
-// Sources for editorials
-const EDITORIAL_SOURCES = {
-    // Your GitHub repository (will be populated by scraper)
-    primary: {
-        owner: 'naitiikjainn',
-        repo: 'codeforces-problems',
-        branch: 'main',
-        path: 'editorials'
-    },
-    // Fallback - direct Codeforces links
-    codeforces: 'https://codeforces.com'
-};
+import { API_URL } from '../config';
 
 /**
- * Get editorial URL from your GitHub repository
- */
-const getEditorialFromGitHub = async (contestId) => {
-    const url = `https://raw.githubusercontent.com/${EDITORIAL_SOURCES.primary.owner}/${EDITORIAL_SOURCES.primary.repo}/${EDITORIAL_SOURCES.primary.branch}/${EDITORIAL_SOURCES.primary.path}/${contestId}.html`;
-    
-    try {
-        const response = await fetch(url);
-        if (response.ok) {
-            return {
-                type: 'html',
-                content: await response.text(),
-                source: 'github'
-            };
-        }
-    } catch (e) {
-        console.log('GitHub editorial not found:', contestId);
-    }
-    return null;
-};
-
-/**
- * Search for editorial on Codeforces blog
- * Returns the blog URL if found
- */
-const findCodeforcesEditorial = async (contestId) => {
-    // Common patterns for editorial blog entries
-    // Usually the editorial is posted shortly after the contest
-    
-    // Try the contest page to find editorial link
-    const contestUrl = `https://codeforces.com/contest/${contestId}`;
-    
-    return {
-        type: 'link',
-        url: contestUrl,
-        searchUrl: `https://codeforces.com/search?query=editorial+${contestId}`,
-        source: 'codeforces'
-    };
-};
-
-/**
- * Get external editorial sources
- */
-export const getExternalSources = (contestId, problemIndex) => {
-    return [
-        {
-            name: 'Codeforces Blog',
-            url: `https://codeforces.com/search?query=editorial+${contestId}`,
-            icon: '📝'
-        },
-        {
-            name: 'USACO Guide',
-            url: `https://usaco.guide/problems/cf-${contestId}${problemIndex}/solution`,
-            icon: '📚'
-        },
-        {
-            name: 'CP-Algorithms',
-            url: `https://cp-algorithms.com/`,
-            icon: '🔢'
-        },
-        {
-            name: 'YouTube Search',
-            url: `https://www.youtube.com/results?search_query=codeforces+${contestId}+${problemIndex}+solution`,
-            icon: '🎥'
-        }
-    ];
-};
-
-/**
- * Main function to get editorial for a problem
+ * Fetch official Codeforces editorial/tutorial from backend
  */
 export const getEditorial = async (contestId, problemIndex) => {
-    // Try GitHub first
-    const githubEditorial = await getEditorialFromGitHub(contestId);
-    if (githubEditorial) {
+    try {
+        const url = `${API_URL}/api/problems/codeforces/editorial/${contestId}${problemIndex ? `?problem=${problemIndex}` : ''}`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (response.ok && data.success && data.editorial) {
+            return {
+                success: true,
+                type: 'codeforces',
+                title: data.editorial.title,
+                content: data.editorial.content,
+                problemSection: data.editorial.problemSection || null,
+                author: data.editorial.authorHandle,
+                url: data.editorial.url,
+                blogId: data.editorial.blogId
+            };
+        }
+        
+        // Editorial not found
         return {
-            ...githubEditorial,
-            externalSources: getExternalSources(contestId, problemIndex)
+            success: false,
+            error: data.error || 'Editorial not found',
+            searchUrl: data.searchUrl || `https://codeforces.com/search?query=${contestId}+tutorial`
+        };
+        
+    } catch (e) {
+        console.error('Editorial fetch error:', e);
+        return {
+            success: false,
+            error: 'Failed to fetch editorial',
+            searchUrl: `https://codeforces.com/search?query=${contestId}+tutorial`
         };
     }
-    
-    // Return external sources as fallback
-    return {
-        type: 'external',
-        content: null,
-        externalSources: getExternalSources(contestId, problemIndex),
-        source: 'external'
-    };
 };
 
 /**
- * Check if editorial exists in GitHub repo
+ * Extract code blocks from editorial HTML content
  */
-export const hasEditorial = async (contestId) => {
-    const url = `https://raw.githubusercontent.com/${EDITORIAL_SOURCES.primary.owner}/${EDITORIAL_SOURCES.primary.repo}/${EDITORIAL_SOURCES.primary.branch}/${EDITORIAL_SOURCES.primary.path}/${contestId}.html`;
+export const extractCodeBlocks = (htmlContent) => {
+    if (!htmlContent) return [];
     
-    try {
-        const response = await fetch(url, { method: 'HEAD' });
-        return response.ok;
-    } catch (e) {
-        return false;
+    const codeBlocks = [];
+    
+    // Match <pre> or <code> blocks
+    const preRegex = /<pre[^>]*>([\s\S]*?)<\/pre>/gi;
+    const codeRegex = /<code[^>]*>([\s\S]*?)<\/code>/gi;
+    
+    let match;
+    
+    // Extract from <pre> tags
+    while ((match = preRegex.exec(htmlContent)) !== null) {
+        const code = match[1]
+            .replace(/<[^>]*>/g, '') // Remove nested HTML tags
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .trim();
+        
+        if (code.length > 20) { // Only include substantial code blocks
+            // Try to detect language
+            let language = 'cpp'; // Default
+            if (code.includes('def ') || code.includes('print(')) language = 'python';
+            else if (code.includes('public static void') || code.includes('System.out')) language = 'java';
+            
+            codeBlocks.push({ code, language });
+        }
     }
+    
+    // Extract from standalone <code> tags (if not already in <pre>)
+    while ((match = codeRegex.exec(htmlContent)) !== null) {
+        const code = match[1]
+            .replace(/<[^>]*>/g, '')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .trim();
+        
+        if (code.length > 50 && !codeBlocks.some(b => b.code.includes(code.slice(0, 30)))) {
+            let language = 'cpp';
+            if (code.includes('def ') || code.includes('print(')) language = 'python';
+            codeBlocks.push({ code, language });
+        }
+    }
+    
+    return codeBlocks;
+};
+
+/**
+ * Get direct link to Codeforces editorial
+ */
+export const getCodeforcesEditorialUrl = (contestId) => {
+    return `https://codeforces.com/blog/entry/${contestId}`;
 };
 
 export default {
     getEditorial,
-    hasEditorial,
-    getExternalSources
+    extractCodeBlocks
 };

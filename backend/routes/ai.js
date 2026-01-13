@@ -39,7 +39,7 @@ router.post("/assist", async (req, res) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
     // Use the reliable flash model
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     // Construct a generic prompt that works for ANY language
     const fullPrompt = `

@@ -23,6 +23,16 @@ const { setupWSConnection } = require('y-websocket/bin/utils');
 
 dotenv.config();
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception:', err.message);
+    console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 // Security: Validate required environment variables
 const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET'];
 const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
@@ -122,6 +132,14 @@ const authRateLimiter = rateLimit(60 * 1000, 5);
 app.use("/api/auth/login", authRateLimiter);
 app.use("/api/auth/register", authRateLimiter);
 app.use("/api/auth/forgot-password", authRateLimiter);
+
+// Debug logging middleware
+app.use((req, res, next) => {
+    if (req.path.includes('editorial')) {
+        console.log(`[DEBUG] ${new Date().toISOString()} - ${req.method} ${req.path}`);
+    }
+    next();
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
