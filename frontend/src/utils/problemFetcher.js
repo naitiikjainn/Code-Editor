@@ -191,7 +191,7 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
         }
     }
 
-    // All strategies failed - use partial data if available
+    // All strategies failed - use iframe embed as fallback
     const fallbackData = partialData || {
         provider: "codeforces",
         id: problemId,
@@ -208,19 +208,40 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
         error: "Failed to fetch problem description",
         data: {
             ...fallbackData,
-            description: `<div class="fetch-error" style="padding: 24px; text-align: center;">
-                <h3 style="color: #ef4444; margin-bottom: 12px;">Failed to Load Problem Content</h3>
-                ${partialData ? `<p style="color: #4ade80; margin-bottom: 8px;">Title: ${partialData.title || problemId}</p>` : ''}
-                <p style="color: #a1a1aa; margin-bottom: 16px;">
-                    Codeforces is blocking automated requests (Cloudflare protection).<br/>
-                    <strong>Solution:</strong> Install the CodePlay Helper extension or log into Codeforces.
-                </p>
-                <a href="${url}" target="_blank" 
-                   style="display: inline-block; padding: 10px 20px; 
-                          background: #3b82f6; color: white; 
-                          border-radius: 6px; text-decoration: none;">
-                    Open on Codeforces
-                </a>
+            useIframe: true, // Signal to use iframe embedding
+            description: `<div class="iframe-fallback" style="width: 100%; min-height: 500px; display: flex; flex-direction: column; background: #0d1117; border-radius: 8px; overflow: hidden;">
+                <div style="padding: 16px 20px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.1)); border-bottom: 1px solid rgba(59, 130, 246, 0.2); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 20px;">📄</span>
+                        <div>
+                            <div style="color: #e4e4e7; font-size: 14px; font-weight: 600;">Problem Preview</div>
+                            <div style="color: #71717a; font-size: 12px;">This problem is not yet cached. View directly from Codeforces.</div>
+                        </div>
+                    </div>
+                    <a href="${url}" target="_blank" 
+                       style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #3b82f6; color: white; font-size: 13px; font-weight: 500; text-decoration: none; border-radius: 6px; transition: background 0.2s;"
+                       onmouseover="this.style.background='#2563eb'" 
+                       onmouseout="this.style.background='#3b82f6'">
+                        Open on Codeforces <span style="font-size: 12px;">↗</span>
+                    </a>
+                </div>
+                <div style="flex: 1; position: relative; min-height: 450px;">
+                    <iframe 
+                        src="${url}" 
+                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; background: white;"
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                        loading="lazy"
+                        onload="this.parentElement.querySelector('.loading-overlay')?.remove()"
+                    ></iframe>
+                    <div class="loading-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0d1117; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;">
+                        <div style="width: 32px; height: 32px; border: 3px solid rgba(59, 130, 246, 0.3); border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <div style="color: #a1a1aa; font-size: 13px;">Loading from Codeforces...</div>
+                        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+                    </div>
+                </div>
+                <div style="padding: 12px 16px; background: rgba(0,0,0,0.3); border-top: 1px solid rgba(255,255,255,0.05); color: #71717a; font-size: 11px; text-align: center;">
+                    💡 <strong>Tip:</strong> If the iframe doesn't load, Codeforces may be blocking embedded content. Click "Open on Codeforces" above.
+                </div>
             </div>`
         }
     };

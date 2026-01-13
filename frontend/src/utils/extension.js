@@ -1,3 +1,112 @@
+// Check if extension is available
+export const isExtensionReady = () => {
+    return new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve(false), 2000);
+        
+        const handler = (event) => {
+            if (event.data.type === "CODEPLAY_EXTENSION_READY") {
+                clearTimeout(timeout);
+                window.removeEventListener("message", handler);
+                resolve(true);
+            }
+        };
+        
+        window.addEventListener("message", handler);
+        
+        // Also check if we already received the ready signal
+        if (window.__CODEPLAY_EXTENSION_READY) {
+            clearTimeout(timeout);
+            resolve(true);
+        }
+    });
+};
+
+// Mark extension as ready when message received
+window.addEventListener("message", (event) => {
+    if (event.data.type === "CODEPLAY_EXTENSION_READY") {
+        window.__CODEPLAY_EXTENSION_READY = true;
+    }
+});
+
+// Submit to Codeforces via extension
+export const submitToCodeforces = (contestId, problemIndex, code, languageId) => {
+    return new Promise((resolve, reject) => {
+        const handler = (event) => {
+            if (event.data.type === "CODEPLAY_SUBMIT_RESULT") {
+                window.removeEventListener("message", handler);
+                clearTimeout(timeoutId);
+                
+                if (event.data.payload?.success) {
+                    resolve(event.data.payload);
+                } else {
+                    reject(new Error(event.data.payload?.error || "Submission failed"));
+                }
+            }
+        };
+        
+        window.addEventListener("message", handler);
+        
+        const timeoutId = setTimeout(() => {
+            window.removeEventListener("message", handler);
+            reject(new Error("Submission timeout. Make sure CodePlay extension is installed and enabled."));
+        }, 60000); // 60 second timeout for submission
+        
+        window.postMessage({
+            type: "CODEPLAY_SUBMIT_CODEFORCES",
+            payload: { contestId, problemIndex, code, languageId }
+        }, "*");
+    });
+};
+
+// Check Codeforces login status
+export const checkCodeforcesLogin = () => {
+    return new Promise((resolve, reject) => {
+        const handler = (event) => {
+            if (event.data.type === "CODEPLAY_CF_LOGIN_STATUS") {
+                window.removeEventListener("message", handler);
+                clearTimeout(timeoutId);
+                resolve(event.data.payload);
+            }
+        };
+        
+        window.addEventListener("message", handler);
+        
+        const timeoutId = setTimeout(() => {
+            window.removeEventListener("message", handler);
+            reject(new Error("Login check timeout"));
+        }, 10000);
+        
+        window.postMessage({ type: "CODEPLAY_CHECK_CF_LOGIN" }, "*");
+    });
+};
+
+// Get Codeforces handle
+export const getCodeforcesHandle = () => {
+    return new Promise((resolve, reject) => {
+        const handler = (event) => {
+            if (event.data.type === "CODEPLAY_CF_HANDLE_RESULT") {
+                window.removeEventListener("message", handler);
+                clearTimeout(timeoutId);
+                
+                if (event.data.payload?.success) {
+                    resolve(event.data.payload.handle);
+                } else {
+                    reject(new Error(event.data.payload?.error || "Could not get handle"));
+                }
+            }
+        };
+        
+        window.addEventListener("message", handler);
+        
+        const timeoutId = setTimeout(() => {
+            window.removeEventListener("message", handler);
+            reject(new Error("Handle fetch timeout"));
+        }, 10000);
+        
+        window.postMessage({ type: "CODEPLAY_FETCH_CF_HANDLE" }, "*");
+    });
+};
+
 export const fetchViaExtension = (url) => {
     return new Promise((resolve, reject) => {
         // We communicate with the Content Script via window.postMessage

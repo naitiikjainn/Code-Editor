@@ -19,7 +19,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { API_URL } from "../config"; 
 import io from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap, Mic, MicOff, PhoneOff } from "lucide-react"; 
+import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap, Mic, MicOff, PhoneOff, Headphones, Volume2, VolumeX } from "lucide-react"; 
 import { useVoiceChat } from "../hooks/useVoiceChat"; 
 import SettingsModal from "./SettingsModal";
 import SettingsPanel from "./SettingsPanel";
@@ -161,7 +161,11 @@ export default function Workspace() {
   }, [socket, id, accessStatus]);
 
   // --- VOICE CHAT ---
-  const { isConnected, isMuted, joinVoice, leaveVoice, toggleMute, peers, speakingPeers, mutePeer } = useVoiceChat(socket, id);
+  const { 
+    isConnected, isMuted, isDeafened, isSpeaking, volume, connectionQuality,
+    joinVoice, leaveVoice, toggleMute, toggleDeafen, setMasterVolume, setPeerVolume, mutePeer,
+    peers, speakingPeers 
+  } = useVoiceChat(socket, id);
   // Helper to map peerId (socketId) to username
   const getPeerName = (peerId) => activeUsers.find(u => u.socketId === peerId)?.username || "Unknown";
   const isHost = activeUsers.find(u => u.username === user?.username)?.isHost;
@@ -526,9 +530,21 @@ export default function Workspace() {
             return;
         }
 
+        // Get the absolute latest code from state
+        const codeToSubmit = activeCode;
+        
+        if (!codeToSubmit || codeToSubmit.trim().length === 0) {
+            setLogs(prev => [...prev, { type: "error", message: "Cannot submit: Code is empty." }]);
+            return;
+        }
+
         setIsSubmitting(true);
         setLogs(prev => [...prev, { type: "info", message: `Submitting problem ${contestId}${index} to Codeforces...` }]);
         setConsoleOpen(true);
+
+        // Debug: Log code hash to verify it's different
+        const codeHash = codeToSubmit.length + '-' + codeToSubmit.slice(0, 50).replace(/\s/g, '');
+        console.log(`[Submit] Code signature: ${codeHash}`);
 
         const langMap = {
             cpp: "54",      // GNU C++17
@@ -541,7 +557,7 @@ export default function Workspace() {
         const payload = {
             contestId,
             problemIndex: index,
-            code: activeCode,
+            code: codeToSubmit,
             languageId: langId 
         };
 
@@ -1004,17 +1020,29 @@ rl.on('line', (line) => {
                         <MicOff size={14} /> Join Voice
                     </button>
                 ) : (
-                    <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#333", borderRadius: "6px", padding: "2px", border: "1px solid #444" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#333", borderRadius: "6px", padding: "2px", border: `1px solid ${isSpeaking ? '#22c55e' : '#444'}`, transition: "border-color 0.15s" }}>
                          <button 
                             onClick={toggleMute}
                             style={{ 
                                 background: isMuted ? "#ef5350" : "#22c55e", 
                                 border: "none", borderRadius: "4px", 
-                                width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s"
+                                width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s",
+                                boxShadow: isSpeaking && !isMuted ? '0 0 8px rgba(34, 197, 94, 0.6)' : 'none'
                             }}
                             title={isMuted ? "Unmute" : "Mute"}
                         >
                             {isMuted ? <MicOff size={14} color="white" /> : <Mic size={14} color="white" />}
+                        </button>
+                        <button 
+                            onClick={toggleDeafen}
+                            style={{ 
+                                background: isDeafened ? "#ef5350" : "transparent", 
+                                border: "none", borderRadius: "4px", 
+                                width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s"
+                            }}
+                            title={isDeafened ? "Undeafen" : "Deafen (mute all audio)"}
+                        >
+                            {isDeafened ? <VolumeX size={14} color="white" /> : <Headphones size={14} color="#aaa" />}
                         </button>
                         <button 
                             onClick={leaveVoice}
@@ -1028,26 +1056,16 @@ rl.on('line', (line) => {
                         >
                             <PhoneOff size={14} color="#aaa" />
                         </button>
+                        {/* Connection quality indicator */}
+                        <div style={{ 
+                            width: "8px", height: "8px", borderRadius: "50%", marginLeft: "4px",
+                            background: connectionQuality === 'good' ? '#22c55e' : connectionQuality === 'medium' ? '#f59e0b' : '#ef5350'
+                        }} title={`Connection: ${connectionQuality}`} />
                     </div>
                 )}
             </div>
         </div>
         </div>
-
-        {/* INVISIBLE AUDIO ELEMENTS FOR PEERS */}
-        {peers.map(peer => (
-            <audio 
-                key={peer.peerId} 
-                autoPlay 
-                playsInline
-                ref={el => {
-                    if (el && el.srcObject !== peer.stream) {
-                        el.srcObject = peer.stream;
-                        el.play().catch(e => console.error("AutoPlay Error:", e));
-                    }
-                }} 
-            />
-        ))}
 
         {/* WORKSPACE BODY */}
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -1324,49 +1342,113 @@ rl.on('line', (line) => {
       {/* VOICE PARTICIPANTS BOX */}
       {isConnected && (
           <div style={{
-              position: "fixed", top: "70px", right: "20px", width: "220px",
+              position: "fixed", top: "70px", right: "20px", width: "260px",
               background: "rgba(20, 20, 30, 0.95)", border: "1px solid var(--border-subtle)",
-              borderRadius: "8px", padding: "12px", zIndex: 1000, boxShadow: "0 8px 24px rgba(0,0,0,0.3)"
+              borderRadius: "12px", padding: "16px", zIndex: 1000, boxShadow: "0 8px 24px rgba(0,0,0,0.3)"
           }}>
-              <div style={{ fontSize: "12px", fontWeight: "bold", color: "#aaa", marginBottom: "8px", display: "flex", justifyContent: "space-between" }}>
-                  <span>VOICE CONNECTED ({peers.length + 1})</span>
-                  <span style={{color:"#22c55e", fontSize: "10px"}}>● Live</span>
+              <div style={{ fontSize: "12px", fontWeight: "bold", color: "#aaa", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>VOICE CHAT ({peers.length + 1})</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <div style={{ 
+                          width: "8px", height: "8px", borderRadius: "50%",
+                          background: connectionQuality === 'good' ? '#22c55e' : connectionQuality === 'medium' ? '#f59e0b' : '#ef5350',
+                          animation: "pulse 2s infinite"
+                      }} />
+                      <span style={{color: connectionQuality === 'good' ? "#22c55e" : connectionQuality === 'medium' ? '#f59e0b' : '#ef5350', fontSize: "10px"}}>
+                          {connectionQuality === 'good' ? 'Connected' : connectionQuality === 'medium' ? 'Connecting...' : 'Poor'}
+                      </span>
+                  </div>
+              </div>
+              
+              {/* MASTER VOLUME SLIDER */}
+              <div style={{ marginBottom: "12px", padding: "8px", background: "rgba(255,255,255,0.03)", borderRadius: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                      <Volume2 size={14} color="#888" />
+                      <span style={{ fontSize: "11px", color: "#888" }}>Master Volume</span>
+                      <span style={{ fontSize: "11px", color: "#666", marginLeft: "auto" }}>{volume}%</span>
+                  </div>
+                  <input 
+                      type="range" 
+                      min="0" max="100" 
+                      value={volume}
+                      onChange={(e) => setMasterVolume(parseInt(e.target.value))}
+                      style={{ width: "100%", height: "4px", cursor: "pointer" }}
+                  />
               </div>
               
               {/* ME */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px", fontSize: "13px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", fontSize: "13px", padding: "8px", background: "rgba(255,255,255,0.03)", borderRadius: "8px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: stringToColor(user?.username), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", border: isMuted ? "2px solid #ef5350" : "2px solid #22c55e" }}>
+                      <div style={{ 
+                          width: "28px", height: "28px", borderRadius: "50%", 
+                          background: stringToColor(user?.username), color: "#fff", 
+                          display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "bold",
+                          border: isSpeaking && !isMuted ? "2px solid #22c55e" : isMuted ? "2px solid #ef5350" : "2px solid transparent",
+                          boxShadow: isSpeaking && !isMuted ? "0 0 10px rgba(34,197,94,0.5)" : "none",
+                          transition: "all 0.15s"
+                      }}>
                           {user?.username?.[0]?.toUpperCase()}
                       </div>
-                      <span style={{ color: "white" }}>{user?.username} (You)</span>
+                      <div>
+                          <div style={{ color: "white", fontWeight: "500" }}>{user?.username}</div>
+                          <div style={{ fontSize: "10px", color: "#666" }}>You</div>
+                      </div>
                   </div>
-                  {isMuted && <MicOff size={12} color="#ef5350" />}
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                      {isMuted && <MicOff size={14} color="#ef5350" />}
+                      {isDeafened && <VolumeX size={14} color="#ef5350" />}
+                  </div>
               </div>
 
               {/* PEERS */}
               {peers.map(p => {
                   const pName = p.username || getPeerName(p.peerId); 
-                  const isSpeaking = speakingPeers.has(p.peerId);
+                  const peerIsSpeaking = speakingPeers.has(p.peerId);
+                  const peerVolume = p.volume ?? 100;
+                  const peerMuted = p.muted ?? false;
                   
                   return (
-                    <div key={p.peerId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px", fontSize: "13px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                            <div style={{ 
-                                width: "24px", height: "24px", borderRadius: "50%", 
-                                background: stringToColor(pName), color: "#fff", 
-                                display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px",
-                                border: isSpeaking ? "2px solid #22c55e" : "2px solid transparent",
-                                boxShadow: isSpeaking ? "0 0 8px #22c55e" : "none",
-                                transition: "all 0.1s"
-                            }}>
-                                {pName[0]?.toUpperCase()}
+                    <div key={p.peerId} style={{ marginBottom: "8px", padding: "8px", background: "rgba(255,255,255,0.03)", borderRadius: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px", fontSize: "13px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <div style={{ 
+                                    width: "28px", height: "28px", borderRadius: "50%", 
+                                    background: stringToColor(pName), color: "#fff", 
+                                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "bold",
+                                    border: peerIsSpeaking ? "2px solid #22c55e" : "2px solid transparent",
+                                    boxShadow: peerIsSpeaking ? "0 0 10px rgba(34,197,94,0.5)" : "none",
+                                    transition: "all 0.15s"
+                                }}>
+                                    {pName[0]?.toUpperCase()}
+                                </div>
+                                <span style={{ color: "white", fontWeight: "500" }}>{pName}</span>
                             </div>
-                            <span style={{ color: "white" }}>{pName}</span>
+                            <button
+                                onClick={() => mutePeer(p.peerId, !peerMuted)}
+                                style={{ background: "none", border: "none", cursor: "pointer", padding: "4px" }}
+                                title={peerMuted ? "Unmute user" : "Mute user (only for you)"}
+                            >
+                                {peerMuted ? <VolumeX size={14} color="#ef5350" /> : <Volume2 size={14} color="#888" />}
+                            </button>
                         </div>
+                        {/* Individual volume slider */}
+                        <input 
+                            type="range" 
+                            min="0" max="100" 
+                            value={peerMuted ? 0 : peerVolume}
+                            onChange={(e) => setPeerVolume(p.peerId, parseInt(e.target.value))}
+                            disabled={peerMuted}
+                            style={{ width: "100%", height: "3px", cursor: peerMuted ? "not-allowed" : "pointer", opacity: peerMuted ? 0.4 : 1 }}
+                        />
                     </div>
                   );
               })}
+              
+              {peers.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#666", fontSize: "12px", padding: "12px" }}>
+                      Waiting for others to join...
+                  </div>
+              )}
           </div>
       )}
 

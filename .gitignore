@@ -1,9 +1,12 @@
 # Ignore dependencies
 node_modules/
 
-# Ignore API Keys (Very Important)
+# Ignore API Keys and Secrets (Very Important)
 .env
 .env.local
+.env.production
+.env.development
+.env*.local
 
 # Ignore build files
 dist/
@@ -11,8 +14,18 @@ build/
 
 # Ignore logs and system files
 *.log
+npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# Ignore IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore scraped content (large files)
+codeforces-problems/content/
 
 # Private Extension
 # chrome-extension/

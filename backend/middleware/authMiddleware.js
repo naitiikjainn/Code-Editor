@@ -11,7 +11,11 @@ export default function authMiddleware(req, res, next) {
 
     // Verify token
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_secret_key");
+        if (!process.env.JWT_SECRET) {
+            console.error("CRITICAL: JWT_SECRET not set!");
+            return res.status(500).json({ msg: "Server configuration error" });
+        }
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded; // Corrected: decoded is the payload, usually { id: ... } 
         // Note: auth.js signs { id: user._id, username: ... }
         // but auth.js:68 returns user: { id: ... }

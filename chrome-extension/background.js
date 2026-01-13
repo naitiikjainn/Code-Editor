@@ -99,91 +99,194 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === "SUBMIT_CODEFORCES") {
         const { contestId, problemIndex, code, languageId } = message.payload;
-        const submitUrl = `https://codeforces.com/contest/${contestId}/submit`;
-
+        
+        // First try to find an existing Codeforces tab
         (async () => {
             try {
-                // 1. Open Tab (Inactive)
-                console.log(`[CodePlay] Opening Submit Tab for ${contestId}${problemIndex}...`);
-                const tab = await chrome.tabs.create({ url: submitUrl, active: false });
-
-                // 2. Wait for Load & Submit
-                const submitResult = await new Promise((resolve, reject) => {
-                    let attempts = 0;
-                    const interval = setInterval(() => {
-                        attempts++;
-                        if (attempts > 40) { // 20s
-                            clearInterval(interval);
-                            reject(new Error("Submit Page Timeout"));
-                            return;
-                        }
-
-                        // Send "PERFORM_SUBMIT"
-                        chrome.tabs.sendMessage(tab.id, {
-                            type: "CODEPLAY_PERFORM_SUBMIT",
-                            payload: { contestId, problemIndex, code, languageId }
-                        }, (response) => {
-                            if (chrome.runtime.lastError) return; // Script not ready
-
-                            if (response) {
-                                clearInterval(interval);
-                                resolve(response);
-                            }
-                        });
-                    }, 500);
-                });
-
-                // 3. Close Tab
-                chrome.tabs.remove(tab.id);
-
-                // 4. Handle Result
-                if (submitResult.success) {
-                    sendResponse({ success: true, message: "Submission queued!" });
-                    // Start Polling (Feature 1)
-                    pollVerdict(contestId, problemIndex, languageId);
-                } else {
-                    sendResponse({ success: false, error: submitResult.error });
+                // Check if user is logged in first
+                const loginCheck = await fetch("https://codeforces.com", { credentials: 'include' });
+                const loginHtml = await loginCheck.text();
+                if (!loginHtml.includes("/logout")) {
+                    sendResponse({ success: false, error: "Not logged in to Codeforces. Please log in first." });
+                    return;
                 }
-
+                
+                // Extract handle for later polling
+                const handleMatch = loginHtml.match(/href="\/profile\/([^"]+)"/);
+                const handle = handleMatch ? handleMatch[1] : null;
+                
+                console.log(`[CodePlay] Logged in as: ${handle}`);
+                console.log(`[CodePlay] Submitting ${contestId}${problemIndex}...`);
+                
+                // Try multiple submit URLs
+                const submitUrls = [
+                    `https://codeforces.com/contest/${contestId}/submit`,
+                    `https://codeforces.com/problemset/submit`
+                ];
+                
+                let tab = null;
+                let submitSuccess = false;
+                let hiddenWindow = null;
+                
+                // Create a minimized window to keep the tab hidden
+                try {
+                    hiddenWindow = await chrome.windows.create({
+                        url: 'about:blank',
+                        type: 'popup',
+                        state: 'minimized',
+                        width: 1,
+                        height: 1,
+                        left: -1000,
+                        top: -1000,
+                        focused: false
+                    });
+                } catch (e) {
+                    console.log('[CodePlay] Could not create hidden window, using background tab');
+                }
+                
+                for (const submitUrl of submitUrls) {
+                    if (submitSuccess) break;
+                    
+                    console.log(`[CodePlay] Opening: ${submitUrl}`);
+                    
+                    // Create tab in hidden window or as background tab
+                    if (hiddenWindow) {
+                        tab = await chrome.tabs.create({ url: submitUrl, windowId: hiddenWindow.id, active: false });
+                    } else {
+                        tab = await chrome.tabs.create({ url: submitUrl, active: false });
+                    }
+                    
+                    // Wait for tab to load and get result
+                    const result = await new Promise((resolve, reject) => {
+                        let attempts = 0;
+                        const maxAttempts = 60; // 30 seconds
+                        
+                        const interval = setInterval(() => {
+                            attempts++;
+                            
+                            if (attempts > maxAttempts) {
+                                clearInterval(interval);
+                                reject(new Error("Page load timeout"));
+                                return;
+                            }
+                            
+                            chrome.tabs.sendMessage(tab.id, {
+                                type: "CODEPLAY_PERFORM_SUBMIT",
+                                payload: { contestId, problemIndex, code, languageId }
+                            }, (response) => {
+                                if (chrome.runtime.lastError) {
+                                    // Content script not ready yet
+                                    return;
+                                }
+                                
+                                if (response) {
+                                    clearInterval(interval);
+                                    resolve(response);
+                                }
+                            });
+                        }, 500);
+                        
+                        // Also listen for tab complete
+                        const tabListener = (tabId, changeInfo) => {
+                            if (tabId === tab.id && changeInfo.status === 'complete') {
+                                // Tab loaded, script should be ready soon
+                            }
+                        };
+                        chrome.tabs.onUpdated.addListener(tabListener);
+                    });
+                    
+                    // Close the tab
+                    try { chrome.tabs.remove(tab.id); } catch (e) {}
+                    
+                    // Close hidden window if this was the last URL or success
+                    if (submitSuccess || submitUrl === submitUrls[submitUrls.length - 1]) {
+                        if (hiddenWindow) {
+                            try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                            hiddenWindow = null;
+                        }
+                    }
+                    
+                    if (result.success) {
+                        submitSuccess = true;
+                        sendResponse({ success: true, message: result.message, handle });
+                        
+                        // Start polling for verdict
+                        if (handle) {
+                            pollVerdict(contestId, problemIndex, handle);
+                        }
+                        return;
+                    } else if (result.error && !result.error.includes("All submit URLs failed")) {
+                        // Got a specific error, return it
+                        // Ensure hidden window is closed
+                        if (hiddenWindow) {
+                            try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                        }
+                        sendResponse(result);
+                        return;
+                    }
+                    // Otherwise try next URL
+                }
+                
+                // Ensure hidden window is closed
+                if (hiddenWindow) {
+                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                }
+                
+                if (!submitSuccess) {
+                    sendResponse({ success: false, error: "Failed to submit. Please try again or submit manually." });
+                }
+                
             } catch (err) {
                 console.error("[CodePlay] Submit Error:", err);
+                // Ensure hidden window is closed on error
+                if (hiddenWindow) {
+                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                }
                 sendResponse({ success: false, error: err.message });
             }
         })();
         return true;
     }
 
-    // POLL FUNCTION (Outside listener scope or helper)
-    async function pollVerdict(contestId, index, langId) {
-        // 1. Get Handle
-        let handle = "";
-        try {
-            const res = await fetch("https://codeforces.com");
-            const html = await res.text();
-            const match = html.match(/href="\/profile\/([^"]+)"/);
-            if (match) handle = match[1];
-        } catch (e) { return; }
-
+    // POLL FUNCTION
+    async function pollVerdict(contestId, index, handle) {
+        if (!handle) {
+            try {
+                const res = await fetch("https://codeforces.com", { credentials: 'include' });
+                const html = await res.text();
+                const match = html.match(/href="\/profile\/([^"]+)"/);
+                if (match) handle = match[1];
+            } catch (e) { return; }
+        }
+        
         if (!handle) return;
+        
+        console.log(`[CodePlay] Polling verdict for ${handle} on ${contestId}${index}`);
 
         let attempts = 0;
         const interval = setInterval(async () => {
             attempts++;
-            if (attempts > 40) clearInterval(interval); // Stop after 2 mins
+            if (attempts > 60) { // 3 mins
+                clearInterval(interval);
+                return;
+            }
 
             try {
-                const res = await fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=5`);
+                const res = await fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=10`);
                 const data = await res.json();
                 if (data.status === "OK") {
-                    const submission = data.result.find(s => s.contestId == contestId && s.problem.index == index);
+                    const submission = data.result.find(s => 
+                        s.contestId == contestId && s.problem.index == index
+                    );
 
-                    if (submission && submission.verdict !== "TESTING") {
+                    if (submission && submission.verdict && submission.verdict !== "TESTING") {
                         clearInterval(interval);
 
                         // NOTIFY USER
-                        const icon = submission.verdict === "OK" ? "✅" : "❌";
-                        const title = `${icon} ${submission.verdict === "OK" ? "Accepted" : submission.verdict}`;
-                        const msg = `Problem ${contestId}${index} on test ${submission.passedTestCount + 1}\nTime: ${submission.timeConsumedMillis}ms`;
+                        const isAc = submission.verdict === "OK";
+                        const icon = isAc ? "✅" : "❌";
+                        const title = `${icon} ${isAc ? "Accepted" : submission.verdict}`;
+                        const msg = `Problem ${contestId}${index}\nTests: ${submission.passedTestCount + (isAc ? 0 : 1)}\nTime: ${submission.timeConsumedMillis}ms\nMemory: ${Math.round(submission.memoryConsumedBytes / 1024)}KB`;
 
                         chrome.notifications.create({
                             type: "basic",
@@ -195,7 +298,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     }
                 }
             } catch (e) {
-                // ignore network errors
+                // ignore network errors during polling
             }
         }, 3000);
     }
@@ -204,6 +307,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "FETCH_CODEFORCES_PROBLEM") {
         const { url } = message.payload;
         (async () => {
+            let hiddenWindow = null;
             try {
                 // 1. Check Cache
                 const cached = await new Promise(r => chrome.storage.local.get([url], r));
@@ -215,10 +319,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                 console.log(`[CodePlay] Opening Tab for ${url}...`);
 
-                // 2. Open Tab (Inactive/Minimized)
-                const tab = await chrome.tabs.create({ url: url, active: false });
+                // 2. Create hidden window for stealth scraping
+                try {
+                    hiddenWindow = await chrome.windows.create({
+                        url: 'about:blank',
+                        type: 'popup',
+                        state: 'minimized',
+                        width: 1,
+                        height: 1,
+                        left: -1000,
+                        top: -1000,
+                        focused: false
+                    });
+                } catch (e) {
+                    console.log('[CodePlay] Could not create hidden window');
+                }
 
-                // 3. Wait for Load & Scrape
+                // 3. Open Tab in hidden window or background
+                let tab;
+                if (hiddenWindow) {
+                    tab = await chrome.tabs.create({ url: url, windowId: hiddenWindow.id, active: false });
+                } else {
+                    tab = await chrome.tabs.create({ url: url, active: false });
+                }
+
+                // 4. Wait for Load & Scrape
                 const scrapeResult = await new Promise((resolve, reject) => {
                     let attempts = 0;
 
@@ -240,10 +365,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     }, 500);
                 });
 
-                // 4. Close Tab
+                // 5. Close Tab and hidden window
                 chrome.tabs.remove(tab.id);
+                if (hiddenWindow) {
+                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                }
 
-                // 5. Verify & Cache
+                // 6. Verify & Cache
                 const html = scrapeResult;
                 if (html.length < 500 && !html.trim().startsWith('{')) {
                     throw new Error("Content Blocked (Cloudflare/Short Response)");
@@ -254,6 +382,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             } catch (err) {
                 console.error("[CodePlay] Tab Scrape Error:", err);
+                // Clean up hidden window on error
+                if (hiddenWindow) {
+                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                }
                 sendResponse({ success: false, error: err.message });
             }
         })();
@@ -276,7 +408,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ success: false, error: err.message });
             }
         })();
-        return true;
         return true;
     }
 

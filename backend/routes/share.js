@@ -3,13 +3,29 @@ import SharedCode from "../models/SharedCode.js";
 
 const router = express.Router();
 
+// Input validation
+const sanitizeString = (str, maxLength) => {
+    if (typeof str !== 'string') return '';
+    return str.slice(0, maxLength);
+};
+
+const isValidObjectId = (id) => /^[a-fA-F0-9]{24}$/.test(id);
+
 // 1. SAVE CODE (POST /api/share)
 router.post("/generate", async (req, res) => {
   try {
     const { language, code, stdin } = req.body;
     
-    // Create new entry in DB
-    const newShare = await SharedCode.create({ language, code, stdin });
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: "Code is required" });
+    }
+    
+    // Create new entry in DB with sanitized inputs
+    const newShare = await SharedCode.create({ 
+      language: sanitizeString(language || 'javascript', 50), 
+      code: sanitizeString(code, 100000), // 100KB max
+      stdin: sanitizeString(stdin || '', 10000) // 10KB max for stdin
+    });
     
     // Return the unique ID (_id)
     res.json({ id: newShare._id, message: "Code saved successfully" });
@@ -21,6 +37,10 @@ router.post("/generate", async (req, res) => {
 // 2. GET CODE (GET /api/share/:id)
 router.get("/:id", async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ error: "Invalid share ID" });
+    }
+    
     const sharedData = await SharedCode.findById(req.params.id);
     
     if (!sharedData) {

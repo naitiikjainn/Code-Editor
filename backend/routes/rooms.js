@@ -3,19 +3,39 @@ import Room from "../models/Room.js";
 
 const router = express.Router();
 
+// Input validation
+const sanitizeRoomId = (id) => {
+    if (typeof id !== 'string') return '';
+    // Room IDs should be alphanumeric with dashes
+    return id.slice(0, 50).replace(/[^a-zA-Z0-9-]/g, '');
+};
+
+const sanitizeUsername = (name) => {
+    if (typeof name !== 'string') return 'Anonymous';
+    return name.slice(0, 50).replace(/[<>]/g, '');
+};
+
 // 1. CREATE ROOM
 router.post("/create", async (req, res) => {
     try {
         const { roomId, username } = req.body;
+        
+        const sanitizedRoomId = sanitizeRoomId(roomId);
+        const sanitizedUsername = sanitizeUsername(username);
+        
+        if (!sanitizedRoomId || sanitizedRoomId.length < 3) {
+            return res.status(400).json({ error: "Room ID must be at least 3 characters (alphanumeric and dashes only)" });
+        }
+        
         // Check if room exists
-        const existing = await Room.findOne({ roomId });
+        const existing = await Room.findOne({ roomId: sanitizedRoomId });
         if (existing) {
             return res.status(400).json({ error: "Room ID already taken" });
         }
 
         const newRoom = new Room({
-            roomId,
-            host: { username }
+            roomId: sanitizedRoomId,
+            host: { username: sanitizedUsername }
         });
         await newRoom.save();
         res.status(201).json({ message: "Room created", room: newRoom });
@@ -28,7 +48,12 @@ router.post("/create", async (req, res) => {
 // 2. GET ROOM INFO (Check if exists + Who is host)
 router.get("/:roomId", async (req, res) => {
     try {
-        const room = await Room.findOne({ roomId: req.params.roomId });
+        const sanitizedRoomId = sanitizeRoomId(req.params.roomId);
+        if (!sanitizedRoomId) {
+            return res.status(400).json({ error: "Invalid room ID" });
+        }
+        
+        const room = await Room.findOne({ roomId: sanitizedRoomId });
         if (!room) return res.status(404).json({ error: "Room not found" });
 
         res.json({ roomId: room.roomId, host: room.host });

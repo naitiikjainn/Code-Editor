@@ -17,6 +17,23 @@ import * as cheerio from "cheerio";
 import Problem from "../models/Problem.js";
 import redis from "../config/redis.js";
 
+// --- STATIC REPOSITORY CONFIGURATION ---
+// Update this with your GitHub username after creating the repository
+const STATIC_REPO_CONFIG = {
+    // Primary: Your own repository (update YOUR_GITHUB_USERNAME after setup)
+    primary: {
+        owner: process.env.GITHUB_PROBLEMS_OWNER || "naitiikjainn",
+        repo: process.env.GITHUB_PROBLEMS_REPO || "codeforces-problems",
+        branch: "main"
+    },
+    // Fallback: codewithsathya's repository (community resource)
+    fallback: {
+        owner: "codewithsathya",
+        repo: "codeforces-problems", 
+        branch: "main"
+    }
+};
+
 // --- CONFIGURATION ---
 const CONFIG = {
     requestTimeout: 15000,
@@ -203,12 +220,28 @@ const codeforcesScraper = {
     },
 
     // Static content sources (pre-scraped HTML) - try these first to bypass Cloudflare
+    // Priority: Your repo first, then fallback to community repo
+    // Supports both colon (:) and underscore (_) file naming conventions
     getStaticUrls(contestId, index) {
-        return [
-            // Raw GitHub content from the codeforces-problems repo
-            `https://raw.githubusercontent.com/codewithsathya/codeforces-problems/main/content/${contestId}:${index}.html`,
-            `https://raw.githubusercontent.com/codewithsathya/codeforces-problems/main/content/${contestId}%3A${index}.html`,
-        ];
+        const urls = [];
+        
+        // Build URL helpers for both naming conventions
+        const buildGitHubRawUrl = (config, separator) => 
+            `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/content/${contestId}${separator}${index}.html`;
+        
+        // 1. Primary: Your own repository (if configured)
+        if (STATIC_REPO_CONFIG.primary.owner !== "YOUR_GITHUB_USERNAME") {
+            // Try underscore first (Windows-compatible), then colon
+            urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.primary, '_'));
+            urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.primary, ':'));
+            urls.push(`https://raw.githubusercontent.com/${STATIC_REPO_CONFIG.primary.owner}/${STATIC_REPO_CONFIG.primary.repo}/${STATIC_REPO_CONFIG.primary.branch}/content/${contestId}%3A${index}.html`);
+        }
+        
+        // 2. Fallback: Community repository (uses colon separator)
+        urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.fallback, ':'));
+        urls.push(`https://raw.githubusercontent.com/${STATIC_REPO_CONFIG.fallback.owner}/${STATIC_REPO_CONFIG.fallback.repo}/${STATIC_REPO_CONFIG.fallback.branch}/content/${contestId}%3A${index}.html`);
+        
+        return urls;
     },
 
     // Alternate URLs for direct scraping fallback

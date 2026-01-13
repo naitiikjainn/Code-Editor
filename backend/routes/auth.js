@@ -57,9 +57,13 @@ router.post("/login", async (req, res) => {
     if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
 
     // Create Token
+    if (!process.env.JWT_SECRET) {
+      console.error("CRITICAL: JWT_SECRET not set!");
+      return res.status(500).json({ error: "Server configuration error" });
+    }
     const token = jwt.sign(
       { id: user._id, username: user.username },
-      process.env.JWT_SECRET || "default_secret_key",
+      process.env.JWT_SECRET,
       { expiresIn: "7d" } // Longer session
     );
 
@@ -79,7 +83,10 @@ router.get("/me", async (req, res) => {
   if (!token) return res.status(401).json({ error: "No token, authorization denied" });
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_secret_key");
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id).select("-password"); // Exclude password
     res.json(user);
   } catch (e) {
@@ -135,20 +142,22 @@ router.post("/forgot-password", async (req, res) => {
     // Attempt to send (swallow error in dev if creds missing)
     try {
       await transporter.sendMail(mailOptions);
-      console.log(`[EMAIL SENT] To: ${email} | Link: ${resetLink}`);
+      console.log(`[EMAIL SENT] To: ${email}`);
       res.json({ message: "Reset link sent to your email!" });
     } catch (emailErr) {
-      console.error("Email send failed (likely missing credentials):", emailErr);
-      console.log("--- DEV MODE RESET LINK ---");
-      console.log(resetLink);
-      console.log("---------------------------");
-
-      // Fallback for dev mode: Return link so user can still test
-      res.json({
-        message: "Email config missing. Check backend console for link.",
-        devLink: resetLink,
-        token: resetToken
-      });
+      console.error("Email send failed (likely missing credentials):", emailErr.message);
+      // In production, don't expose the token - just say email failed
+      if (process.env.NODE_ENV === 'production') {
+        res.status(500).json({ error: "Failed to send email. Please try again later." });
+      } else {
+        // Dev mode only - log link to console (never expose in response in prod)
+        console.log("--- DEV MODE RESET LINK ---");
+        console.log(resetLink);
+        console.log("---------------------------");
+        res.json({
+          message: "Email config missing. Check backend console for link (dev only)."
+        });
+      }
     }
 
   } catch (err) {

@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Play, Clock, Database, Tag, Copy, Check, Globe, X, BookOpen, Loader2 } from "lucide-react";
+import { Play, Clock, Database, Tag, Copy, Check, Globe, X, BookOpen, Loader2, ExternalLink, Youtube, Search } from "lucide-react";
 import "katex/dist/katex.min.css";
 import katex from "katex";
 import { fetchCodeforcesEditorial } from "../utils/problemFetcher";
 import { parseEditorial } from "../utils/codeforces";
+import { getEditorial, getExternalSources } from "../utils/editorialService";
 
 // --- MATH RENDERER ---
 const renderMath = (html) => {
@@ -95,10 +96,15 @@ export default function ProblemPreview({ problem, onCodeNow }) {
     const [showEditorial, setShowEditorial] = useState(false);
     const [editorialContent, setEditorialContent] = useState(null);
     const [loadingEditorial, setLoadingEditorial] = useState(false);
+    const [showExternalResources, setShowExternalResources] = useState(false);
+
+    // Get external resources for the problem
+    const externalResources = getExternalSources(problem.contestId, problem.index);
 
     const handleOpenEditorial = async () => {
         if (!problem.tutorialUrl) {
-            alert("No tutorial link available for this problem.");
+            // No tutorial URL - show external resources panel instead
+            setShowExternalResources(true);
             return;
         }
         setShowEditorial(true);
@@ -283,25 +289,24 @@ export default function ProblemPreview({ problem, onCodeNow }) {
             {/* ACTION BAR */}
             <div style={{ 
                 padding: "16px 40px", borderTop: "1px solid rgba(255,255,255,0.05)", background: "#09090b",
-                display: "flex", justifyContent: "flex-end"
+                display: "flex", justifyContent: "flex-end", gap: "12px"
             }}>
-                {problem.tutorialUrl && (
-                    <button 
-                        onClick={handleOpenEditorial}
-                        title={problem.tutorialUrl}
-                        style={{ 
-                            padding: "12px 20px", fontSize: "14px", fontWeight: "600", 
-                            background: "rgba(255,255,255,0.05)", 
-                            color: "#a1a1aa", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)",
-                            display: "flex", alignItems: "center", gap: "8px", marginRight: "12px",
-                            cursor: "pointer", transition: "all 0.2s"
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color="white"; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color="#a1a1aa"; }}
-                    >
-                        <BookOpen size={16} /> Read Editorial
-                    </button>
-                )}
+                {/* Editorial/Resources Button - Always show */}
+                <button 
+                    onClick={handleOpenEditorial}
+                    title={problem.tutorialUrl || "Find solutions and resources"}
+                    style={{ 
+                        padding: "12px 20px", fontSize: "14px", fontWeight: "600", 
+                        background: "rgba(255,255,255,0.05)", 
+                        color: "#a1a1aa", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)",
+                        display: "flex", alignItems: "center", gap: "8px",
+                        cursor: "pointer", transition: "all 0.2s"
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color="white"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color="#a1a1aa"; }}
+                >
+                    <BookOpen size={16} /> {problem.tutorialUrl ? "Read Editorial" : "Find Solutions"}
+                </button>
                 <button 
                     onClick={() => onCodeNow(problem)}
                     style={{ 
@@ -436,6 +441,81 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                                     />
                                 </>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* EXTERNAL RESOURCES MODAL */}
+            {showExternalResources && (
+                <div style={{
+                    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+                    background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)",
+                    zIndex: 50, display: "flex", justifyContent: "center", alignItems: "center"
+                }}>
+                    <div style={{
+                        width: "90%", maxWidth: "500px",
+                        background: "#09090b", border: "1px solid #27272a", borderRadius: "12px",
+                        display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
+                    }}>
+                        {/* Header */}
+                        <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                           <h2 style={{ fontSize: "18px", fontWeight: "600", color: "#fff" }}>
+                               📚 Find Solutions - {problem.contestId}{problem.index}
+                           </h2>
+                           <button onClick={() => setShowExternalResources(false)} style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer" }}><X size={20}/></button>
+                        </div>
+                        
+                        {/* Content */}
+                        <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "12px" }}>
+                            {externalResources.map((resource, idx) => (
+                                <a
+                                    key={idx}
+                                    href={resource.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        padding: "16px",
+                                        backgroundColor: "#18181b",
+                                        borderRadius: "8px",
+                                        textDecoration: "none",
+                                        color: "#d4d4d8",
+                                        border: "1px solid #27272a",
+                                        transition: "all 0.2s"
+                                    }}
+                                    onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#27272a'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+                                    onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#18181b'; e.currentTarget.style.borderColor = '#27272a'; }}
+                                >
+                                    <span style={{ fontSize: "24px", marginRight: "15px" }}>
+                                        {resource.icon}
+                                    </span>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontWeight: "600", color: "#fff" }}>{resource.name}</div>
+                                        <div style={{ fontSize: "12px", color: "#71717a", marginTop: "2px" }}>
+                                            Click to search for solutions
+                                        </div>
+                                    </div>
+                                    <ExternalLink size={16} style={{ color: "#71717a" }} />
+                                </a>
+                            ))}
+
+                            {/* Tips */}
+                            <div style={{
+                                marginTop: "16px",
+                                padding: "16px",
+                                backgroundColor: "rgba(59, 130, 246, 0.1)",
+                                borderRadius: "8px",
+                                borderLeft: "3px solid #3b82f6"
+                            }}>
+                                <h5 style={{ color: "#60a5fa", margin: "0 0 8px 0", fontSize: "13px" }}>💡 Tips</h5>
+                                <ul style={{ color: "#a1a1aa", margin: 0, paddingLeft: "16px", fontSize: "12px", lineHeight: 1.8 }}>
+                                    <li>Try solving for 30-60 minutes first</li>
+                                    <li>Read hints before full solutions</li>
+                                    <li>Implement without looking at code</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>

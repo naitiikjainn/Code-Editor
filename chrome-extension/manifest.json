@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "CodePlay Helper",
-    "version": "1.0",
-    "description": "Helper extension for CodePlay Editor to sync LeetCode cookies.",
+    "version": "1.2",
+    "description": "Submit code to Codeforces and LeetCode directly from CodePlay Editor.",
     "permissions": [
         "cookies",
         "activeTab",
@@ -10,7 +10,9 @@
         "declarativeNetRequest",
         "declarativeNetRequestWithHostAccess",
         "storage",
-        "offscreen"
+        "offscreen",
+        "notifications",
+        "tabs"
     ],
     "host_permissions": [
         "https://leetcode.com/*",
@@ -36,7 +38,8 @@
             ],
             "js": [
                 "content.js"
-            ]
+            ],
+            "run_at": "document_idle"
         }
     ],
     "action": {

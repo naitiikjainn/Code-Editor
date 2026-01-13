@@ -42,8 +42,11 @@ window.addEventListener("message", (event) => {
     }
 
     if (event.data.type === "CODEPLAY_SUBMIT_CODEFORCES") {
-        console.log("[CodePlay Helper] Submitting to Codeforces...", event.data.payload);
-        safelySendMessage({ type: "SUBMIT_CODEFORCES", payload: event.data.payload }, (response) => {
+        const payload = event.data.payload;
+        console.log("[CodePlay Helper] Submitting to Codeforces...");
+        console.log("[CodePlay Helper] Code length:", payload.code?.length);
+        console.log("[CodePlay Helper] Code preview:", payload.code?.substring(0, 100));
+        safelySendMessage({ type: "SUBMIT_CODEFORCES", payload: payload }, (response) => {
             console.log("[CodePlay Helper] Codeforces Result:", response);
             window.postMessage({ type: "CODEPLAY_SUBMIT_RESULT", payload: response }, "*");
         });
@@ -61,9 +64,17 @@ window.addEventListener("message", (event) => {
             window.postMessage({ type: "CODEPLAY_CF_HANDLE_RESULT", payload: response }, "*");
         });
     }
+    
+    // NEW: Check login status
+    if (event.data.type === "CODEPLAY_CHECK_CF_LOGIN") {
+        console.log("[CodePlay Helper] Checking Codeforces Login...");
+        safelySendMessage({ type: "CHECK_CF_LOGIN" }, (response) => {
+            window.postMessage({ type: "CODEPLAY_CF_LOGIN_STATUS", payload: response }, "*");
+        });
+    }
 });
 
-// --- NEW: DIRECT SCRAPING & SUBMIT FOR CODEFORCES TAB ---
+// --- CODEFORCES TAB HANDLING ---
 if (window.location.hostname.includes("codeforces.com")) {
 
     // Scrape/Submit Listener
@@ -74,6 +85,7 @@ if (window.location.hostname.includes("codeforces.com")) {
             console.log("[CodePlay Helper] Scraping requested by Background...");
             const html = document.documentElement.outerHTML;
             sendResponse({ success: true, html: html });
+            return true;
         }
 
         // 2. Perform Submit (For Submission)
@@ -81,50 +93,202 @@ if (window.location.hostname.includes("codeforces.com")) {
             console.log("[CodePlay Helper] Performing Tab-based Submission...");
             const { contestId, problemIndex, code, languageId } = request.payload;
 
-            // Find CSRF Token (try meta first, then data-csrf)
+            // Find CSRF Token using multiple methods
             let csrfToken = "";
+            
+            // Method 1: Meta tag
             const meta = document.querySelector('meta[name="X-Csrf-Token"]');
-            if (meta) csrfToken = meta.content;
+            if (meta) {
+                csrfToken = meta.content;
+                console.log("[CodePlay] Found CSRF via meta tag");
+            }
+            
+            // Method 2: Window.Codeforces object
+            if (!csrfToken && typeof window.Codeforces !== 'undefined' && window.Codeforces.getCsrfToken) {
+                try {
+                    csrfToken = window.Codeforces.getCsrfToken();
+                    console.log("[CodePlay] Found CSRF via Codeforces object");
+                } catch (e) {}
+            }
 
+            // Method 3: Data attribute in body/script
             if (!csrfToken) {
-                const match = document.body.innerHTML.match(/data-csrf='([^']+)'/);
-                if (match) csrfToken = match[1];
+                const patterns = [
+                    /data-csrf=['"]([^'"]+)['"]/,
+                    /csrf_token['"]?\s*[:=]\s*['"]([^'"]+)['"]/,
+                    /"X-Csrf-Token"\s*:\s*"([^"]+)"/
+                ];
+                for (const pattern of patterns) {
+                    const match = document.body.innerHTML.match(pattern);
+                    if (match) {
+                        csrfToken = match[1];
+                        console.log("[CodePlay] Found CSRF via pattern");
+                        break;
+                    }
+                }
+            }
+            
+            // Method 4: Hidden input field
+            if (!csrfToken) {
+                const hiddenInput = document.querySelector('input[name="csrf_token"]');
+                if (hiddenInput) {
+                    csrfToken = hiddenInput.value;
+                    console.log("[CodePlay] Found CSRF via hidden input");
+                }
             }
 
             if (!csrfToken) {
-                sendResponse({ success: false, error: "Could not find CSRF token. Are you logged in?" });
-                return true; // async
+                console.error("[CodePlay] CSRF token not found!");
+                sendResponse({ success: false, error: "Could not find CSRF token. Make sure you're logged in to Codeforces." });
+                return true;
             }
+            
+            console.log("[CodePlay] Using CSRF token:", csrfToken.substring(0, 10) + "...");
+
+            // Generate fingerprints (required by Codeforces)
+            const generateFingerprint = () => {
+                const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+                let result = '';
+                for (let i = 0; i < 32; i++) {
+                    result += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return result;
+            };
+
+            // Add a unique timestamp comment to prevent duplicate detection
+            // This ensures each submission is treated as unique by Codeforces
+            const timestamp = Date.now();
+            let uniqueCode = code;
+            
+            // Add language-appropriate comment at the end
+            const langId = languageId || "54";
+            if (["54", "52", "50", "43", "61", "65"].includes(langId)) {
+                // C/C++/Java - use // comment
+                uniqueCode = code.trimEnd() + `\n// CodePlay ${timestamp}\n`;
+            } else if (["31", "40", "41", "7", "70"].includes(langId)) {
+                // Python - use # comment  
+                uniqueCode = code.trimEnd() + `\n# CodePlay ${timestamp}\n`;
+            } else if (["34"].includes(langId)) {
+                // JavaScript - use // comment
+                uniqueCode = code.trimEnd() + `\n// CodePlay ${timestamp}\n`;
+            } else {
+                // Generic - try // comment
+                uniqueCode = code.trimEnd() + `\n// CodePlay ${timestamp}\n`;
+            }
+
+            console.log("[CodePlay] Added timestamp:", timestamp);
 
             // Prepare FormData
             const formData = new FormData();
             formData.append("csrf_token", csrfToken);
-            formData.append("ftaa", "");
-            formData.append("bfaa", "");
+            formData.append("ftaa", generateFingerprint());
+            formData.append("bfaa", generateFingerprint());
             formData.append("action", "submitSolution");
             formData.append("contestId", contestId);
             formData.append("submittedProblemIndex", problemIndex);
             formData.append("programTypeId", languageId || "54");
-            formData.append("source", code);
+            formData.append("source", uniqueCode);
             formData.append("tabSize", "4");
-            formData.append("_tta", "594");
+            formData.append("_tta", Math.floor(Math.random() * 1000).toString());
+            formData.append("sourceCodeConfirmed", "true");
 
-            fetch(`https://codeforces.com/contest/${contestId}/submit?csrf_token=${csrfToken}`, {
-                method: "POST",
-                body: formData
-            })
-                .then(res => {
-                    if (res.redirected && res.url.includes("/my")) {
-                        sendResponse({ success: true, message: "Submission queued!" });
-                    } else {
-                        sendResponse({ success: false, error: "Submission failed. Check if you are logged in or already submitted." });
+            // Try contest submit URL first, then problemset
+            const submitUrls = [
+                `https://codeforces.com/contest/${contestId}/submit`,
+                `https://codeforces.com/problemset/submit`
+            ];
+            
+            const trySubmit = async (urlIndex) => {
+                if (urlIndex >= submitUrls.length) {
+                    sendResponse({ success: false, error: "All submit URLs failed" });
+                    return;
+                }
+                
+                const url = submitUrls[urlIndex];
+                console.log(`[CodePlay] Trying submit to: ${url}`);
+                
+                try {
+                    const res = await fetch(url, {
+                        method: "POST",
+                        body: formData,
+                        credentials: 'include',
+                        redirect: 'follow'
+                    });
+                    
+                    const responseUrl = res.url;
+                    const responseText = await res.text();
+                    
+                    console.log("[CodePlay] Submit response URL:", responseUrl);
+                    console.log("[CodePlay] Submit response status:", res.status);
+                    
+                    // Check for success indicators
+                    if (responseUrl.includes("/my") || responseUrl.includes("/status")) {
+                        sendResponse({ success: true, message: "Submission queued successfully!" });
+                        return;
                     }
-                })
-                .catch(err => {
-                    sendResponse({ success: false, error: err.message });
-                });
+                    
+                    // Check response text for errors
+                    if (responseText.includes("You have submitted exactly the same code before")) {
+                        sendResponse({ success: false, error: "Duplicate submission: You've submitted this exact code before." });
+                        return;
+                    }
+                    
+                    if (responseText.includes("Submit interval is too small")) {
+                        sendResponse({ success: false, error: "Please wait before submitting again (rate limited)." });
+                        return;
+                    }
+                    
+                    if (responseText.includes("You are not allowed")) {
+                        sendResponse({ success: false, error: "You are not registered for this contest. Please register first." });
+                        return;
+                    }
+                    
+                    if (responseText.includes("You must be logged in")) {
+                        sendResponse({ success: false, error: "Not logged in to Codeforces. Please log in first." });
+                        return;
+                    }
+                    
+                    // Check if we ended up on the problem page (submission may have failed)
+                    if (responseText.includes("problem-statement") && !responseUrl.includes("/my")) {
+                        trySubmit(urlIndex + 1);
+                        return;
+                    }
+                    
+                    // If we see the submit form again, it means submission failed
+                    if (responseText.includes('name="submitSolution"') || responseText.includes('programTypeId')) {
+                        const errorMatch = responseText.match(/<span class="error[^"]*">([^<]+)<\/span>/);
+                        if (errorMatch) {
+                            sendResponse({ success: false, error: errorMatch[1] });
+                            return;
+                        }
+                        trySubmit(urlIndex + 1);
+                        return;
+                    }
+                    
+                    // Default: assume success if no obvious error
+                    sendResponse({ success: true, message: "Submission sent (check Codeforces for status)" });
+                    
+                } catch (err) {
+                    console.error("[CodePlay] Submit fetch error:", err);
+                    trySubmit(urlIndex + 1);
+                }
+            };
+            
+            trySubmit(0);
+            return true; // Keep channel open for async response
+        }
 
-            return true; // Keep channel open
+        // 3. Check if logged in
+        if (request.type === "CODEPLAY_CHECK_LOGIN") {
+            const isLoggedIn = document.body.innerHTML.includes("/logout") || 
+                               document.querySelector('a[href*="/logout"]') !== null;
+            const handleMatch = document.body.innerHTML.match(/href="\/profile\/([^"]+)"/);
+            sendResponse({ 
+                success: true, 
+                loggedIn: isLoggedIn,
+                handle: handleMatch ? handleMatch[1] : null
+            });
+            return true;
         }
     });
 }

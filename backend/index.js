@@ -22,10 +22,57 @@ const require = createRequire(import.meta.url);
 const { setupWSConnection } = require('y-websocket/bin/utils');
 
 dotenv.config();
+
+// Security: Validate required environment variables
+const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET'];
+const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingEnvVars.length > 0) {
+    console.error(`❌ CRITICAL: Missing required environment variables: ${missingEnvVars.join(', ')}`);
+    console.error('   Please set these in your .env file before running the server.');
+    process.exit(1);
+}
+
 connectDB();
 
 const app = express();
-app.use(express.json());
+
+// Security: Limit JSON body size to prevent DoS
+app.use(express.json({ limit: '1mb' }));
+
+// Security: Simple in-memory rate limiter for auth routes
+const rateLimitMap = new Map();
+const rateLimit = (windowMs, maxRequests) => (req, res, next) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const windowStart = now - windowMs;
+    
+    if (!rateLimitMap.has(ip)) {
+        rateLimitMap.set(ip, []);
+    }
+    
+    const requests = rateLimitMap.get(ip).filter(time => time > windowStart);
+    requests.push(now);
+    rateLimitMap.set(ip, requests);
+    
+    if (requests.length > maxRequests) {
+        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    }
+    next();
+};
+
+// Clean up old rate limit entries every 5 minutes
+setInterval(() => {
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000; // 15 minutes
+    for (const [ip, times] of rateLimitMap.entries()) {
+        const filtered = times.filter(t => t > now - windowMs);
+        if (filtered.length === 0) {
+            rateLimitMap.delete(ip);
+        } else {
+            rateLimitMap.set(ip, filtered);
+        }
+    }
+}, 5 * 60 * 1000);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -69,6 +116,12 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
 });
+
+// Apply rate limiting to auth routes (5 requests per minute for login/register)
+const authRateLimiter = rateLimit(60 * 1000, 5);
+app.use("/api/auth/login", authRateLimiter);
+app.use("/api/auth/register", authRateLimiter);
+app.use("/api/auth/forgot-password", authRateLimiter);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);

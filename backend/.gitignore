@@ -1,2 +1,11 @@
-node_modules
+node_modules/
 .env
+.env.local
+.env.production
+*.log
+scraper_log.txt
+
+# Debug files
+debug_*.js
+blog_dump.html
+test-*.js
