@@ -158,14 +158,68 @@ app.get("/api/proxy/codechef/:handle", async (req, res) => {
     const response = await fetch(`https://codechef-api.vercel.app/handle/${handle}`);
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: "CodeChef API Error", status: response.status });
+      // Return empty data instead of error - graceful degradation
+      console.warn(`CodeChef API returned ${response.status} for handle ${handle}`);
+      return res.json({ ratingData: [], success: false });
     }
 
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    console.error("Proxy Error:", error);
-    res.status(500).json({ error: "Failed to connect to CodeChef API", details: error.message });
+    console.error("CodeChef Proxy Error:", error.message);
+    // Graceful degradation - return empty data
+    res.json({ ratingData: [], success: false });
+  }
+});
+
+// Codeforces API Proxy (to avoid CORS issues)
+app.get("/api/proxy/codeforces/user/info/:handle", async (req, res) => {
+  try {
+    const { handle } = req.params;
+    const response = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(handle)}`);
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("CF User Info Proxy Error:", error.message);
+    res.json({ status: "FAILED", comment: error.message });
+  }
+});
+
+app.get("/api/proxy/codeforces/user/rating/:handle", async (req, res) => {
+  try {
+    const { handle } = req.params;
+    const response = await fetch(`https://codeforces.com/api/user.rating?handle=${encodeURIComponent(handle)}`);
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("CF Rating Proxy Error:", error.message);
+    res.json({ status: "FAILED", comment: error.message });
+  }
+});
+
+app.get("/api/proxy/codeforces/user/status/:handle", async (req, res) => {
+  try {
+    const { handle } = req.params;
+    // Fetch more submissions to get accurate problem count and heatmap data
+    const response = await fetch(`https://codeforces.com/api/user.status?handle=${encodeURIComponent(handle)}&count=1000`);
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("CF Status Proxy Error:", error.message);
+    res.json({ status: "FAILED", comment: error.message });
+  }
+});
+
+// LeetCode API Proxy (to avoid CORS issues)
+app.get("/api/proxy/leetcode/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+    const response = await fetch(`https://leetcode-stats-api.herokuapp.com/${encodeURIComponent(username)}`);
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("LeetCode Proxy Error:", error.message);
+    res.json({ status: "error", message: error.message });
   }
 });
 

@@ -9,8 +9,10 @@ import { API_URL } from '../config';
  * Fetch official Codeforces editorial/tutorial from backend
  */
 export const getEditorial = async (contestId, problemIndex) => {
+    console.log('[getEditorial] Called with:', { contestId, problemIndex, typeOfContestId: typeof contestId });
     try {
         const url = `${API_URL}/api/problems/codeforces/editorial/${contestId}${problemIndex ? `?problem=${problemIndex}` : ''}`;
+        console.log('[getEditorial] Constructed URL:', url);
         
         const response = await fetch(url);
         const data = await response.json();

@@ -105,6 +105,7 @@ export default function ProblemPreview({ problem, onCodeNow }) {
         setLoadingEditorial(true);
         try {
             // Fetch official Codeforces tutorial via backend API
+            console.log('[ProblemPreview] Calling getEditorial with:', { contestId: problem.contestId, index: problem.index });
             const result = await getEditorial(problem.contestId, problem.index);
             setEditorial(result);
             
