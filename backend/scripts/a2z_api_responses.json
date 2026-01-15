@@ -1,0 +1,26 @@
+[
+  {
+    "url": "https://backend-go.takeuforward.org/api/v1/shared/banner/maintenance",
+    "data": {
+      "success": true,
+      "message": "Maintenance banner retrieved successfully",
+      "data": {
+        "active": false
+      },
+      "timestamp": "2026-01-14T13:00:38.381936428Z",
+      "request_id": "req_1768395638381924165"
+    }
+  },
+  {
+    "url": "https://backend-go.takeuforward.org/api/v1/shared/banner/timer",
+    "data": {
+      "success": true,
+      "message": "Timer banner retrieved successfully",
+      "data": {
+        "active": false
+      },
+      "timestamp": "2026-01-14T13:00:38.428268233Z",
+      "request_id": "req_1768395638428165743"
+    }
+  }
+]

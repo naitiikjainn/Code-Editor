@@ -12,6 +12,7 @@ import TestPanel from "./TestPanel";
 import { generateCppRunner } from "../utils/cppRunner"; 
 import ProblemBrowser from "./ProblemBrowser"; 
 import CP31Browser from "./CP31Browser";
+import A2ZBrowser from "./A2ZBrowser";
 import ProblemPreview from "./ProblemPreview"; 
 import ErrorBoundary from "./ErrorBoundary"; 
 import useDebounce from "../hooks/useDebounce"; 
@@ -687,45 +688,40 @@ export default function Workspace() {
         return;
     }
 
-    let cookie = localStorage.getItem("lc_session");
-    let csrfToken = localStorage.getItem("lc_csrf");
+    let cookie = null;
+    let csrfToken = null;
     
-    // AUTO-FETCH CREDENTIALS IF MISSING
-    if (!cookie || !csrfToken) {
-        setLogs(prev => [...prev, { type: "info", message: "Credentials missing. Attempting auto-fetch via Extension..." }]);
-        setConsoleOpen(true);
+    // ALWAYS fetch fresh credentials from extension for LeetCode submissions
+    setLogs(prev => [...prev, { type: "info", message: "Fetching LeetCode credentials from extension..." }]);
+    setConsoleOpen(true);
 
-        try {
-            const data = await new Promise((resolve, reject) => {
-                const handler = (event) => {
-                    if (event.data.type === "CODEPLAY_COOKIES_RECEIVED") {
-                        window.removeEventListener("message", handler);
-                        resolve(event.data.payload);
-                    }
-                };
-                window.addEventListener("message", handler);
-                window.postMessage({ type: "CODEPLAY_FETCH_COOKIES" }, "*");
-                setTimeout(() => {
+    try {
+        const data = await new Promise((resolve, reject) => {
+            const handler = (event) => {
+                if (event.data.type === "CODEPLAY_COOKIES_RECEIVED") {
                     window.removeEventListener("message", handler);
-                    reject(new Error("Timeout: Extension not responding."));
-                }, 5000);
-            });
+                    resolve(event.data.payload);
+                }
+            };
+            window.addEventListener("message", handler);
+            window.postMessage({ type: "CODEPLAY_FETCH_COOKIES" }, "*");
+            setTimeout(() => {
+                window.removeEventListener("message", handler);
+                reject(new Error("Timeout: Extension not responding."));
+            }, 5000);
+        });
 
-            if (data.success) {
-                cookie = data.cookie;
-                csrfToken = data.csrfToken;
-                localStorage.setItem("lc_session", cookie);
-                localStorage.setItem("lc_csrf", csrfToken);
-                setLogs(prev => [...prev, { type: "success", message: "Credentials fetched successfully!" }]);
-                // Update local state if settings modal was using them (optional, but good for consistency)
-            } else {
-                throw new Error(data.error || "Extension processing failed.");
-            }
-        } catch (e) {
-            console.error(e);
-            setLogs(prev => [...prev, { type: "error", message: `Auto-Fetch Failed: ${e.message}. CHECK: Extension installed? Logged into LeetCode?` }]);
-            return;
+        if (data.success) {
+            cookie = data.cookie;
+            csrfToken = data.csrfToken;
+            console.log("[LeetCode] Got fresh credentials from extension");
+        } else {
+            throw new Error(data.error || "Extension returned failure.");
         }
+    } catch (e) {
+        console.error(e);
+        setLogs(prev => [...prev, { type: "error", message: `Failed to get LeetCode credentials: ${e.message}. Make sure extension is installed and you're logged into LeetCode.` }]);
+        return;
     }
     
     setIsSubmitting(true);
@@ -734,6 +730,14 @@ export default function Workspace() {
 
     try {
         const problem = rightPanel.data;
+        
+        // Validate required fields for LeetCode submission
+        if (!problem.titleSlug || !problem.questionId) {
+            setLogs(prev => [...prev, { type: "error", message: `Missing LeetCode data: titleSlug=${problem.titleSlug}, questionId=${problem.questionId}. Try reloading the problem.` }]);
+            setIsSubmitting(false);
+            return;
+        }
+        
         let codeToSubmit = activeCode;
         
         if (codeToSubmit.includes("int main() {")) {
@@ -756,18 +760,72 @@ export default function Workspace() {
         const data = await res.json();
         
         if (res.status === 403 || (data.error && data.error.includes("authenticated"))) {
-             setLogs(prev => [...prev, { type: "error", message: "Authentication Failed. Please update your LeetCode Cookie/CSRF in Settings." }]);
-             setSettingsModalOpen(true);
+             setLogs(prev => [...prev, { type: "error", message: "LeetCode Authentication Failed (403). Please make sure you're logged into LeetCode in your browser, then try again." }]);
+             setIsSubmitting(false);
              return;
         }
 
         if (data.success) {
              const result = data.result;
              const isSuccess = result.status_msg === "Accepted";
+             
+             let message = `LeetCode Verdict: ${result.status_msg}`;
+             
+             if (isSuccess) {
+                 message += `\n✅ Runtime: ${result.status_runtime} (Beats ${result.runtime_percentile?.toFixed(1) || '?'}%)`;
+                 message += `\n✅ Memory: ${result.status_memory} (Beats ${result.memory_percentile?.toFixed(1) || '?'}%)`;
+             } else {
+                 // Show failed test case details
+                 if (result.status_msg === "Wrong Answer") {
+                     message += `\n\n❌ Failed Test Case:`;
+                     if (result.input_formatted || result.input) {
+                         message += `\n📥 Input:\n${result.input_formatted || result.input}`;
+                     }
+                     if (result.expected_output) {
+                         message += `\n\n✅ Expected Output:\n${result.expected_output}`;
+                     }
+                     if (result.code_output) {
+                         message += `\n\n❌ Your Output:\n${result.code_output}`;
+                     }
+                     if (result.total_testcases && result.total_correct) {
+                         message += `\n\n📊 Passed: ${result.total_correct}/${result.total_testcases} test cases`;
+                     }
+                 } else if (result.status_msg === "Runtime Error") {
+                     message += `\n\n💥 Runtime Error:`;
+                     if (result.runtime_error) {
+                         message += `\n${result.runtime_error}`;
+                     }
+                     if (result.last_testcase) {
+                         message += `\n\n📥 Last Test Case:\n${result.last_testcase}`;
+                     }
+                 } else if (result.status_msg === "Compile Error") {
+                     message += `\n\n🔧 Compile Error:`;
+                     if (result.compile_error) {
+                         message += `\n${result.compile_error}`;
+                     }
+                 } else if (result.status_msg === "Time Limit Exceeded") {
+                     message += `\n\n⏱️ Time Limit Exceeded`;
+                     if (result.last_testcase) {
+                         message += `\n📥 Last Test Case:\n${result.last_testcase}`;
+                     }
+                     if (result.total_testcases && result.total_correct) {
+                         message += `\n\n📊 Passed: ${result.total_correct}/${result.total_testcases} test cases`;
+                     }
+                 } else if (result.status_msg === "Memory Limit Exceeded") {
+                     message += `\n\n💾 Memory Limit Exceeded`;
+                     if (result.last_testcase) {
+                         message += `\n📥 Last Test Case:\n${result.last_testcase}`;
+                     }
+                 }
+             }
+             
              setLogs(prev => [...prev, { 
                  type: isSuccess ? "success" : "error", 
-                 message: `LeetCode Verdict: ${result.status_msg} \nRuntime: ${result.status_runtime} \nMemory: ${result.status_memory}` 
+                 message 
              }]);
+             
+             // Also log the full result for debugging
+             console.log("[LeetCode] Full result:", result);
         } else {
              setLogs(prev => [...prev, { type: "error", message: `Submission Error: ${data.error || "Unknown error"}` }]);
         }
@@ -824,14 +882,42 @@ export default function Workspace() {
                  // ... Fetch logic remains similar but maybe adapt for language ...
         }
 
-        // --- GENERATE BOILERPLATE BASED ON LANGUAGE ---
-        // --- GENERATE BOILERPLATE BASED ON LANGUAGE ---
-        if (language === "cpp") {
-             const userTmp = localStorage.getItem("user_cpp_template");
-             if (userTmp && userTmp.trim().length > 0) {
-                 initialCode = userTmp;
-             } else {
-                 initialCode = `#include <bits/stdc++.h>
+        // --- FOR LEETCODE: Use starter code from snippets ---
+        if (problem.provider === "leetcode" && problem.snippets && Array.isArray(problem.snippets)) {
+            // Map our language names to LeetCode's langSlug
+            const langSlugMap = {
+                "cpp": "cpp",
+                "java": "java", 
+                "python": "python3",
+                "javascript": "javascript"
+            };
+            const targetSlug = langSlugMap[language] || language;
+            
+            // Find the matching snippet
+            const snippet = problem.snippets.find(s => s.langSlug === targetSlug || s.lang?.toLowerCase().includes(language));
+            
+            if (snippet && snippet.code) {
+                // LeetCode snippets don't include headers - add them for C++
+                if (language === "cpp") {
+                    initialCode = `#include <bits/stdc++.h>
+using namespace std;
+
+${snippet.code}`;
+                } else {
+                    initialCode = snippet.code;
+                }
+                console.log("[LeetCode] Using starter code for", language);
+            }
+        }
+        
+        // --- FALLBACK: Use CP template if no LeetCode snippet found ---
+        if (!initialCode || initialCode.trim().length === 0) {
+            if (language === "cpp") {
+                 const userTmp = localStorage.getItem("user_cpp_template");
+                 if (userTmp && userTmp.trim().length > 0) {
+                     initialCode = userTmp;
+                 } else {
+                     initialCode = `#include <bits/stdc++.h>
 using namespace std;
 
 void solve() {
@@ -845,9 +931,9 @@ int main() {
     return 0;
 }
 `;
-             }
-        } else if (language === "java") {
-            initialCode = `import java.util.*;
+                 }
+            } else if (language === "java") {
+                initialCode = `import java.util.*;
 import java.io.*;
 
 public class Main {
@@ -857,8 +943,8 @@ public class Main {
     }
 }
 `;
-        } else if (language === "python") {
-            initialCode = `import sys
+            } else if (language === "python") {
+                initialCode = `import sys
 
 def solve():
     # Write your solution here
@@ -867,8 +953,8 @@ def solve():
 if __name__ == "__main__":
     solve()
 `;
-        } else if (language === "javascript") {
-            initialCode = `const readline = require('readline');
+            } else if (language === "javascript") {
+                initialCode = `const readline = require('readline');
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -880,6 +966,7 @@ rl.on('line', (line) => {
     console.log(line);
 });
 `;
+            }
         }
 
 
@@ -927,8 +1014,70 @@ rl.on('line', (line) => {
         // 5. ENSURE PREVIEW IS AVAILABLE (Right Panel)
         setRightPanel({ type: "preview", data: problem });
 
-        // 6. SYNC TEST CASES (Critical Fix)
-        if (problem.testCases) {
+        // 6. SYNC TEST CASES (Handle both Codeforces and LeetCode formats)
+        if (problem.provider === "leetcode") {
+            // LeetCode: test cases come from 'examples' field (exampleTestcases)
+            // Format: inputs are on separate lines, grouped by number of function arguments
+            // Example for twoSum(nums, target): "[2,7,11,15]\n9\n[3,2,4]\n6\n[3,3]\n6"
+            if (problem.examples && typeof problem.examples === 'string' && problem.snippets) {
+                // Count number of arguments from the snippet
+                const snippet = problem.snippets.find(s => s.langSlug === "cpp");
+                let argCount = 1;
+                if (snippet) {
+                    const signatureMatch = snippet.code.match(/\((.*)\)/);
+                    if (signatureMatch) {
+                        // Count commas at depth 0
+                        let depth = 0;
+                        let commas = 0;
+                        for (const c of signatureMatch[1]) {
+                            if (c === '<') depth++;
+                            if (c === '>') depth--;
+                            if (c === ',' && depth === 0) commas++;
+                        }
+                        argCount = commas + 1;
+                    }
+                }
+                
+                const lines = problem.examples.split('\n').filter(l => l.trim());
+                const parsedTests = [];
+                
+                // Extract expected outputs from problem description
+                const expectedOutputs = [];
+                if (problem.description) {
+                    const outputMatches = problem.description.match(/<strong>Output:<\/strong>\s*([^<]+)/g);
+                    if (outputMatches) {
+                        outputMatches.forEach(m => {
+                            const val = m.replace(/<strong>Output:<\/strong>\s*/, '').trim();
+                            expectedOutputs.push(val);
+                        });
+                    }
+                }
+                
+                // Group lines by argCount
+                let testIndex = 0;
+                for (let i = 0; i < lines.length; i += argCount) {
+                    const inputLines = lines.slice(i, i + argCount);
+                    if (inputLines.length === argCount) {
+                        parsedTests.push({
+                            input: inputLines.join('\n'),
+                            expectedOutput: expectedOutputs[testIndex] || ""
+                        });
+                        testIndex++;
+                    }
+                }
+                
+                setTestCases(parsedTests.length > 0 ? parsedTests : [{ input: "", expectedOutput: "" }]);
+                console.log("[LeetCode] Parsed", parsedTests.length, "test cases with", argCount, "args each, found", expectedOutputs.length, "expected outputs");
+            } else if (problem.testCases && Array.isArray(problem.testCases)) {
+                setTestCases(problem.testCases.map(tc => ({
+                    input: tc.input || "",
+                    expectedOutput: tc.expectedOutput || tc.output || ""
+                })));
+            } else {
+                setTestCases([{ input: "", expectedOutput: "" }]);
+            }
+        } else if (problem.testCases && Array.isArray(problem.testCases)) {
+            // Codeforces/GFG: standard format
             setTestCases(problem.testCases.map(tc => ({
                 input: tc.input || "",
                 expectedOutput: tc.expectedOutput || tc.output || ""
@@ -1131,6 +1280,17 @@ rl.on('line', (line) => {
                     )}
                     {activeSidebar === "cp31" && (
                          <CP31Browser 
+                            user={user}
+                            onOpenProblem={(p) => {
+                                // Full Screen Mode
+                                setRightPanel({ type: "preview", data: p });
+                                setViewMode("problem_full");
+                                socket.emit("sync_problem", { roomId: id, problem: p });
+                            }} 
+                        />
+                    )}
+                    {activeSidebar === "a2z" && (
+                         <A2ZBrowser 
                             user={user}
                             onOpenProblem={(p) => {
                                 // Full Screen Mode

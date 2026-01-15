@@ -1,0 +1,14 @@
+{
+  "totalProblems": 247,
+  "topics": 13,
+  "byProvider": {
+    "LeetCode": 247,
+    "GFG": 0,
+    "CodingNinjas": 0
+  },
+  "byDifficulty": {
+    "Easy": 47,
+    "Medium": 109,
+    "Hard": 91
+  }
+}

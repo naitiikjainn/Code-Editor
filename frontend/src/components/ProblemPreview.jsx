@@ -200,12 +200,54 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                         </div>
                     )}
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", opacity: 0.8 }}>
-                         <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "#a1a1aa", padding: "4px 8px", background: "rgba(255,255,255,0.03)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.05)" }}>
-                             {problem.contestId}{problem.index}
-                         </span>
+                         {/* Provider Badge */}
+                         {problem.provider && (
+                             <span style={{ 
+                                 fontSize: "10px", fontWeight: "700", textTransform: "uppercase",
+                                 padding: "4px 8px", borderRadius: "6px",
+                                 background: problem.provider === "leetcode" ? "rgba(251, 191, 36, 0.15)" :
+                                            problem.provider === "geeksforgeeks" ? "rgba(34, 197, 94, 0.15)" :
+                                            problem.provider === "codingninjas" ? "rgba(249, 115, 22, 0.15)" :
+                                            "rgba(59, 130, 246, 0.15)",
+                                 color: problem.provider === "leetcode" ? "#fbbf24" :
+                                       problem.provider === "geeksforgeeks" ? "#22c55e" :
+                                       problem.provider === "codingninjas" ? "#f97316" :
+                                       "#3b82f6",
+                                 border: `1px solid ${problem.provider === "leetcode" ? "rgba(251, 191, 36, 0.3)" :
+                                                     problem.provider === "geeksforgeeks" ? "rgba(34, 197, 94, 0.3)" :
+                                                     problem.provider === "codingninjas" ? "rgba(249, 115, 22, 0.3)" :
+                                                     "rgba(59, 130, 246, 0.3)"}`
+                             }}>
+                                 {problem.provider === "geeksforgeeks" ? "GFG" : 
+                                  problem.provider === "codingninjas" ? "CodingNinjas" :
+                                  problem.provider === "leetcode" ? "LeetCode" :
+                                  problem.provider === "codeforces" ? "CF" : problem.provider}
+                             </span>
+                         )}
+                         {/* Problem ID */}
+                         {(problem.contestId || problem.questionFrontendId || problem.titleSlug) && (
+                             <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "#a1a1aa", padding: "4px 8px", background: "rgba(255,255,255,0.03)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                                 {problem.contestId ? `${problem.contestId}${problem.index}` : 
+                                  problem.questionFrontendId ? `#${problem.questionFrontendId}` :
+                                  problem.titleSlug || problem.id}
+                             </span>
+                         )}
+                         {/* Rating (CF) or Difficulty (LC/GFG) */}
                          {problem.rating && (
                              <span style={{ fontSize: "12px", fontWeight: "bold", color: problem.rating >= 2000 ? "#ef4444" : (problem.rating >= 1400 ? "#3b82f6" : "#22c55e") }}>
                                  {problem.rating}
+                             </span>
+                         )}
+                         {problem.difficulty && !problem.rating && (
+                             <span style={{ 
+                                 fontSize: "11px", fontWeight: "600", padding: "3px 10px", borderRadius: "12px",
+                                 background: problem.difficulty === "Easy" ? "rgba(34, 197, 94, 0.15)" :
+                                            problem.difficulty === "Medium" ? "rgba(245, 158, 11, 0.15)" :
+                                            "rgba(239, 68, 68, 0.15)",
+                                 color: problem.difficulty === "Easy" ? "#22c55e" :
+                                       problem.difficulty === "Medium" ? "#f59e0b" : "#ef4444"
+                             }}>
+                                 {problem.difficulty}
                              </span>
                          )}
                     </div>
@@ -263,7 +305,7 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                     />
 
                     {/* 3. TEST CASES (Stacked Layout - Codeforces Style) */}
-                    {problem.testCases && problem.testCases.length > 0 && (
+                    {problem.testCases && Array.isArray(problem.testCases) && problem.testCases.length > 0 && (
                          <div style={{ marginTop: "48px" }}>
                              <h3 style={{ fontSize: "14px", fontWeight: "700", marginBottom: "20px", color: "#fff", textTransform: "uppercase", letterSpacing: "1px", opacity: 0.7 }}>Test Cases</h3>
                              
@@ -315,22 +357,48 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                 padding: "16px 40px", borderTop: "1px solid rgba(255,255,255,0.05)", background: "#09090b",
                 display: "flex", justifyContent: "flex-end", gap: "12px"
             }}>
-                {/* Editorial Button */}
-                <button 
-                    onClick={handleOpenEditorial}
-                    title="View official Codeforces tutorial"
-                    style={{ 
-                        padding: "12px 20px", fontSize: "14px", fontWeight: "600", 
-                        background: "rgba(255,255,255,0.05)", 
-                        color: "#a1a1aa", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)",
-                        display: "flex", alignItems: "center", gap: "8px",
-                        cursor: "pointer", transition: "all 0.2s"
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color="white"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color="#a1a1aa"; }}
-                >
-                    <BookOpen size={16} /> Tutorial
-                </button>
+                {/* Open on Platform Button */}
+                {problem.url && (
+                    <a 
+                        href={problem.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ 
+                            padding: "12px 20px", fontSize: "14px", fontWeight: "600", 
+                            background: "rgba(255,255,255,0.05)", 
+                            color: "#a1a1aa", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)",
+                            display: "flex", alignItems: "center", gap: "8px",
+                            cursor: "pointer", transition: "all 0.2s", textDecoration: "none"
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color="white"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color="#a1a1aa"; }}
+                    >
+                        <ExternalLink size={16} /> Open on {
+                            problem.provider === "leetcode" ? "LeetCode" :
+                            problem.provider === "geeksforgeeks" ? "GFG" :
+                            problem.provider === "codingninjas" ? "CodingNinjas" :
+                            problem.provider === "codeforces" ? "CF" : "Platform"
+                        }
+                    </a>
+                )}
+                {/* Editorial Button - Only for Codeforces */}
+                {(!problem.provider || problem.provider === "codeforces") && (
+                    <button 
+                        onClick={handleOpenEditorial}
+                        title="View official Codeforces tutorial"
+                        style={{ 
+                            padding: "12px 20px", fontSize: "14px", fontWeight: "600", 
+                            background: "rgba(255,255,255,0.05)", 
+                            color: "#a1a1aa", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)",
+                            display: "flex", alignItems: "center", gap: "8px",
+                            cursor: "pointer", transition: "all 0.2s"
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color="white"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color="#a1a1aa"; }}
+                    >
+                        <BookOpen size={16} /> Tutorial
+                    </button>
+                )}
                 <button 
                     onClick={() => onCodeNow(problem)}
                     style={{ 

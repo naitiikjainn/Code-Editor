@@ -101,6 +101,25 @@ export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
                <ListOrdered size={22} />
             </div>
 
+            {/* A2Z DSA SHEET */}
+            <div 
+                onClick={() => setActiveTab(activeTab === "a2z" && isOpen ? null : "a2z")}
+                title="Striver's A2Z DSA Sheet"
+                style={{
+                    width: "48px", height: "48px", display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer",
+                    color: activeTab === "a2z" && isOpen ? "white" : "var(--text-muted)",
+                    borderLeft: activeTab === "a2z" && isOpen ? "2px solid #8b5cf6" : "2px solid transparent",
+                    background: activeTab === "a2z" && isOpen ? "var(--bg-hover)" : "transparent",
+                    transition: "all 0.2s"
+                }}
+            >
+               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+               </svg>
+            </div>
+
             {renderIcon("tests", FlaskConical, "Test Cases")}
             {renderIcon("whiteboard", PenTool, "Whiteboard (Drag & Draw)")}
             <div style={{ flex: 1 }} />

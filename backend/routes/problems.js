@@ -212,6 +212,126 @@ router.get("/leetcode/:slug", async (req, res) => {
     }
 });
 
+// --- GEEKSFORGEEKS API ---
+router.get("/gfg/:slug", async (req, res) => {
+    try {
+        const { slug } = req.params;
+        console.log(`[GFG] Fetching problem: ${slug}`);
+
+        // Direct HTML scraping for GFG (their API is unreliable)
+        const pageUrl = `https://www.geeksforgeeks.org/problems/${slug}/1`;
+        const pageRes = await fetch(pageUrl, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Referer": "https://www.geeksforgeeks.org/"
+            }
+        });
+        
+        if (!pageRes.ok) {
+            throw new Error(`GFG returned ${pageRes.status}`);
+        }
+
+        const html = await pageRes.text();
+        
+        // Extract title
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/);
+        let title = titleMatch ? titleMatch[1].replace(" | Practice | GeeksforGeeks", "").replace(" - GeeksforGeeks", "").trim() : slug;
+        
+        // Try to get title from h3 header
+        const h3Match = html.match(/<h3[^>]*>([^<]+)<\/h3>/);
+        if (h3Match) title = h3Match[1].trim();
+        
+        // Extract problem description - GFG uses various class names
+        let description = "";
+        
+        // Try multiple patterns for description extraction
+        const descPatterns = [
+            /<div[^>]*class="[^"]*problems_problem_content[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class="[^"]*problems/i,
+            /<div[^>]*class="[^"]*problem-statement[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+            /<div[^>]*id="problemStatement"[^>]*>([\s\S]*?)<\/div>/i,
+            /<div[^>]*class="[^"]*problemInfo[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+        ];
+        
+        for (const pattern of descPatterns) {
+            const match = html.match(pattern);
+            if (match && match[1] && match[1].length > 50) {
+                description = match[1];
+                break;
+            }
+        }
+        
+        // If still no description, try to extract from script tags (Next.js data)
+        if (!description) {
+            const scriptMatch = html.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+            if (scriptMatch) {
+                try {
+                    const nextData = JSON.parse(scriptMatch[1]);
+                    const problemData = nextData?.props?.pageProps?.problem || nextData?.props?.pageProps?.data;
+                    if (problemData) {
+                        title = problemData.problem_name || problemData.title || title;
+                        description = problemData.problem_statement || problemData.content || "";
+                    }
+                } catch (e) {
+                    console.log("[GFG] Failed to parse Next.js data");
+                }
+            }
+        }
+        
+        // Extract difficulty
+        let difficulty = "Medium";
+        const diffPatterns = [
+            /difficulty['":\s]+(Easy|Medium|Hard|Basic|School)/i,
+            /class="[^"]*difficulty[^"]*"[^>]*>(Easy|Medium|Hard|Basic|School)/i,
+            /"difficulty"\s*:\s*"(Easy|Medium|Hard|Basic|School)"/i
+        ];
+        for (const pattern of diffPatterns) {
+            const match = html.match(pattern);
+            if (match) {
+                difficulty = match[1];
+                break;
+            }
+        }
+        
+        // Extract examples/test cases
+        const examplesMatch = html.match(/<div[^>]*class="[^"]*example[^"]*"[^>]*>([\s\S]*?)<\/div>/gi);
+        let examples = [];
+        if (examplesMatch) {
+            examples = examplesMatch.map(ex => ex.replace(/<[^>]*>/g, '').trim()).filter(e => e.length > 0);
+        }
+
+        // If description is still empty, create a fallback
+        if (!description || description.length < 20) {
+            description = `<div style="text-align: center; padding: 20px;">
+                <p style="color: #a1a1aa;">Problem description could not be loaded.</p>
+                <p style="color: #71717a; font-size: 14px;">GeeksforGeeks uses dynamic loading which makes scraping difficult.</p>
+                <p style="margin-top: 16px;">
+                    <a href="${pageUrl}" target="_blank" style="color: #22c55e; text-decoration: underline;">
+                        Click here to view the problem on GeeksforGeeks →
+                    </a>
+                </p>
+            </div>`;
+        }
+
+        res.json({
+            provider: "geeksforgeeks",
+            id: slug,
+            title: title,
+            slug: slug,
+            description: description,
+            difficulty: difficulty,
+            tags: [],
+            url: pageUrl,
+            examples: examples.length > 0 ? examples : null
+        });
+
+    } catch (err) {
+        console.error("GFG Error:", err);
+        res.status(500).json({ error: "Failed to fetch GFG problem", message: err.message });
+    }
+});
+
 // --- CODEFORCES STATUS PROXY (Must be before generic /:contestId/:index) ---
 router.get("/codeforces/status/:handle", async (req, res) => {
     try {
