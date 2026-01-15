@@ -482,11 +482,22 @@ export default function Workspace() {
     setIsRunningTests(false);
   };
 
+  // Track if submission is in progress to prevent double submissions
+  const submissionInProgressRef = React.useRef(false);
+
   const handleSubmit = async () => {
     if (!rightPanel?.data) return;
+    
+    // Prevent double submissions using ref (more reliable than state)
+    if (submissionInProgressRef.current || isSubmitting) {
+        console.log("[Submit] Already submitting, ignoring duplicate click");
+        return;
+    }
+    submissionInProgressRef.current = true;
 
     // --- CSES SUBMISSION ---
     if (rightPanel.data.provider === "cses") {
+        submissionInProgressRef.current = false; // Reset for early returns
         const problemId = rightPanel.data.id || rightPanel.data.index; // CSES uses .id, fall back if needed
         
         // TEMPORARY: Disable CSES Submission
@@ -508,6 +519,7 @@ export default function Workspace() {
                 window.removeEventListener("message", handleResult);
                 const res = event.data.payload || { success: false, error: "No response from extension" };
                 setIsSubmitting(false);
+                submissionInProgressRef.current = false;
 
                 if (res.success) {
                      setLogs(prev => [...prev, { type: "success", message: `CSES: ${res.message}` }]);
@@ -541,6 +553,7 @@ export default function Workspace() {
         
         if (!contestId || !index) {
             setLogs(prev => [...prev, { type: "error", message: "Cannot submit: Problem ID invalid (Fetch failed?)." }]);
+            submissionInProgressRef.current = false;
             return;
         }
 
@@ -549,6 +562,7 @@ export default function Workspace() {
         
         if (!codeToSubmit || codeToSubmit.trim().length === 0) {
             setLogs(prev => [...prev, { type: "error", message: "Cannot submit: Code is empty." }]);
+            submissionInProgressRef.current = false;
             return;
         }
 
@@ -581,6 +595,7 @@ export default function Workspace() {
                 
                 const res = event.data.payload || { success: false, error: "No response from extension" };
                 setIsSubmitting(false);
+                submissionInProgressRef.current = false;
                 
                 if (res.success) {
                     const msg = typeof res.message === 'object' ? JSON.stringify(res.message) : String(res.message || "Unknown Success");
@@ -689,6 +704,7 @@ export default function Workspace() {
         
         setTimeout(() => {
              window.removeEventListener("message", handleResult);
+             submissionInProgressRef.current = false;
              setIsSubmitting(prev => {
                  if (prev) { 
                      setLogs(p => [...p, { type: "error", message: "Submission Timeout: Extension took too long to respond. The code might have been submitted." }]);
@@ -734,6 +750,7 @@ export default function Workspace() {
     } catch (e) {
         console.error(e);
         setLogs(prev => [...prev, { type: "error", message: `Failed to get LeetCode credentials: ${e.message}. Make sure extension is installed and you're logged into LeetCode.` }]);
+        submissionInProgressRef.current = false;
         return;
     }
     
@@ -748,6 +765,7 @@ export default function Workspace() {
         if (!problem.titleSlug || !problem.questionId) {
             setLogs(prev => [...prev, { type: "error", message: `Missing LeetCode data: titleSlug=${problem.titleSlug}, questionId=${problem.questionId}. Try reloading the problem.` }]);
             setIsSubmitting(false);
+            submissionInProgressRef.current = false;
             return;
         }
         
@@ -775,6 +793,7 @@ export default function Workspace() {
         if (res.status === 403 || (data.error && data.error.includes("authenticated"))) {
              setLogs(prev => [...prev, { type: "error", message: "LeetCode Authentication Failed (403). Please make sure you're logged into LeetCode in your browser, then try again." }]);
              setIsSubmitting(false);
+             submissionInProgressRef.current = false;
              return;
         }
 
@@ -839,6 +858,27 @@ export default function Workspace() {
              
              // Also log the full result for debugging
              console.log("[LeetCode] Full result:", result);
+             
+             // SAVE TO DB (just like Codeforces)
+             const token = localStorage.getItem("codeplay_token");
+             if (token) {
+                 fetch(`${API_URL}/api/submissions`, {
+                     method: "POST",
+                     headers: { 
+                         "Content-Type": "application/json",
+                         Authorization: `Bearer ${token}`
+                     },
+                     body: JSON.stringify({
+                         problemId: problem.titleSlug,
+                         problemName: problem.title || problem.titleSlug,
+                         platform: "leetcode",
+                         code: codeToSubmit,
+                         language: "cpp",
+                         verdict: isSuccess ? "Accepted" : result.status_msg,
+                         visibility: "public"
+                     })
+                 }).catch(e => console.error("Failed to save LeetCode submission:", e));
+             }
         } else {
              setLogs(prev => [...prev, { type: "error", message: `Submission Error: ${data.error || "Unknown error"}` }]);
         }
@@ -848,6 +888,7 @@ export default function Workspace() {
         setLogs(prev => [...prev, { type: "error", message: "Submission Failed." }]);
     } finally {
         setIsSubmitting(false);
+        submissionInProgressRef.current = false;
     }
   };
 
