@@ -1,10 +1,58 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import nodemailer from "nodemailer";
 import User from "../models/User.js";
 
 const router = express.Router();
+
+// Simple in-memory rate limiter (use Redis in production)
+const loginAttempts = new Map();
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const MAX_ATTEMPTS = 10;
+
+const checkRateLimit = (identifier) => {
+  const now = Date.now();
+  const attempts = loginAttempts.get(identifier);
+  
+  if (!attempts) return { allowed: true };
+  
+  // Clean old attempts
+  const recentAttempts = attempts.filter(t => now - t < RATE_LIMIT_WINDOW);
+  
+  if (recentAttempts.length >= MAX_ATTEMPTS) {
+    const oldestAttempt = Math.min(...recentAttempts);
+    const retryAfter = Math.ceil((oldestAttempt + RATE_LIMIT_WINDOW - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+  
+  return { allowed: true };
+};
+
+const recordAttempt = (identifier) => {
+  const attempts = loginAttempts.get(identifier) || [];
+  attempts.push(Date.now());
+  loginAttempts.set(identifier, attempts.slice(-MAX_ATTEMPTS));
+};
+
+// Helper: Generate Access Token (short-lived)
+const generateAccessToken = (user) => {
+  return jwt.sign(
+    { id: user._id, username: user.username },
+    process.env.JWT_SECRET,
+    { expiresIn: "15m" }
+  );
+};
+
+// Helper: Generate Refresh Token
+const generateRefreshToken = async (user, req) => {
+  const userAgent = req.headers["user-agent"] || "unknown";
+  const ip = req.ip || req.connection?.remoteAddress || "unknown";
+  const refreshToken = user.generateRefreshToken(userAgent, ip);
+  await user.save();
+  return refreshToken;
+};
 
 // 1. REGISTER USER
 router.post("/register", async (req, res) => {
@@ -17,6 +65,16 @@ router.post("/register", async (req, res) => {
     if (password.length < 6) {
       return res.status(400).json({ error: "Password must be at least 6 characters." });
     }
+    
+    // Validate username format
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+      return res.status(400).json({ error: "Username must be 3-20 characters, alphanumeric and underscores only." });
+    }
+    
+    // Validate email format
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Invalid email format." });
+    }
 
     // Check if user (email OR username) already exists
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
@@ -25,12 +83,17 @@ router.post("/register", async (req, res) => {
       if (existingUser.username === username) return res.status(400).json({ error: "Username already exists." });
     }
 
-    // Encrypt the password
-    const salt = await bcrypt.genSalt(10);
+    // Encrypt the password with stronger salt
+    const salt = await bcrypt.genSalt(12);
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // Save to Database
-    const newUser = new User({ username, email, password: hashedPassword });
+    const newUser = new User({ 
+      username, 
+      email, 
+      password: hashedPassword,
+      authProvider: "local"
+    });
     await newUser.save();
 
     res.status(201).json({ message: "User registered successfully" });
@@ -43,33 +106,76 @@ router.post("/register", async (req, res) => {
 // 2. LOGIN USER
 router.post("/login", async (req, res) => {
   try {
-    const { identifier, password } = req.body; // identifier can be email or username
+    const { identifier, password } = req.body;
+    
+    // Rate limiting check
+    const rateLimit = checkRateLimit(identifier);
+    if (!rateLimit.allowed) {
+      return res.status(429).json({ 
+        error: `Too many login attempts. Try again in ${rateLimit.retryAfter} seconds.`,
+        retryAfter: rateLimit.retryAfter
+      });
+    }
 
     // Find User by Email OR Username
     const user = await User.findOne({
       $or: [{ email: identifier }, { username: identifier }]
     });
 
-    if (!user) return res.status(400).json({ error: "Invalid credentials" });
+    if (!user) {
+      recordAttempt(identifier);
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+    
+    // Check if account is locked
+    if (user.isLocked) {
+      const lockRemaining = Math.ceil((user.lockUntil - Date.now()) / 1000 / 60);
+      return res.status(423).json({ 
+        error: `Account locked. Try again in ${lockRemaining} minutes.` 
+      });
+    }
+    
+    // Check if user has password (OAuth users might not)
+    if (!user.password) {
+      return res.status(400).json({ 
+        error: `This account uses ${user.authProvider} login. Please use that instead.` 
+      });
+    }
 
     // Check Password
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
+    if (!isMatch) {
+      recordAttempt(identifier);
+      await user.incLoginAttempts();
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+    
+    // Reset failed attempts on successful login
+    if (user.failedLoginAttempts > 0) {
+      user.failedLoginAttempts = 0;
+      user.lockUntil = undefined;
+    }
+    user.lastLogin = new Date();
 
-    // Create Token
+    // Create tokens
     if (!process.env.JWT_SECRET) {
       console.error("CRITICAL: JWT_SECRET not set!");
       return res.status(500).json({ error: "Server configuration error" });
     }
-    const token = jwt.sign(
-      { id: user._id, username: user.username },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" } // Longer session
-    );
+    
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await generateRefreshToken(user, req);
 
     res.json({
-      token,
-      user: { id: user._id, username: user.username, email: user.email }
+      token: accessToken,
+      refreshToken,
+      user: { 
+        id: user._id, 
+        username: user.username, 
+        email: user.email,
+        avatar: user.avatar,
+        authProvider: user.authProvider
+      }
     });
   } catch (err) {
     console.error(err);
@@ -87,9 +193,17 @@ router.get("/me", async (req, res) => {
       return res.status(500).json({ error: "Server configuration error" });
     }
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select("-password"); // Exclude password
+    const user = await User.findById(decoded.id).select("-password -refreshTokens -resetPasswordToken -resetPasswordExpires");
+    
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    
     res.json(user);
   } catch (e) {
+    if (e.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "Token expired", code: "TOKEN_EXPIRED" });
+    }
     res.status(400).json({ error: "Token is not valid" });
   }
 });
@@ -98,18 +212,35 @@ router.get("/me", async (req, res) => {
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
+    
+    // Rate limit forgot password requests
+    const rateLimit = checkRateLimit(`forgot:${email}`);
+    if (!rateLimit.allowed) {
+      return res.status(429).json({ 
+        error: "Too many reset requests. Please try again later." 
+      });
+    }
+    recordAttempt(`forgot:${email}`);
+    
     const user = await User.findOne({ email });
 
     if (!user) {
-      // Security: Don't reveal if user exists or not, but for UX we might say "If email exists..."
-      // For this project, we'll return an error to be helpful
-      return res.status(400).json({ error: "User with this email does not exist" });
+      // Security: Don't reveal if user exists
+      return res.json({ message: "If an account with that email exists, a reset link has been sent." });
+    }
+    
+    // Check if user is OAuth-only
+    if (user.authProvider !== "local" && !user.password) {
+      return res.json({ 
+        message: `This account uses ${user.authProvider} login. Please use that to sign in.` 
+      });
     }
 
-    // Generate simple token (in prod use crypto)
-    const resetToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    // Generate cryptographically secure token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const resetTokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
 
-    user.resetPasswordToken = resetToken;
+    user.resetPasswordToken = resetTokenHash;
     user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
     await user.save();
 
@@ -170,23 +301,38 @@ router.post("/forgot-password", async (req, res) => {
 router.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
+    
+    // Hash the incoming token to compare with stored hash
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    
     const user = await User.findOne({
-      resetPasswordToken: token,
+      resetPasswordToken: tokenHash,
       resetPasswordExpires: { $gt: Date.now() }
     });
 
     if (!user) return res.status(400).json({ error: "Invalid or expired token" });
-    if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 chars" });
+    if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    
+    // Password strength check
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+      return res.status(400).json({ 
+        error: "Password must contain uppercase, lowercase, and a number" 
+      });
+    }
 
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
+    // Hash new password with stronger salt
+    const salt = await bcrypt.genSalt(12);
     user.password = await bcrypt.hash(newPassword, salt);
 
+    // Clear reset token and invalidate all sessions for security
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    user.refreshTokens = []; // Force re-login on all devices
+    user.failedLoginAttempts = 0;
+    user.lockUntil = undefined;
     await user.save();
 
-    res.json({ message: "Password updated successfully" });
+    res.json({ message: "Password updated successfully. Please log in again." });
 
   } catch (err) {
     console.error(err);

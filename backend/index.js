@@ -6,6 +6,7 @@ import aiRoutes from "./routes/ai.js";
 import codeRoutes from "./routes/code.js";
 import shareRoutes from "./routes/share.js";
 import authRoutes from "./routes/auth.js";
+import oauthRoutes from "./routes/oauth.js";
 import fileRoutes from "./routes/files.js";
 import roomRoutes from "./routes/rooms.js";
 import problemRoutes from "./routes/problems.js";
@@ -158,6 +159,7 @@ app.use((req, res, next) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/oauth", oauthRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/code", codeRoutes);
 app.use("/api/share", shareRoutes);
