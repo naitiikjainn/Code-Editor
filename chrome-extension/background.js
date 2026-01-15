@@ -159,40 +159,87 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     // Wait for tab to load and get result
                     const result = await new Promise((resolve, reject) => {
                         let attempts = 0;
-                        const maxAttempts = 60; // 30 seconds
-                        
-                        const interval = setInterval(() => {
+                        const maxAttempts = 60; // Retry for up to ~30s while waiting for content script
+                        let timeoutId = null;
+                        let retryTimeoutId = null;
+
+                        const clearAll = () => {
+                            if (timeoutId) {
+                                clearTimeout(timeoutId);
+                                timeoutId = null;
+                            }
+                            if (retryTimeoutId) {
+                                clearTimeout(retryTimeoutId);
+                                retryTimeoutId = null;
+                            }
+                            chrome.tabs.onUpdated.removeListener(onUpdated);
+                        };
+
+                        const scheduleRetry = () => {
+                            if (retryTimeoutId) return;
+                            retryTimeoutId = setTimeout(() => {
+                                retryTimeoutId = null;
+                                sendSubmissionRequest();
+                            }, 500);
+                        };
+
+                        const sendSubmissionRequest = () => {
                             attempts++;
-                            
                             if (attempts > maxAttempts) {
-                                clearInterval(interval);
-                                reject(new Error("Page load timeout"));
+                                clearAll();
+                                reject(new Error("Content script not responding"));
                                 return;
                             }
-                            
+
                             chrome.tabs.sendMessage(tab.id, {
                                 type: "CODEPLAY_PERFORM_SUBMIT",
                                 payload: { contestId, problemIndex, code, languageId }
                             }, (response) => {
                                 if (chrome.runtime.lastError) {
-                                    // Content script not ready yet
+                                    const message = chrome.runtime.lastError.message || "";
+                                    if (message.includes("Receiving end") || message.includes("No window with id")) {
+                                        // Content script not ready yet, retry shortly
+                                        scheduleRetry();
+                                    } else {
+                                        clearAll();
+                                        reject(new Error(message));
+                                    }
                                     return;
                                 }
-                                
+
                                 if (response) {
-                                    clearInterval(interval);
+                                    clearAll();
                                     resolve(response);
                                 }
                             });
-                        }, 500);
-                        
-                        // Also listen for tab complete
-                        const tabListener = (tabId, changeInfo) => {
-                            if (tabId === tab.id && changeInfo.status === 'complete') {
-                                // Tab loaded, script should be ready soon
+                        };
+
+                        const onUpdated = (tabId, changeInfo) => {
+                            if (tabId === tab.id && changeInfo.status === "complete") {
+                                chrome.tabs.onUpdated.removeListener(onUpdated);
+                                sendSubmissionRequest();
                             }
                         };
-                        chrome.tabs.onUpdated.addListener(tabListener);
+
+                        chrome.tabs.onUpdated.addListener(onUpdated);
+
+                        // Fallback in case the tab is already loaded
+                        chrome.tabs.get(tab.id, (createdTab) => {
+                            if (chrome.runtime.lastError) {
+                                clearAll();
+                                reject(new Error(chrome.runtime.lastError.message));
+                                return;
+                            }
+                            if (createdTab.status === "complete") {
+                                chrome.tabs.onUpdated.removeListener(onUpdated);
+                                sendSubmissionRequest();
+                            }
+                        });
+
+                        timeoutId = setTimeout(() => {
+                            clearAll();
+                            reject(new Error("Page load timeout"));
+                        }, 60000);
                     });
                     
                     // Close the tab

@@ -484,30 +484,37 @@ export default function Workspace() {
 
   // Track if submission is in progress to prevent double submissions
   const submissionInProgressRef = useRef(false);
+  const submissionIdRef = useRef(0); // Track which submission we're waiting for
 
   const handleSubmit = async () => {
-    if (!rightPanel?.data) return;
-    
-    // Prevent double submissions using ref (more reliable than state)
+    // IMMEDIATELY check and set the lock before anything else
     if (submissionInProgressRef.current || isSubmitting) {
         console.log("[Submit] Already submitting, ignoring duplicate click");
         return;
     }
+    
+    // Set BOTH lock and state immediately - before ANY async operation
     submissionInProgressRef.current = true;
+    setIsSubmitting(true); // Set state immediately to disable button
+    const currentSubmissionId = ++submissionIdRef.current;
+    console.log(`[Submit] Starting submission #${currentSubmissionId}`);
+    
+    if (!rightPanel?.data) {
+        submissionInProgressRef.current = false;
+        setIsSubmitting(false);
+        return;
+    }
 
     // --- CSES SUBMISSION ---
     if (rightPanel.data.provider === "cses") {
         submissionInProgressRef.current = false; // Reset for early returns
+        setIsSubmitting(false);
         const problemId = rightPanel.data.id || rightPanel.data.index; // CSES uses .id, fall back if needed
         
         // TEMPORARY: Disable CSES Submission
         setLogs(prev => [...prev, { type: "warning", message: "CSES submission is not available for the moment." }]);
         setConsoleOpen(true);
         return;
-
-        setIsSubmitting(true);
-        setLogs(prev => [...prev, { type: "info", message: `Submitting problem ${problemId} to CSES...` }]);
-        setConsoleOpen(true);
         
         const payload = {
             problemId,
@@ -554,6 +561,7 @@ export default function Workspace() {
         if (!contestId || !index) {
             setLogs(prev => [...prev, { type: "error", message: "Cannot submit: Problem ID invalid (Fetch failed?)." }]);
             submissionInProgressRef.current = false;
+            setIsSubmitting(false);
             return;
         }
 
@@ -563,10 +571,10 @@ export default function Workspace() {
         if (!codeToSubmit || codeToSubmit.trim().length === 0) {
             setLogs(prev => [...prev, { type: "error", message: "Cannot submit: Code is empty." }]);
             submissionInProgressRef.current = false;
+            setIsSubmitting(false);
             return;
         }
 
-        setIsSubmitting(true);
         setLogs(prev => [...prev, { type: "info", message: `Submitting problem ${contestId}${index} to Codeforces...` }]);
         setConsoleOpen(true);
 
@@ -589,9 +597,17 @@ export default function Workspace() {
             languageId: langId 
         };
 
+        // Capture the submission ID for this specific handler
+        const handlerSubmissionId = currentSubmissionId;
         const handleResult = (event) => {
             if (event.data.type === "CODEPLAY_SUBMIT_RESULT") {
                 window.removeEventListener("message", handleResult);
+                
+                // Ignore if this is a stale handler from an old submission
+                if (submissionIdRef.current !== handlerSubmissionId) {
+                    console.log(`[Submit] Ignoring stale result for submission #${handlerSubmissionId}`);
+                    return;
+                }
                 
                 const res = event.data.payload || { success: false, error: "No response from extension" };
                 setIsSubmitting(false);
@@ -702,16 +718,21 @@ export default function Workspace() {
         window.addEventListener("message", handleResult);
         window.postMessage({ type: "CODEPLAY_SUBMIT_CODEFORCES", payload }, "*");
         
+        // Store the submission ID for this timeout
+        const timeoutSubmissionId = currentSubmissionId;
         setTimeout(() => {
              window.removeEventListener("message", handleResult);
-             submissionInProgressRef.current = false;
-             setIsSubmitting(prev => {
-                 if (prev) { 
-                     setLogs(p => [...p, { type: "error", message: "Submission Timeout: Extension took too long to respond. The code might have been submitted." }]);
-                     return false;
-                 }
-                 return prev;
-             });
+             // Only reset if this is still the same submission
+             if (submissionIdRef.current === timeoutSubmissionId) {
+                 submissionInProgressRef.current = false;
+                 setIsSubmitting(prev => {
+                     if (prev) { 
+                         setLogs(p => [...p, { type: "error", message: "Submission Timeout: Extension took too long to respond. The code might have been submitted." }]);
+                         return false;
+                     }
+                     return prev;
+                 });
+             }
         }, 60000); // Increased to 60s for Codeforces latency
         
         return;
@@ -751,10 +772,10 @@ export default function Workspace() {
         console.error(e);
         setLogs(prev => [...prev, { type: "error", message: `Failed to get LeetCode credentials: ${e.message}. Make sure extension is installed and you're logged into LeetCode.` }]);
         submissionInProgressRef.current = false;
+        setIsSubmitting(false);
         return;
     }
     
-    setIsSubmitting(true);
     setLogs(prev => [...prev, { type: "info", message: "Submitting to LeetCode..." }]);
     setConsoleOpen(true);
 
