@@ -1,7 +1,7 @@
-import React from "react";
+import { memo } from "react";
 import { Crown, User } from "lucide-react";
 
-export default function ParticipantsPanel({ users }) {
+const ParticipantsPanel = memo(function ParticipantsPanel({ users }) {
   // users = [{ username, isHost }, ...]
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", color: "white" }}>
@@ -32,4 +32,6 @@ export default function ParticipantsPanel({ users }) {
         </div>
     </div>
   );
-}
+});
+
+export default ParticipantsPanel;
