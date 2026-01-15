@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Editors from "./Editors";
 import Preview from "./Preview";
 import AIPanel from "./AIPanel";
@@ -483,7 +483,7 @@ export default function Workspace() {
   };
 
   // Track if submission is in progress to prevent double submissions
-  const submissionInProgressRef = React.useRef(false);
+  const submissionInProgressRef = useRef(false);
 
   const handleSubmit = async () => {
     if (!rightPanel?.data) return;
