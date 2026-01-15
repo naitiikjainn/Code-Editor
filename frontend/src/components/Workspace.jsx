@@ -118,7 +118,15 @@ export default function Workspace() {
   const [testCases, setTestCases] = useState(() => {
     try {
         const saved = localStorage.getItem("testCases");
-        return saved ? JSON.parse(saved) : [];
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            // Ensure all test cases have unique IDs (for backwards compatibility)
+            return parsed.map((tc, i) => ({
+                ...tc,
+                id: tc.id || Date.now() + i
+            }));
+        }
+        return [];
     } catch { return []; }
   });
   
