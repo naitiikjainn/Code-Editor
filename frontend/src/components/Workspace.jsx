@@ -176,9 +176,9 @@ export default function Workspace() {
     isConnected, isMuted, isDeafened, isSpeaking, volume, connectionQuality,
     joinVoice, leaveVoice, toggleMute, toggleDeafen, setMasterVolume, setPeerVolume, mutePeer,
     peers, speakingPeers 
-  } = useVoiceChat(socket, id);
-  // Helper to map peerId (socketId) to username
-  const getPeerName = (peerId) => activeUsers.find(u => u.socketId === peerId)?.username || "Unknown";
+  } = useVoiceChat(socket, id, user?.username);
+  // Helper to map peerId (socketId) to username - now peers already have username from LiveKit
+  const getPeerName = (peerId) => peers.find(p => p.peerId === peerId)?.username || peerId;
   const isHost = activeUsers.find(u => u.username === user?.username)?.isHost;
 
   // --- SOCKET CONFIG ---

@@ -13,6 +13,7 @@ import problemRoutes from "./routes/problems.js";
 import leetRoutes from "./routes/leettools.js";
 import submissionRoutes from "./routes/submissionRoutes.js";
 import profileRoutes from "./routes/profile.js";
+import livekitRoutes from "./routes/livekit.js";
 import Room from "./models/Room.js";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
@@ -169,6 +170,7 @@ app.use("/api/problems", problemRoutes);
 app.use("/api/leettools", leetRoutes);
 app.use("/api/submissions", submissionRoutes);
 app.use("/api/profile", profileRoutes);
+app.use("/api/livekit", livekitRoutes);
 
 app.get("/api/proxy/codechef/:handle", async (req, res) => {
   try {
@@ -424,7 +426,11 @@ io.on("connection", (socket) => {
     if (voiceUsers.has(roomId)) {
       const roomUsers = voiceUsers.get(roomId);
       for (const u of roomUsers) {
-        if (u.id === socket.id) roomUsers.delete(u);
+        if (u.id === socket.id) {
+          roomUsers.delete(u);
+          // Notify others that this peer left voice
+          socket.to(roomId).emit("voice-peer-left", { peerId: socket.id });
+        }
       }
       if (roomUsers.size === 0) voiceUsers.delete(roomId);
     }
@@ -443,12 +449,17 @@ io.on("connection", (socket) => {
     if (socket.roomId && socket.username) {
       socket.to(socket.roomId).emit("user_left", { username: socket.username });
 
-      // Remove from Voice List
+      // Remove from Voice List and notify peers
       if (voiceUsers.has(socket.roomId)) {
         const roomUsers = voiceUsers.get(socket.roomId);
         for (const u of roomUsers) {
-          if (u.id === socket.id) roomUsers.delete(u);
+          if (u.id === socket.id) {
+            roomUsers.delete(u);
+            // Notify others that this peer left voice
+            socket.to(socket.roomId).emit("voice-peer-left", { peerId: socket.id });
+          }
         }
+        if (roomUsers.size === 0) voiceUsers.delete(socket.roomId);
       }
     }
 
