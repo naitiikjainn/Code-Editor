@@ -122,10 +122,18 @@ export default function Editors({
             const baseUrl = API_URL.replace(/^http(s)?/, wsProtocol).replace(/\/$/, "");
             // CRITICAL FIX: Unique Room PER FILE to prevent ghost cursors across files
             const roomName = `codeplay-${roomId}-${activeFile._id}`; 
+            
+            console.log(`[Editors] Connecting to Yjs room: ${roomName}`);
+            console.log(`[Editors] WebSocket URL: ${baseUrl}/${roomName}`);
 
             const provider = new WebsocketProvider(baseUrl, roomName, doc, { connect: true });
             providerRef.current = provider;
             awarenessRef.current = provider.awareness;
+            
+            // Connection status logging
+            provider.on('status', ({ status }) => {
+                console.log(`[Editors] Yjs connection status: ${status}`);
+            });
 
             provider.awareness.setLocalStateField('user', {
                 name: username || "Anonymous",
@@ -138,19 +146,44 @@ export default function Editors({
             provider.awareness.on('update', () => {
                 const states = provider.awareness.getStates();
                 let styleContent = "";
+                let userCount = 0;
                 states.forEach((state, clientId) => {
                     if (state.user) {
+                        userCount++;
                         const { name, color } = state.user;
+                        // Escape special characters in name for CSS content
+                        const escapedName = name ? name.replace(/"/g, '\\"').replace(/\n/g, '') : 'Anonymous';
                         styleContent += `
-                            .yRemoteSelection-${clientId} { background-color: ${color}33; }
-                            .yRemoteSelectionHead-${clientId} { border-left-color: ${color}; }
+                            .yRemoteSelection-${clientId} { 
+                                background-color: ${color}40 !important; 
+                            }
+                            .yRemoteSelectionHead-${clientId} { 
+                                position: absolute;
+                                border-left: 2px solid ${color} !important;
+                                border-top: none;
+                                border-bottom: none;
+                                height: 100%;
+                                box-sizing: border-box;
+                            }
                             .yRemoteSelectionHead-${clientId}::after {
-                                content: "${name}";
+                                content: "${escapedName}";
                                 background: ${color};
+                                color: #fff;
+                                font-size: 10px;
+                                padding: 1px 4px;
+                                border-radius: 2px;
+                                position: absolute;
+                                top: -16px;
+                                left: -2px;
+                                white-space: nowrap;
+                                pointer-events: none;
+                                z-index: 100;
+                                font-family: sans-serif;
                             }
                         `;
                     }
                 });
+                console.log(`[Editors] Awareness update: ${userCount} users in room`);
                 let styleEl = document.getElementById("yjs-cursor-styles");
                 if (!styleEl) {
                     styleEl = document.createElement("style");

@@ -147,6 +147,8 @@ export default function Workspace() {
     const handleSyncProblem = (problem) => {
         console.log(`📥 Syncing problem: ${problem?.title} (Desc Len: ${problem?.description?.length})`);
         setRightPanel({ type: "preview", data: problem });
+        // Also switch to full screen problem view to match the sender
+        setViewMode("problem_full");
     };
 
     socket.on("sync_problem", handleSyncProblem);
@@ -223,7 +225,10 @@ export default function Workspace() {
 	  });
 
       socket.on("sync_problem_state", ({ problem }) => {
-          if (problem) switchRightPanel("preview", problem);
+          if (problem) {
+              setRightPanel({ type: "preview", data: problem });
+              setViewMode("problem_full");
+          }
       });
 
 	  return () => {

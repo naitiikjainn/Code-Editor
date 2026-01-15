@@ -110,11 +110,22 @@ const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
   console.log("✅ Yjs Connected:", req.url);
+  
+  ws.on('error', (err) => {
+    console.error("❌ Yjs WebSocket Error:", err.message);
+  });
+  
+  ws.on('close', (code, reason) => {
+    console.log(`📤 Yjs Disconnected: ${req.url} (code: ${code})`);
+  });
+  
   setupWSConnection(ws, req);
 });
 
 server.on('upgrade', (request, socket, head) => {
   const url = request.url;
+  
+  // Handle Yjs connections (room collaboration)
   if (url.startsWith('/codeplay-')) {
     console.log(`➡️ Routing to Yjs: ${url}`);
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -122,9 +133,14 @@ server.on('upgrade', (request, socket, head) => {
     });
     return;
   }
+  
+  // Let Socket.IO handle its own upgrades
   if (url.startsWith('/socket.io/')) {
     return;
   }
+  
+  // Log unknown WebSocket upgrade requests
+  console.warn(`⚠️ Unknown WebSocket upgrade request: ${url}`);
 });
 
 // Apply rate limiting to auth routes (5 requests per minute for login/register)
@@ -358,12 +374,14 @@ io.on("connection", (socket) => {
   if (!global.roomProblems) global.roomProblems = new Map();
 
   socket.on("sync_problem", ({ roomId, problem }) => {
+    console.log(`📤 Syncing problem to room ${roomId}: ${problem?.title} (Desc: ${problem?.description?.length || 0} chars)`);
     global.roomProblems.set(roomId, problem);
     socket.to(roomId).emit("sync_problem", problem);
   });
 
   socket.on("request_problem_state", ({ roomId }) => {
     const problem = global.roomProblems.get(roomId);
+    console.log(`📥 Problem state requested for room ${roomId}: ${problem ? problem.title : 'NONE'}`);
     if (problem) {
       socket.emit("sync_problem", problem);
     }
