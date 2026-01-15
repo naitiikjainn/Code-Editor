@@ -433,9 +433,10 @@ function FeatureCard({ icon, color, title, desc }) {
 
 const dashboardStyles = `
   .dashboard-wrapper {
-    min-height: 100vh;
+    height: 100vh;
     background: #09090b;
     overflow-x: hidden;
+    overflow-y: auto;
     position: relative;
   }
 
