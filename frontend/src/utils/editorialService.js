@@ -52,19 +52,21 @@ export const getEditorial = async (contestId, problemIndex) => {
  */
 export const extractCodeBlocks = (htmlContent) => {
     if (!htmlContent) return [];
-    
+
     const codeBlocks = [];
+    const seenCode = new Set(); // To avoid duplicates
     
-    // Match <pre> or <code> blocks
-    const preRegex = /<pre[^>]*>([\s\S]*?)<\/pre>/gi;
-    const codeRegex = /<code[^>]*>([\s\S]*?)<\/code>/gi;
-    
+    // Combined regex to match <pre> or standalone <code> blocks
+    const combinedRegex = /<(pre|code)[^>]*>([\s\S]*?)<\/\1>/gi;
+    const stripHtmlRegex = /<[^>]*>/g;
+
     let match;
-    
-    // Extract from <pre> tags
-    while ((match = preRegex.exec(htmlContent)) !== null) {
-        const code = match[1]
-            .replace(/<[^>]*>/g, '') // Remove nested HTML tags
+    while ((match = combinedRegex.exec(htmlContent)) !== null) {
+        const tagName = match[1].toLowerCase();
+        let code = match[2];
+
+        // Decode HTML entities and remove nested tags
+        code = code.replace(stripHtmlRegex, '')
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
             .replace(/&amp;/g, '&')
@@ -72,30 +74,22 @@ export const extractCodeBlocks = (htmlContent) => {
             .replace(/&#39;/g, "'")
             .trim();
         
-        if (code.length > 20) { // Only include substantial code blocks
-            // Try to detect language
-            let language = 'cpp'; // Default
-            if (code.includes('def ') || code.includes('print(')) language = 'python';
-            else if (code.includes('public static void') || code.includes('System.out')) language = 'java';
-            
-            codeBlocks.push({ code, language });
+        // Skip if code is too short or already processed
+        const minLength = tagName === 'pre' ? 20 : 50;
+        if (code.length < minLength || seenCode.has(code)) {
+            continue;
         }
-    }
-    
-    // Extract from standalone <code> tags (if not already in <pre>)
-    while ((match = codeRegex.exec(htmlContent)) !== null) {
-        const code = match[1]
-            .replace(/<[^>]*>/g, '')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&')
-            .trim();
-        
-        if (code.length > 50 && !codeBlocks.some(b => b.code.includes(code.slice(0, 30)))) {
-            let language = 'cpp';
-            if (code.includes('def ') || code.includes('print(')) language = 'python';
-            codeBlocks.push({ code, language });
+
+        // Language detection
+        let language = 'cpp'; // Default
+        if (code.includes('def ') || code.includes('print(')) {
+            language = 'python';
+        } else if (code.includes('public static void') || code.includes('System.out')) {
+            language = 'java';
         }
+
+        codeBlocks.push({ code, language });
+        seenCode.add(code);
     }
     
     return codeBlocks;
