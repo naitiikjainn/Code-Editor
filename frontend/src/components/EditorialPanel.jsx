@@ -266,19 +266,6 @@ const EditorialPanel = ({ contestId, problemIndex, problemName, onClose, onUseCo
                                 </div>
                             )}
 
-                            {/* Debug info - remove later */}
-                            <div style={{ 
-                                marginBottom: '15px', 
-                                padding: '8px 12px',
-                                backgroundColor: '#1a3a1a',
-                                borderRadius: '6px',
-                                color: '#4ade80',
-                                fontSize: '11px',
-                                fontFamily: 'monospace'
-                            }}>
-                                📊 Content: {editorial.problemSection ? editorial.problemSection.length : 0} chars (problem) | {editorial.content?.length || 0} chars (full) | Showing: {showFullEditorial || !editorial.problemSection ? 'FULL' : 'PROBLEM SECTION'}
-                            </div>
-
                             {/* Editorial Content */}
                             <div 
                                 style={{ 
