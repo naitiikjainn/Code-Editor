@@ -21,6 +21,7 @@ import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { WebSocketServer } from 'ws';
 import { createRequire } from 'module';
+import Room from "./models/Room.js";
 
 const require = createRequire(import.meta.url);
 const { setupWSConnection } = require('y-websocket/bin/utils');
@@ -93,6 +94,20 @@ setInterval(() => {
         }
     }
 }, 5 * 60 * 1000);
+
+// ROOM CLEANUP JOB
+// Check for inactive rooms every 10 minutes
+setInterval(async () => {
+    try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const result = await Room.deleteMany({ lastActiveAt: { $lt: oneHourAgo } });
+        if (result.deletedCount > 0) {
+            console.log(`🧹 Cleanup: Deleted ${result.deletedCount} inactive rooms.`);
+        }
+    } catch (err) {
+        console.error("❌ Room Cleanup Error:", err);
+    }
+}, 10 * 60 * 1000);
 
 app.use(cors({
   origin: (origin, callback) => {

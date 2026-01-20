@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 
 const fileSchema = new mongoose.Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true
+    },
     name: {
         type: String,
         required: true,
@@ -11,8 +16,7 @@ const fileSchema = new mongoose.Schema({
     },
     roomId: {
         type: String,
-        required: true,
-        default: "default"
+        default: null // Room is now optional/contextual
     },
     language: {
         type: String,
