@@ -16,7 +16,7 @@ export default function FileExplorer({ files, onSelect, onDelete, onCreate, acti
     return (
         <div style={{ padding: "16px", height: "100%", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                <div style={{ fontSize: "12px", fontWeight: "bold", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px" }}>Explorer</div>
+                <div style={{ fontSize: "12px", fontWeight: "bold", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px" }}>My Files</div>
                 <button 
                     onClick={() => setIsCreating(true)} 
                     title="New File"
@@ -31,11 +31,16 @@ export default function FileExplorer({ files, onSelect, onDelete, onCreate, acti
             {/* FOLDER ROOT */}
             <div style={{ display: "flex", gap: "8px", alignItems: "center", padding: "8px", background: "var(--bg-surface)", borderRadius: "6px", fontSize: "13px", marginBottom: "10px", color: "var(--text-main)" }}>
                 <FolderOpen size={16} color="var(--accent-secondary)" /> 
-                <span style={{ fontWeight: "600" }}>Project Root</span>
+                <span style={{ fontWeight: "600" }}>Workspace</span>
             </div>
 
             {/* FILE LIST */}
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
+                {files.length === 0 && (
+                    <div style={{ padding: "16px", textAlign: "center", color: "var(--text-muted)", fontSize: "12px" }}>
+                        No files yet. Create one!
+                    </div>
+                )}
                 {files.map(file => (
                     <div 
                         key={file._id}

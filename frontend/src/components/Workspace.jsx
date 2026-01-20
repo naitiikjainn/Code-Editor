@@ -261,10 +261,20 @@ export default function Workspace() {
 
   // --- FETCH FILES ---
   const fetchFiles = async () => {
+      // Need user to fetch files now
+      if (!user) return;
+
 	  try {
-		  const res = await fetch(`${API_URL}/api/files?roomId=${id || "default"}`);
+          const token = localStorage.getItem("codeplay_token");
+		  const res = await fetch(`${API_URL}/api/files?roomId=${id || "default"}`, {
+              headers: { "Authorization": `Bearer ${token}` }
+          });
 		  const data = await res.json();
-		  setFiles(data);
+          if (Array.isArray(data)) {
+		      setFiles(data);
+          } else {
+              setFiles([]);
+          }
 		  
           // RESTORE ACTIVE FILE
 		  if (!activeFile) {
@@ -297,13 +307,17 @@ export default function Workspace() {
 	  } catch (err) { console.error("Failed to fetch files", err); }
   };
 
-  useEffect(() => { fetchFiles(); }, []);
+  useEffect(() => { fetchFiles(); }, [user]); // Fetch when user logs in
 
   useEffect(() => {
 	if (activeFile && activeFile.type !== "preview" && debouncedCode !== activeFile.content) {
+        const token = localStorage.getItem("codeplay_token");
 		fetch(`${API_URL}/api/files/${activeFile._id}`, {
 			method: "PUT",
-			headers: { "Content-Type": "application/json" },
+			headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
 			body: JSON.stringify({ content: debouncedCode })
 		}).then(() => {
 			console.log("Saved:", activeFile.name);
@@ -360,13 +374,19 @@ export default function Workspace() {
   };
 
   const handleFileCreate = async (name) => {
+      if (!user) { setAuthModalOpen(true); return; }
 	  const ext = name.split('.').pop();
 	  const langMap = { js: "javascript", html: "html", css: "css", py: "python", java: "java", cpp: "cpp" };
 	  const language = langMap[ext] || "javascript";
 	  
 	  try {
+          const token = localStorage.getItem("codeplay_token");
 		  const res = await fetch(`${API_URL}/api/files`, {
-			 method: "POST", headers: { "Content-Type": "application/json" },
+			 method: "POST",
+             headers: {
+                 "Content-Type": "application/json",
+                 "Authorization": `Bearer ${token}`
+             },
 			 body: JSON.stringify({ name, language, folder: "/", roomId: id || "default" }) 
 		  });
 		  const newFile = await res.json();
@@ -376,11 +396,16 @@ export default function Workspace() {
 	  } catch (err) { console.error(err); }
   };
 
-  const handleFileDelete = async (id) => {
+  const handleFileDelete = async (fileId) => {
+      if (!user) return;
 	  try {
-		  await fetch(`${API_URL}/api/files/${id}`, { method: "DELETE" });
-		  setFiles(prev => prev.filter(f => f._id !== id));
-		  if (activeFile?._id === id) {
+          const token = localStorage.getItem("codeplay_token");
+		  await fetch(`${API_URL}/api/files/${fileId}`, {
+              method: "DELETE",
+              headers: { "Authorization": `Bearer ${token}` }
+          });
+		  setFiles(prev => prev.filter(f => f._id !== fileId));
+		  if (activeFile?._id === fileId) {
 			  setActiveFile(null);
 			  setActiveCode("");
 		  }
@@ -1051,8 +1076,13 @@ rl.on('line', (line) => {
         
         if (!targetFile) {
             try {
+                const token = localStorage.getItem("codeplay_token");
                 const res = await fetch(`${API_URL}/api/files`, {
-                    method: "POST", headers: { "Content-Type": "application/json" },
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
                     body: JSON.stringify({ 
                         name: fileName, 
                         language: language, 
