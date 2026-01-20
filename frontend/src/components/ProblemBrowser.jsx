@@ -161,7 +161,10 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
         // Rating
         if (minRating) result = result.filter(p => p.rating >= parseInt(minRating));
         if (maxRating) result = result.filter(p => p.rating <= parseInt(maxRating));
-        if (tagFilter) result = result.filter(p => p.tags.some(t => t.includes(tagFilter.toLowerCase())));
+        if (tagFilter) {
+            const lowerCaseTagFilter = tagFilter.toLowerCase();
+            result = result.filter(p => p.tags.some(t => t.includes(lowerCaseTagFilter)));
+        }
 
         return result; 
     }, [cfProblems, searchQuery, minRating, maxRating, tagFilter, provider]);
