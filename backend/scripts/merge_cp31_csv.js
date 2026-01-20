@@ -12,17 +12,17 @@ const JSON_PATH = path.join(__dirname, "../../frontend/src/components/cp31.json"
 // Helper to delay (avoid rate limits)
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function fetchProblemDetails(contestId, index) {
-    try {
-        // Fetch from Codeforces API (Official)
-        // We can fetch the list once or fetch individually if list is too big? 
-        // Better: Fetch all problems once and lookup locally to save requests.
-        // But for now let's try individual or rely on a "getAllProblems" fetch first.
-        return null; // Placeholder
-    } catch (e) {
-        return null;
-    }
-}
+// async function fetchProblemDetails(contestId, index) {
+//     try {
+//         // Fetch from Codeforces API (Official)
+//         // We can fetch the list once or fetch individually if list is too big?
+//         // Better: Fetch all problems once and lookup locally to save requests.
+//         // But for now let's try individual or rely on a "getAllProblems" fetch first.
+//         return null; // Placeholder
+//     } catch (e) {
+//         return null;
+//     }
+// }
 
 async function main() {
     console.log("Reading CSV...");
