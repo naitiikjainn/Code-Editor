@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import { Play, X, FlaskConical, Plus, Trash2, CheckCircle, AlertCircle, Loader2, ChevronRight, ChevronDown } from "lucide-react";
 
-export default function TestPanel({ 
-    testCases, setTestCases, runTests, isRunningTests, onClose 
-}) {
+import HighlightedTextarea from "./HighlightedTextarea";
+
+const TestPanel = ({ 
+    testCases, setTestCases, runTests, isRunningTests, onClose, language = "text"
+}) => {
   
   // Helper to auto-expand textarea
   const handleInputResize = (e) => {
@@ -106,41 +108,29 @@ export default function TestPanel({
                         {/* INPUT */}
                         <div style={{ marginBottom: "12px" }}>
                             <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: "600", letterSpacing: "0.5px" }}>INPUT</div>
-                            <textarea
-                                value={test.input}
-                                onChange={(e) => { 
-                                    updateTestCase(test.id, "input", e.target.value); 
-                                    handleInputResize(e); 
-                                }}
-                                placeholder="Stdin..."
-                                style={{ 
-                                    width: "100%", background: "#0a0a0a", border: "1px solid #222", color: "#ccc", padding: "8px", borderRadius: "4px", 
-                                    fontSize: "12px", minHeight: "60px", maxHeight: "300px", overflowY: "auto", resize: "vertical", fontFamily: "'Fira Code', monospace", outline: "none",
-                                    boxSizing: "border-box"
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = "#555"}
-                                onBlur={(e) => e.target.style.borderColor = "#222"}
-                            />
+                            <div style={{ resize: "vertical", overflow: "hidden", height: "100px", borderRadius: "4px", border: "1px solid #222" }}>
+                                <HighlightedTextarea
+                                    value={test.input}
+                                    onChange={(e) => updateTestCase(test.id, "input", e.target.value)}
+                                    language={language}
+                                    placeholder="Stdin..."
+                                    style={{ background: "#0a0a0a" }}
+                                />
+                            </div>
                         </div>
 
                         {/* EXPECTED OUTPUT */}
                         <div style={{ marginBottom: "12px" }}>
                             <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: "600", letterSpacing: "0.5px" }}>EXPECTED OUTPUT</div>
-                            <textarea
-                                value={test.expectedOutput}
-                                onChange={(e) => { 
-                                    updateTestCase(test.id, "expectedOutput", e.target.value); 
-                                    handleInputResize(e); 
-                                }}
-                                placeholder="Stdout..."
-                                style={{ 
-                                    width: "100%", background: "#0a0a0a", border: "1px solid #222", color: "#ccc", padding: "8px", borderRadius: "4px", 
-                                    fontSize: "12px", minHeight: "60px", maxHeight: "300px", overflowY: "auto", resize: "vertical", fontFamily: "'Fira Code', monospace", outline: "none",
-                                    boxSizing: "border-box"
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = "#555"}
-                                onBlur={(e) => e.target.style.borderColor = "#222"}
-                            />
+                            <div style={{ resize: "vertical", overflow: "hidden", height: "100px", borderRadius: "4px", border: "1px solid #222" }}>
+                                <HighlightedTextarea
+                                    value={test.expectedOutput}
+                                    onChange={(e) => updateTestCase(test.id, "expectedOutput", e.target.value)}
+                                    language={language}
+                                    placeholder="Stdout..."
+                                    style={{ background: "#0a0a0a" }}
+                                />
+                            </div>
                         </div>
                         
                         {/* ACTUAL OUTPUT (Only if ran) */}
@@ -227,4 +217,5 @@ export default function TestPanel({
         `}</style>
     </div>
   );
-}
+};
+export default React.memo(TestPanel);

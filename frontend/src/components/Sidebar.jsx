@@ -49,7 +49,7 @@ const A2ZLogo = ({ active }) => (
   </svg>
 );
 
-export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
+const Sidebar = ({ activeTab, setActiveTab, onToggle, isOpen }) => {
   
   const renderIcon = (id, Icon, label, color = "var(--accent-primary)") => (
     <div 
@@ -139,4 +139,5 @@ export default function Sidebar({ activeTab, setActiveTab, onToggle, isOpen }) {
         </div>
     </div>
   );
-}
+};
+export default React.memo(Sidebar);

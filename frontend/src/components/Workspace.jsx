@@ -10,6 +10,7 @@ import FileExplorer from "./FileExplorer";
 import ParticipantsPanel from "./ParticipantsPanel";
 import TestPanel from "./TestPanel";
 import { generateCppRunner } from "../utils/cppRunner"; 
+import { executeCode } from "../utils/execution"; 
 import ProblemBrowser from "./ProblemBrowser"; 
 import CP31Browser from "./CP31Browser";
 import A2ZBrowser from "./A2ZBrowser";
@@ -41,6 +42,10 @@ export default function Workspace() {
   const [activeFile, setActiveFile] = useState(null);
   const [activeCode, setActiveCode] = useState("");
   const debouncedCode = useDebounce(activeCode, 1000); // Autosave delay
+  
+  // REF for optimization (Stable Callbacks)
+  const activeCodeRef = useRef(activeCode);
+  useEffect(() => { activeCodeRef.current = activeCode; }, [activeCode]);
   
   // Persist Active File
   useEffect(() => {
@@ -311,6 +316,11 @@ export default function Workspace() {
 
   useEffect(() => {
 	if (activeFile && activeFile.type !== "preview" && debouncedCode !== activeFile.content) {
+        // 1. Save to Local Storage (Backup) - Debounced
+        // This prevents freezing the main thread on every keystroke
+        localStorage.setItem(`file_content_${activeFile._id}`, debouncedCode);
+
+        // 2. Save to Server
         const token = localStorage.getItem("codeplay_token");
 		fetch(`${API_URL}/api/files/${activeFile._id}`, {
 			method: "PUT",
@@ -413,18 +423,19 @@ export default function Workspace() {
   };
 
   // --- EXECUTION & TESTS ---
-  async function handleRun() {
-	if (!user) { setAuthModalOpen(true); return; }
-	if (!activeFile) return;
+  // --- EXECUTION & TESTS ---
+  const handleRun = useCallback(async () => {
+    if (!user) { setAuthModalOpen(true); return; }
+    if (!activeFile) return;
 
-	setConsoleOpen(true);
-	setIsRunning(true);
-	setLogs([{ type: "info", message: "Compiling..." }]);
+    setConsoleOpen(true);
+    setIsRunning(true);
+    setLogs([{ type: "info", message: "Compiling..." }]);
 
-	if (id) socket.emit("sync_run_trigger", { roomId: id, username: user.username });
+    if (id) socket.emit("sync_run_trigger", { roomId: id, username: user.username });
 
-    // AUTO RUNNER LOGIC
-    let codeToRun = activeCode;
+    // AUTO RUNNER LOGIC - Use Ref for stable callback
+    let codeToRun = activeCodeRef.current;
     if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
          if (rightPanel?.data) {
              console.log("Injecting Auto-Runner...");
@@ -434,35 +445,42 @@ export default function Workspace() {
          }
     }
 
-	try {
-		const res = await fetch(`${API_URL}/api/code/execute`, {
-			method: "POST", headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ 
-				language: activeFile.language, 
-				code: codeToRun, 
-				stdin: input 
-			}),
-		});
-		const data = await res.json();
-		const newLogs = [{ type: data.run?.code === 0 ? "log" : "error", message: data.run?.output || "Execution finished." }];
-		setLogs(prev => [...prev, ...newLogs]);
+    try {
+        let data;
+        // CLIENT-SIDE EXECUTION FOR JS (Web Worker with TLE)
+        if (activeFile.language === "javascript") {
+            setLogs(prev => [...prev, { type: "info", message: "Running in browser (Web Worker)..." }]);
+            data = await executeCode(codeToRun, input);
+        } else {
+            const res = await fetch(`${API_URL}/api/code/execute`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    language: activeFile.language, 
+                    code: codeToRun, 
+                    stdin: input 
+                }),
+            });
+            data = await res.json();
+        }
+        const newLogs = [{ type: data.run?.code === 0 ? "log" : "error", message: data.run?.output || "Execution finished." }];
+        setLogs(prev => [...prev, ...newLogs]);
 
-		if (id) socket.emit("sync_run_result", { roomId: id, logs: newLogs });
+        if (id) socket.emit("sync_run_result", { roomId: id, logs: newLogs });
 
-	} catch (err) { 
-		const errorLog = [{ type: "error", message: "Server Error." }];
-		setLogs(prev => [...prev, ...errorLog]);
-		if (id) socket.emit("sync_run_result", { roomId: id, logs: errorLog });
-	}
-	finally { setIsRunning(false); }
-  }
+    } catch (err) { 
+        const errorLog = [{ type: "error", message: "Server Error." }];
+        setLogs(prev => [...prev, ...errorLog]);
+        if (id) socket.emit("sync_run_result", { roomId: id, logs: errorLog });
+    }
+    finally { setIsRunning(false); }
+  }, [user, activeFile, id, rightPanel, input]); // Dependencies (input still needed for console typing)
 
-  const runTests = async () => {
+  const runTests = useCallback(async () => {
     if (!activeFile) return;
     setIsRunningTests(true);
     
     // AUTO RUNNER LOGIC
-    let codeToRun = activeCode;
+    let codeToRun = activeCodeRef.current; // Use Ref
     if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
          if (rightPanel?.data) {
              codeToRun = generateCppRunner(codeToRun, rightPanel.data);
@@ -477,15 +495,20 @@ export default function Workspace() {
         setTestCases([...newTestCases]); 
 
         try {
-            const res = await fetch(`${API_URL}/api/code/execute`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    language: activeFile.language, 
-                    code: codeToRun, 
-                    stdin: test.input 
-                }),
-            });
-            const data = await res.json();
+            let data;
+            if (activeFile.language === "javascript") {
+                data = await executeCode(codeToRun, test.input);
+            } else {
+                const res = await fetch(`${API_URL}/api/code/execute`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ 
+                        language: activeFile.language, 
+                        code: codeToRun, 
+                        stdin: test.input 
+                    }),
+                });
+                data = await res.json();
+            }
             const output = data.run?.output?.trim() || "";
             
             newTestCases[i].actualOutput = output;
@@ -501,7 +524,7 @@ export default function Workspace() {
         setTestCases([...newTestCases]);
     }
     setIsRunningTests(false);
-  };
+  }, [activeFile, rightPanel, testCases]); // Removed activeCode dependency
 
   // Track if submission is in progress to prevent double submissions
   const submissionInProgressRef = useRef(false);
@@ -1337,7 +1360,15 @@ rl.on('line', (line) => {
                         />
                     )}
                     {activeSidebar === "participants" && <ParticipantsPanel users={activeUsers} />}
-                    {activeSidebar === "tests" && <TestPanel testCases={testCases} setTestCases={setTestCases} runTests={runTests} isRunningTests={isRunningTests || isSubmitting} />}
+                    {activeSidebar === "tests" && (
+                        <TestPanel 
+                            testCases={testCases} 
+                            setTestCases={setTestCases} 
+                            runTests={runTests} 
+                            isRunningTests={isRunningTests || isSubmitting}
+                            language={activeFile?.language || "text"} // Pass language
+                        />
+                    )}
                     
                     {/* NEW CP PANELS */}
 

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { FileCode, File, FolderOpen, Trash2, Plus, FilePlus } from "lucide-react";
 import { API_URL } from "../config";
 
-export default function FileExplorer({ files, onSelect, onDelete, onCreate, activeFileId }) {
+const FileExplorer = ({ files, onSelect, onDelete, onCreate, activeFileId }) => {
     const [isCreating, setIsCreating] = useState(false);
     const [newFileName, setNewFileName] = useState("");
 
@@ -100,4 +100,6 @@ export default function FileExplorer({ files, onSelect, onDelete, onCreate, acti
             </div>
         </div>
     );
-}
+};
+
+export default React.memo(FileExplorer);
