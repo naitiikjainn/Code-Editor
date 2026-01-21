@@ -3,6 +3,8 @@ import { Play, Clock, Database, Tag, Copy, Check, Globe, X, BookOpen, Loader2, E
 import "katex/dist/katex.min.css";
 import katex from "katex";
 import { getEditorial, extractCodeBlocks } from "../utils/editorialService";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // --- MATH RENDERER ---
 const renderMath = (html) => {
@@ -683,9 +685,14 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                                                             {copiedCodeIndex === idx ? 'Copied!' : 'Copy'}
                                                         </button>
                                                     </div>
-                                                    <pre style={{ margin: 0, padding: "16px", overflow: "auto", maxHeight: "400px", fontSize: "13px", fontFamily: "'JetBrains Mono', Consolas, monospace", color: "#d4d4d8", lineHeight: 1.5 }}>
+                                                    <SyntaxHighlighter
+                                                        language={block.language === "cpp" ? "cpp" : "python"} // Simple mapping, can be improved
+                                                        style={vscDarkPlus}
+                                                        showLineNumbers={true}
+                                                        customStyle={{ margin: 0, padding: "16px", fontSize: "13px", lineHeight: "1.5", maxHeight: "400px" }}
+                                                    >
                                                         {block.code}
-                                                    </pre>
+                                                    </SyntaxHighlighter>
                                                 </div>
                                             ))}
                                         </div>

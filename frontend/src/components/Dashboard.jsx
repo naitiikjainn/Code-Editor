@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API_URL } from "../config";
 import AuthModal from "./AuthModal";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
   Code2, Sparkles, Users, Zap, Terminal, ArrowRight,
   Cpu, PenTool, Trophy, Send, MousePointer2
@@ -112,23 +114,31 @@ const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
             </div>
             <div className="window-title">collaboration.tsx</div>
           </div>
-          <div className="window-content">
-            <div className="code-line"><span className="k">export default</span> <span className="f">function</span> <span className="c">App</span>() {'{'}</div>
-            <div className="code-line indent">  <span className="k">const</span> [user, setUser] = <span className="f">useState</span>(<span className="s">null</span>);</div>
-            <div className="code-line indent">  <span className="c">// Real-time magic happens here ✨</span></div>
-            <div className="code-line indent">  <span className="k">return</span> (</div>
-            <div className="code-line indent-2">    &lt;<span className="t">Editor</span> </div>
-            <div className="code-line indent-3">      <span className="p">mode</span>=<span className="s">"multiplayer"</span></div>
-            <div className="code-line indent-3">      <span className="p">ai</span>={'{'}<span className="k">true</span>{'}'}</div>
-            <div className="code-line indent-2">    /&gt;</div>
-            <div className="code-line indent">  );</div>
-            <div className="code-line">{'}'}</div>
+            <div className="window-content" style={{ padding: 0, background: '#1e1e1e' }}>
+              <SyntaxHighlighter 
+                language="jsx" 
+                style={vscDarkPlus}
+                showLineNumbers={true}
+                customStyle={{ margin: 0, padding: '24px', background: 'transparent', fontSize: '14px', lineHeight: '1.5' }}
+                lineNumberStyle={{ minWidth: '2em', paddingRight: '1em', color: '#6e7681' }}
+              >
+{`export default function App() {
+  const [user, setUser] = useState(null);
+  // Real-time magic happens here ✨
+  return (
+    <Editor 
+      mode="multiplayer"
+      ai={true}
+    />
+  );
+}`}
+              </SyntaxHighlighter>
 
-            <div className="cursor-badge">
-              <MousePointer2 size={12} fill="#8b5cf6" />
-              <span>CodePlay</span>
+              <div className="cursor-badge">
+                <MousePointer2 size={12} fill="#8b5cf6" />
+                <span>CodePlay</span>
+              </div>
             </div>
-          </div>
         </div>
         <div className="glow-effect" />
       </div>
