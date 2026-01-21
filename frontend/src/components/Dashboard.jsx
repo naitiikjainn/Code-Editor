@@ -1,106 +1,221 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API_URL } from "../config";
 import AuthModal from "./AuthModal";
 import { 
-  Plus, Code2, LogIn, ArrowRight, Sparkles, Users, Zap, 
-  Terminal, Palette, Globe, ChevronRight, Star, Rocket,
-  MousePointer2, MessageSquare, Cpu, Github, Twitter,
-  Play, Layers, Shield, Wifi, Monitor, Braces, BookOpen,
-  Send, PenTool, ListChecks, Trophy, FileCode, CheckCircle2
+  Code2, Sparkles, Users, Zap, Terminal, ArrowRight,
+  Cpu, Github, Twitter, PenTool, ListChecks, Trophy, Send,
+  Shield, Play, MousePointer2
 } from "lucide-react";
 
-// Floating orbs background component
-const FloatingOrbs = () => (
-  <div className="floating-orbs">
-    <div className="orb orb-1" />
-    <div className="orb orb-2" />
-    <div className="orb orb-3" />
-    <div className="orb orb-4" />
-  </div>
-);
-
-// Animated grid background
-const GridBackground = () => (
-  <div className="grid-background">
-    <div className="grid-fade" />
-  </div>
-);
-
-// Typing animation hook
-const useTypingEffect = (words, typingSpeed = 80, deletingSpeed = 40, pauseDuration = 2000) => {
-  const [displayText, setDisplayText] = useState("");
-  const [wordIndex, setWordIndex] = useState(0);
-  const [isDeleting, setIsDeleting] = useState(false);
-
+// --- HOOKS ---
+const useMousePosition = () => {
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   useEffect(() => {
-    const currentWord = words[wordIndex];
-    
-    const timeout = setTimeout(() => {
-      if (!isDeleting) {
-        if (displayText.length < currentWord.length) {
-          setDisplayText(currentWord.slice(0, displayText.length + 1));
-        } else {
-          setTimeout(() => setIsDeleting(true), pauseDuration);
-        }
-      } else {
-        if (displayText.length > 0) {
-          setDisplayText(displayText.slice(0, -1));
-        } else {
-          setIsDeleting(false);
-          setWordIndex((prev) => (prev + 1) % words.length);
-        }
-      }
-    }, isDeleting ? deletingSpeed : typingSpeed);
-
-    return () => clearTimeout(timeout);
-  }, [displayText, isDeleting, wordIndex, words, typingSpeed, deletingSpeed, pauseDuration]);
-
-  return displayText;
+    const updateMousePosition = ev => setMousePosition({ x: ev.clientX, y: ev.clientY });
+    window.addEventListener('mousemove', updateMousePosition);
+    return () => window.removeEventListener('mousemove', updateMousePosition);
+  }, []);
+  return mousePosition;
 };
+
+// --- COMPONENTS ---
+
+// 1. FLOATING NAVBAR
+const FloatingNav = ({ user, logout, setAuthOpen }) => (
+  <nav className="floating-nav">
+    <div className="nav-glass">
+      <Link to="/" className="nav-logo">
+        <Code2 size={24} className="text-accent" />
+        <span className="font-bold">CodePlay</span>
+      </Link>
+
+      <div className="nav-links">
+        <a href="#features">Features</a>
+        <a href="#community">Community</a>
+        <a href="https://github.com/codeplay" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+
+      <div className="nav-actions">
+        {user ? (
+          <>
+            <Link to="/profile" className="nav-user">
+              {user.avatar ? <img src={user.avatar} alt={user.username} /> : <span>{user.username[0]}</span>}
+            </Link>
+            <button onClick={logout} className="btn-ghost-sm">Logout</button>
+          </>
+        ) : (
+          <button onClick={() => setAuthOpen(true)} className="btn-accent-sm">
+            Sign In
+          </button>
+        )}
+      </div>
+    </div>
+  </nav>
+);
+
+// 2. HERO SECTION WITH 3D TILT
+const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
+  const mouse = useMousePosition();
+  const heroRef = useRef(null);
+
+  // Calculate tilt based on mouse position
+  const calculateTilt = () => {
+    if (!heroRef.current) return { x: 0, y: 0 };
+    const rect = heroRef.current.getBoundingClientRect();
+    const x = (mouse.x - rect.left - rect.width / 2) / 25;
+    const y = -(mouse.y - rect.top - rect.height / 2) / 25;
+    return { x, y };
+  };
+
+  const tilt = calculateTilt();
+
+  return (
+    <section className="hero-section" ref={heroRef}>
+      <div className="hero-content">
+        <div className="pill-badge">
+          <Sparkles size={12} className="text-accent" />
+          <span>V2.0 is live</span>
+        </div>
+
+        <h1 className="hero-title">
+          Build faster, <br/>
+          <span className="text-gradient">together.</span>
+        </h1>
+
+        <p className="hero-sub">
+          The open-source collaborative code editor for the next generation.
+          Real-time sync, AI assistance, and integrated problem sets.
+        </p>
+
+        <div className="hero-input-group">
+          <div className="input-wrapper">
+            <Terminal size={16} className="input-icon"/>
+            <input
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              placeholder="Enter room code..."
+            />
+            <button onClick={handleJoin} disabled={!roomId} className="btn-join">Join</button>
+          </div>
+          <span className="or-divider">or</span>
+          <button onClick={handleCreateRoom} className="btn-create">
+            Create Room <ArrowRight size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="hero-visual" style={{ transform: `perspective(1000px) rotateY(${tilt.x}deg) rotateX(${tilt.y}deg)` }}>
+        <div className="visual-window">
+          <div className="window-bar">
+            <div className="dots">
+              <div className="dot red"/>
+              <div className="dot yellow"/>
+              <div className="dot green"/>
+            </div>
+            <div className="window-title">collaboration.tsx</div>
+          </div>
+          <div className="window-content">
+            <div className="code-line"><span className="k">export default</span> <span className="f">function</span> <span className="c">App</span>() {'{'}</div>
+            <div className="code-line indent">  <span className="k">const</span> [user, setUser] = <span className="f">useState</span>(<span className="s">null</span>);</div>
+            <div className="code-line indent">  <span className="c">// Real-time magic happens here ✨</span></div>
+            <div className="code-line indent">  <span className="k">return</span> (</div>
+            <div className="code-line indent-2">    &lt;<span className="t">Editor</span> </div>
+            <div className="code-line indent-3">      <span className="p">mode</span>=<span className="s">"multiplayer"</span></div>
+            <div className="code-line indent-3">      <span className="p">ai</span>={'{'}<span className="k">true</span>{'}'}</div>
+            <div className="code-line indent-2">    /&gt;</div>
+            <div className="code-line indent">  );</div>
+            <div className="code-line">{'}'}</div>
+
+            <div className="cursor-badge">
+              <MousePointer2 size={12} fill="#8b5cf6" />
+              <span>Sarah</span>
+            </div>
+          </div>
+        </div>
+        <div className="glow-effect" />
+      </div>
+    </section>
+  );
+};
+
+// 3. BENTO GRID FEATURES
+const BentoGrid = () => (
+  <section id="features" className="bento-section">
+    <h2 className="section-header">Everything you need</h2>
+    <div className="bento-grid">
+      {/* LARGE CARD */}
+      <div className="bento-card large">
+        <div className="card-content">
+          <Cpu size={32} className="card-icon text-orange"/>
+          <h3>AI Copilot</h3>
+          <p>Integrated Gemini AI to debug, explain, and optimize your code in real-time.</p>
+        </div>
+        <div className="card-visual ai-visual" />
+      </div>
+
+      {/* TALL CARD */}
+      <div className="bento-card tall">
+        <div className="card-content">
+          <ListChecks size={32} className="card-icon text-violet"/>
+          <h3>DSA Sheets</h3>
+          <p>Striver's A2Z & CP-31 built right in.</p>
+        </div>
+        <div className="list-visual">
+          <div className="list-item checked">Two Sum</div>
+          <div className="list-item checked">LRU Cache</div>
+          <div className="list-item">Merge Intervals</div>
+        </div>
+      </div>
+
+      {/* MEDIUM CARD */}
+      <div className="bento-card medium">
+        <div className="card-content">
+          <Users size={32} className="card-icon text-blue"/>
+          <h3>Real-time Sync</h3>
+          <p>Zero latency collaboration with Yjs & WebSockets.</p>
+        </div>
+      </div>
+
+      {/* MEDIUM CARD */}
+      <div className="bento-card medium">
+        <div className="card-content">
+          <Send size={32} className="card-icon text-green"/>
+          <h3>Direct Submit</h3>
+          <p>Codeforces & LeetCode integration.</p>
+        </div>
+      </div>
+
+      {/* WIDE CARD */}
+      <div className="bento-card wide">
+        <div className="card-content">
+          <PenTool size={32} className="card-icon text-pink"/>
+          <h3>Infinite Whiteboard</h3>
+          <p>Plan algorithms visually with your team using a shared canvas.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+);
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [authOpen, setAuthOpen] = useState(false);
   const [roomId, setRoomId] = useState("");
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [activeFeature, setActiveFeature] = useState(0);
-
-  const typingText = useTypingEffect([
-    "Real Time.",
-    "With Friends.",
-    "Without Limits.",
-    "Like Magic."
-  ]);
-
-  useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 50);
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
 
   const handleCreateRoom = async () => {
     if (!user) { setAuthOpen(true); return; }
-    
     const randomId = Math.random().toString(36).substring(7);
-    
     try {
       const res = await fetch(`${API_URL}/api/rooms/create`, {
         method: "POST", 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ roomId: randomId, username: user.username })
       });
-      if (res.ok) {
-        navigate(`/editor/${randomId}`);
-      } else {
-        alert("Failed to create room. Try again.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Server error.");
-    }
+      if (res.ok) navigate(`/editor/${randomId}`);
+    } catch (e) { console.error(e); }
   };
 
   const handleJoin = (e) => {
@@ -109,224 +224,31 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="dashboard-wrapper">
-      <style>{dashboardStyles}</style>
+    <div className="dashboard-container">
+      <style>{cssStyles}</style>
+      <div className="bg-gradient" />
       
-      <FloatingOrbs />
-      <GridBackground />
+      <FloatingNav user={user} logout={logout} setAuthOpen={setAuthOpen} />
 
-      {/* NAVBAR */}
-      <nav className={`navbar ${isScrolled ? 'navbar-scrolled' : ''}`}>
-        <div className="navbar-content">
-          <Link to="/" className="logo">
-            <div className="logo-icon">
-              <Code2 size={24} color="white" />
-            </div>
-            <span className="logo-text">CodePlay</span>
-          </Link>
+      <main className="main-content">
+        <HeroSection
+          handleCreateRoom={handleCreateRoom}
+          roomId={roomId}
+          setRoomId={setRoomId}
+          handleJoin={handleJoin}
+        />
+        <BentoGrid />
+      </main>
 
-          <div className="nav-actions">
-            {user ? (
-              <>
-                <Link to="/profile" className="user-pill">
-                  <div className="user-avatar">
-                    {user.avatar ? (
-                      <img src={user.avatar} alt={user.username} />
-                    ) : (
-                      <span>{user.username[0].toUpperCase()}</span>
-                    )}
-                  </div>
-                  <span className="user-name">{user.username}</span>
-                </Link>
-                <button onClick={logout} className="btn-secondary">Logout</button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => setAuthOpen(true)} className="btn-ghost">Sign In</button>
-                <button onClick={() => setAuthOpen(true)} className="btn-glow">
-                  Get Started <Sparkles size={16} />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </nav>
-
-      {/* HERO SECTION */}
-      <section className="hero">
-        <div className="hero-content">
-          <div className="hero-badge animate-float">
-            <Sparkles size={14} className="badge-icon" />
-            <span>AI-Powered Collaborative Editor</span>
-          </div>
-
-          <h1 className="hero-title">
-            Code Together,<br />
-            <span className="typing-container">
-              <span className="gradient-text-animated">{typingText}</span>
-              <span className="cursor">|</span>
-            </span>
-          </h1>
-
-          <p className="hero-subtitle">
-            The collaborative IDE designed for the next generation of developers.
-            Real-time sync, integrated DSA sheets, and AI assistance that actually helps.
-          </p>
-
-          <div className="hero-actions">
-            <button onClick={handleCreateRoom} className="btn-primary-large">
-              <Rocket size={20} />
-              <span>Start Coding Now</span>
-              <div className="btn-shine" />
-            </button>
-
-            <div className="join-room-wrapper">
-              <form onSubmit={handleJoin} className="join-room-form">
-                <div className="input-icon">
-                  <Terminal size={18} />
-                </div>
-                <input 
-                  type="text" 
-                  placeholder="Enter room code..." 
-                  value={roomId}
-                  onChange={(e) => setRoomId(e.target.value)}
-                  className="join-input"
-                />
-                <button type="submit" className="join-btn" disabled={!roomId.trim()}>
-                  <ArrowRight size={18} />
-                </button>
-              </form>
-            </div>
-          </div>
-
-          {/* Tech Stack Pills */}
-          <div className="tech-stack">
-            <div className="tech-pill"><Trophy size={14} className="tp-icon"/> CP-31 Sheet</div>
-            <div className="tech-pill"><ListChecks size={14} className="tp-icon"/> Striver A2Z</div>
-            <div className="tech-pill"><Send size={14} className="tp-icon"/> Codeforces</div>
-            <div className="tech-pill"><PenTool size={14} className="tp-icon"/> Whiteboard</div>
-            <div className="tech-pill"><Cpu size={14} className="tp-icon"/> Gemini AI</div>
-          </div>
-        </div>
-
-        {/* Floating code preview */}
-        <div className="hero-visual">
-          <div className="code-window animate-float-slow">
-            <div className="window-header">
-              <div className="window-dots">
-                <span className="dot red" />
-                <span className="dot yellow" />
-                <span className="dot green" />
-              </div>
-              <span className="window-title">collaboration.js</span>
-              <div className="live-indicator">
-                <span className="live-dot" />
-                LIVE
-              </div>
-            </div>
-            <div className="code-content">
-              <div className="line"><span className="kw">const</span> <span className="var">team</span> = [<span className="str">"you"</span>, <span className="str">"friend"</span>];</div>
-              <br/>
-              <div className="line"><span className="kw">async function</span> <span className="fn">buildFuture</span>() {"{"}</div>
-              <div className="line indent">  <span className="kw">await</span> <span className="fn">connect</span>(<span className="var">team</span>);</div>
-              <br/>
-              <div className="line indent">  <span className="kw">while</span> (<span className="bool">true</span>) {"{"}</div>
-              <div className="line indent-2">    <span className="fn">create</span>();</div>
-              <div className="line indent-2">    <span className="fn">learn</span>();</div>
-              <div className="line indent-2">    <span className="fn">ship</span>(); <span className="comment">// 🚀</span></div>
-              <div className="line indent">  {"}"}</div>
-              <div className="line">{"}"}</div>
-
-              <div className="cursor-indicator">
-                <div className="cursor-caret" />
-                <span className="cursor-label">Alex is typing...</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Floating Elements around code window */}
-          <div className="float-card fc-1">
-             <div className="fc-icon bg-green"><CheckCircle2 size={16} color="white"/></div>
-             <div className="fc-text">
-                 <span className="fc-title">Tests Passed</span>
-                 <span className="fc-sub">All systems operational</span>
-             </div>
-          </div>
-
-          <div className="float-card fc-2">
-             <div className="fc-icon bg-purple"><Users size={16} color="white"/></div>
-             <div className="fc-text">
-                 <span className="fc-title">3 Users Connected</span>
-                 <div className="fc-avatars">
-                    <div className="mini-av" style={{background: '#f43f5e'}}>A</div>
-                    <div className="mini-av" style={{background: '#3b82f6'}}>B</div>
-                    <div className="mini-av" style={{background: '#22c55e'}}>C</div>
-                 </div>
-             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FEATURE SHOWCASE */}
-      <section className="features-section">
-        <div className="section-header">
-          <span className="section-tag">Powerful Features</span>
-          <h2 className="section-title">Everything you need to <span className="gradient-text">excel</span></h2>
-        </div>
-
-        <div className="features-grid">
-            {[
-                { icon: <ListChecks />, color: "#8b5cf6", title: "A2Z DSA Sheet", desc: "Complete Striver's A2Z DSA sheet. Track progress directly." },
-                { icon: <Trophy />, color: "#eab308", title: "CP-31 Sheet", desc: "Curated problemset to master competitive programming." },
-                { icon: <Send />, color: "#22c55e", title: "Judge Integration", desc: "Submit code to Codeforces & LeetCode without leaving the editor." },
-                { icon: <PenTool />, color: "#ec4899", title: "Real-time Whiteboard", desc: "Draw, plan, and explain algorithms visually with teammates." },
-                { icon: <Cpu />, color: "#f97316", title: "AI Assistant", desc: "Context-aware AI to explain logic, fix bugs, and generate tests." },
-                { icon: <Users />, color: "#06b6d4", title: "Voice & Video", desc: "Built-in communication. Code and talk in real-time." }
-            ].map((f, i) => (
-                <FeatureCard key={i} {...f} />
-            ))}
-        </div>
-      </section>
-
-      {/* CTA SECTION */}
-      <section className="cta-section">
-        <div className="cta-content">
-          <div className="cta-icon">
-            <Rocket size={48} />
-          </div>
-          <h2 className="cta-title">Ready to level up?</h2>
-          <p className="cta-subtitle">Join thousands of developers building the future.</p>
-          <div className="cta-actions">
-            <button onClick={handleCreateRoom} className="btn-primary-large">
-              <Sparkles size={20} />
-              <span>Start Coding Free</span>
-            </button>
-          </div>
-        </div>
-        <div className="cta-decoration">
-           <div className="grid-background" style={{ opacity: 0.5 }} />
-        </div>
-      </section>
-
-      {/* FOOTER */}
       <footer className="footer">
-        <div className="footer-content">
-          <div className="footer-brand">
-            <div className="logo">
-              <div className="logo-icon small">
-                <Code2 size={18} color="white" />
-              </div>
-              <span className="logo-text">CodePlay</span>
-            </div>
-            <p className="footer-tagline">Built for the builders.</p>
-          </div>
-          <div className="footer-social">
-             <a href="#" className="social-link"><Github size={18}/></a>
-             <a href="#" className="social-link"><Twitter size={18}/></a>
-          </div>
+        <div className="footer-links">
+          <span>© 2024 CodePlay</span>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
         </div>
-        <div className="footer-bottom">
-          <p>© {new Date().getFullYear()} CodePlay. Open Source.</p>
+        <div className="footer-socials">
+          <Github size={20} />
+          <Twitter size={20} />
         </div>
       </footer>
 
@@ -335,253 +257,405 @@ export default function Dashboard() {
   );
 }
 
-function FeatureCard({ icon, color, title, desc }) {
-  return (
-    <div className="feature-card">
-      <div className="feature-icon" style={{ background: `${color}15`, color: color, borderColor: `${color}30` }}>
-        {icon}
-      </div>
-      <div>
-        <h3 className="feature-title">{title}</h3>
-        <p className="feature-desc">{desc}</p>
-      </div>
-      <div className="feature-hover-glow" style={{ background: color }} />
-    </div>
-  );
+const cssStyles = `
+/* --- VARIABLES --- */
+:root {
+  --bg-dash: #030303;
+  --glass-border: rgba(255,255,255,0.08);
+  --glass-bg: rgba(20,20,20,0.6);
+  --accent-primary: #8b5cf6;
+  --text-main: #ededed;
+  --text-muted: #888888;
 }
 
-const dashboardStyles = `
-  .dashboard-wrapper {
-    min-height: 100vh;
-    background: #050505;
-    position: relative;
-    overflow-x: hidden;
-  }
+.dashboard-container {
+  min-height: 100vh;
+  background-color: var(--bg-dash);
+  color: var(--text-main);
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+  position: relative;
+}
 
-  /* NAVBAR */
-  .navbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 100;
-    padding: 16px 32px;
-    transition: all 0.3s ease;
-  }
-  .navbar-scrolled {
-    background: rgba(5, 5, 5, 0.8);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-  }
-  .navbar-content {
-    max-width: 1280px;
-    margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    text-decoration: none;
-    color: white;
-  }
-  .logo-icon {
-    width: 40px;
-    height: 40px;
-    background: linear-gradient(135deg, #8b5cf6, #3b82f6);
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
-  }
-  .logo-icon.small { width: 32px; height: 32px; border-radius: 8px; }
-  .logo-text { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+.bg-gradient {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(139, 92, 246, 0.15), transparent 40%),
+    radial-gradient(circle at 85% 30%, rgba(59, 130, 246, 0.15), transparent 40%);
+  z-index: 0;
+  pointer-events: none;
+}
 
-  .nav-actions { display: flex; gap: 12px; align-items: center; }
-  .btn-ghost { background: transparent; color: #a1a1aa; border: none; font-weight: 500; cursor: pointer; transition: color 0.2s; font-size: 14px; }
-  .btn-ghost:hover { color: white; }
-  .btn-glow {
-    background: white; color: black; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 14px;
-    display: flex; align-items: center; gap: 6px; cursor: pointer; transition: transform 0.2s;
-    box-shadow: 0 0 15px rgba(255,255,255,0.2);
-  }
-  .btn-glow:hover { transform: translateY(-1px); box-shadow: 0 0 25px rgba(255,255,255,0.3); }
+.main-content {
+  position: relative;
+  z-index: 10;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
 
-  .user-pill {
-      display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 4px 12px 4px 4px; border-radius: 100px;
-      text-decoration: none; border: 1px solid rgba(255,255,255,0.1); transition: background 0.2s;
-  }
-  .user-pill:hover { background: rgba(255,255,255,0.1); }
-  .user-avatar { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; background: #333; display: flex; align-items: center; justifyContent: center; color: white; font-weight: 600; font-size: 12px; }
-  .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
-  .user-name { font-size: 13px; color: white; font-weight: 500; }
+/* --- FLOATING NAV --- */
+.floating-nav {
+  position: fixed;
+  top: 24px;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  z-index: 100;
+  pointer-events: none; /* Let clicks pass through outside the pill */
+}
 
-  /* HERO */
-  .hero {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 120px 20px;
-    position: relative;
-    max-width: 1280px;
-    margin: 0 auto;
-    gap: 60px;
-  }
-  .hero-content { max-width: 600px; z-index: 10; }
+.nav-glass {
+  pointer-events: auto;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  padding: 12px 24px;
+  border-radius: 100px;
+  display: flex;
+  align-items: center;
+  gap: 48px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  transition: transform 0.2s;
+}
 
-  .hero-badge {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2);
-    color: #c4b5fd; font-size: 13px; font-weight: 500; padding: 6px 12px; border-radius: 100px;
-    margin-bottom: 24px;
-  }
-  .badge-icon { color: #8b5cf6; }
+.nav-glass:hover {
+  transform: translateY(2px);
+}
 
-  .hero-title {
-    font-size: 64px; font-weight: 800; line-height: 1.1; margin-bottom: 24px; letter-spacing: -2px;
-  }
-  .gradient-text-animated {
-    background: linear-gradient(to right, #8b5cf6, #06b6d4, #ffffff);
-    background-size: 200%;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: gradientFlow 5s ease infinite;
-  }
-  @keyframes gradientFlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: white;
+}
 
-  .hero-subtitle { font-size: 18px; color: #a1a1aa; line-height: 1.6; margin-bottom: 40px; max-width: 500px; }
+.nav-links {
+  display: flex;
+  gap: 24px;
+}
 
-  .hero-actions { display: flex; gap: 16px; align-items: stretch; margin-bottom: 48px; }
+.nav-links a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
 
-  .btn-primary-large {
-    background: white; color: black; border: none; padding: 0 32px; border-radius: 12px;
-    font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 10px; cursor: pointer;
-    transition: transform 0.2s; position: relative; overflow: hidden;
-  }
-  .btn-primary-large:hover { transform: translateY(-2px); }
+.nav-links a:hover {
+  color: white;
+}
 
-  .join-room-wrapper { position: relative; flex: 1; max-width: 300px; }
-  .join-room-form {
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 12px; padding: 4px; display: flex; align-items: center;
-    transition: border-color 0.2s, background 0.2s;
-  }
-  .join-room-form:focus-within { border-color: #8b5cf6; background: rgba(255,255,255,0.05); }
-  .input-icon { padding: 0 12px; color: #52525b; }
-  .join-input { background: transparent; border: none; color: white; flex: 1; padding: 12px 0; outline: none; font-size: 14px; }
-  .join-btn {
-    width: 40px; height: 40px; display: flex; align-items: center; justifyContent: center;
-    background: #27272a; border: none; color: white; border-radius: 8px; cursor: pointer; transition: background 0.2s;
-  }
-  .join-btn:hover:not(:disabled) { background: #8b5cf6; }
-  .join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
 
-  .tech-stack { display: flex; flex-wrap: wrap; gap: 12px; }
-  .tech-pill {
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
-    padding: 6px 12px; border-radius: 100px; font-size: 12px; color: #a1a1aa;
-    display: flex; align-items: center; gap: 6px; cursor: default; transition: all 0.2s;
-  }
-  .tech-pill:hover { border-color: rgba(255,255,255,0.2); color: white; background: rgba(255,255,255,0.05); }
-  .tp-icon { opacity: 0.7; }
+.btn-accent-sm {
+  background: white;
+  color: black;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 100px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.btn-accent-sm:hover { opacity: 0.9; }
 
-  /* HERO VISUAL */
-  .hero-visual { position: relative; z-index: 10; display: none; } /* Show on larger screens */
-  @media (min-width: 1024px) { .hero-visual { display: block; } }
+.nav-user img {
+  width: 28px; height: 28px; border-radius: 50%;
+}
+.nav-user span {
+  width: 28px; height: 28px; border-radius: 50%; background: #333; display: flex; align-items: center; justifyContent: center; font-size: 12px; font-weight: bold;
+}
 
-  .code-window {
-    width: 450px; background: #0a0a0a; border: 1px solid #27272a; border-radius: 16px;
-    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden;
-  }
-  .animate-float-slow { animation: float 6s ease-in-out infinite; }
-  @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+/* --- HERO SECTION --- */
+.hero-section {
+  min-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding-top: 100px;
+  perspective: 1000px; /* For 3D tilt */
+}
 
-  .window-header {
-    background: #111; padding: 12px 16px; border-bottom: 1px solid #27272a;
-    display: flex; align-items: center; gap: 12px;
-  }
-  .window-dots { display: flex; gap: 6px; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .dot.red { background: #ef4444; } .dot.yellow { background: #eab308; } .dot.green { background: #22c55e; }
-  .window-title { flex: 1; text-align: center; color: #52525b; font-size: 12px; font-family: monospace; }
-  .live-indicator { display: flex; align-items: center; gap: 6px; color: #22c55e; font-size: 10px; font-weight: 700; }
-  .live-dot { width: 6px; height: 6px; background: #22c55e; border-radius: 50%; animation: pulse 2s infinite; }
+.pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 100px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--glass-border);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
 
-  .code-content { padding: 20px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; color: #d4d4d8; }
-  .kw { color: #c084fc; } .var { color: #60a5fa; } .str { color: #4ade80; } .fn { color: #f472b6; } .bool { color: #facc15; } .comment { color: #52525b; font-style: italic; }
-  .indent { padding-left: 20px; } .indent-2 { padding-left: 40px; }
+.hero-title {
+  font-size: 80px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -3px;
+  margin-bottom: 24px;
+}
 
-  .cursor-indicator {
-    margin-top: 10px; display: inline-flex; align-items: center; gap: 6px;
-    background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3);
-    padding: 2px 8px; border-radius: 4px; border-top-left-radius: 0;
-  }
-  .cursor-caret { width: 2px; height: 14px; background: #8b5cf6; }
-  .cursor-label { color: #8b5cf6; font-size: 11px; font-weight: 600; }
+.text-gradient {
+  background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 
-  /* FLOATING CARDS */
-  .float-card {
-    position: absolute; background: rgba(15, 15, 15, 0.8); backdrop-filter: blur(12px);
-    border: 1px solid rgba(255,255,255,0.08); padding: 12px; border-radius: 12px;
-    display: flex; align-items: center; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    animation: float 5s ease-in-out infinite reverse;
-  }
-  .fc-1 { top: 40px; right: -40px; animation-delay: 1s; }
-  .fc-2 { bottom: 40px; left: -40px; animation-delay: 2s; }
-  .fc-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justifyContent: center; }
-  .bg-green { background: #22c55e; } .bg-purple { background: #8b5cf6; }
-  .fc-title { font-size: 12px; font-weight: 600; color: white; display: block; }
-  .fc-sub { font-size: 10px; color: #a1a1aa; }
-  .fc-avatars { display: flex; margin-top: 4px; }
-  .mini-av { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #111; margin-left: -6px; font-size: 8px; display: flex; align-items: center; justifyContent: center; font-weight: bold; color: white; }
+.hero-sub {
+  font-size: 18px;
+  color: var(--text-muted);
+  max-width: 500px;
+  line-height: 1.6;
+  margin-bottom: 48px;
+}
 
-  /* FEATURES */
-  .features-section { padding: 80px 20px; max-width: 1280px; margin: 0 auto; }
-  .section-header { text-align: center; margin-bottom: 60px; }
-  .section-tag { color: #8b5cf6; font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; display: block; }
-  .section-title { font-size: 40px; font-weight: 700; margin-bottom: 10px; }
-  .gradient-text { background: linear-gradient(135deg, #8b5cf6, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.hero-input-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 80px;
+}
 
-  .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 24px; }
-  .feature-card {
-    background: #0a0a0a; border: 1px solid #27272a; padding: 24px; border-radius: 16px;
-    display: flex; gap: 20px; transition: all 0.3s; position: relative; overflow: hidden;
-  }
-  .feature-card:hover { border-color: #3f3f46; transform: translateY(-3px); }
-  .feature-icon { width: 48px; height: 48px; border-radius: 12px; border: 1px solid; display: flex; align-items: center; justifyContent: center; flex-shrink: 0; }
-  .feature-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: #f4f4f5; }
-  .feature-desc { font-size: 14px; color: #a1a1aa; line-height: 1.5; }
-  .feature-hover-glow {
-    position: absolute; bottom: -50px; right: -50px; width: 100px; height: 100px;
-    border-radius: 50%; filter: blur(60px); opacity: 0; transition: opacity 0.3s;
-  }
-  .feature-card:hover .feature-hover-glow { opacity: 0.2; }
+.input-wrapper {
+  background: #111;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  transition: border-color 0.2s;
+}
 
-  /* CTA */
-  .cta-section { padding: 100px 20px; text-align: center; position: relative; overflow: hidden; }
-  .cta-content { position: relative; z-index: 10; }
-  .cta-icon { width: 80px; height: 80px; background: rgba(255,255,255,0.05); border-radius: 24px; display: flex; align-items: center; justifyContent: center; margin: 0 auto 32px; color: white; border: 1px solid rgba(255,255,255,0.1); }
-  .cta-title { font-size: 48px; font-weight: 800; margin-bottom: 16px; }
-  .cta-subtitle { font-size: 18px; color: #a1a1aa; margin-bottom: 40px; }
+.input-wrapper:focus-within {
+  border-color: var(--accent-primary);
+}
 
-  /* FOOTER */
-  .footer { border-top: 1px solid #27272a; padding: 60px 20px 30px; background: #050505; }
-  .footer-content { max-width: 1280px; margin: 0 auto 40px; display: flex; justify-content: space-between; align-items: flex-start; }
-  .footer-tagline { color: #52525b; font-size: 14px; margin-top: 8px; }
-  .footer-social { display: flex; gap: 16px; }
-  .social-link { color: #71717a; transition: color 0.2s; } .social-link:hover { color: white; }
-  .footer-bottom { text-align: center; font-size: 13px; color: #3f3f46; }
+.input-wrapper input {
+  background: transparent;
+  border: none;
+  color: white;
+  padding: 8px;
+  width: 140px;
+  outline: none;
+}
 
-  /* RESPONSIVE */
-  @media (max-width: 768px) {
-    .hero { padding-top: 100px; flex-direction: column; text-align: center; }
-    .hero-title { font-size: 40px; }
-    .hero-actions { justify-content: center; flex-direction: column; }
-    .join-room-wrapper { max-width: 100%; }
-    .tech-stack { justify-content: center; }
-  }
+.btn-join {
+  background: #222;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-join:hover:not(:disabled) { background: #333; }
+
+.or-divider {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.btn-create {
+  background: linear-gradient(180deg, #fff 0%, #e5e5e5 100%);
+  color: black;
+  border: none;
+  padding: 14px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 0 20px rgba(255,255,255,0.15);
+  transition: transform 0.1s;
+}
+.btn-create:hover { transform: scale(1.02); }
+
+/* --- HERO VISUAL (3D) --- */
+.hero-visual {
+  width: 800px;
+  height: 500px;
+  position: relative;
+  transition: transform 0.1s ease-out; /* Smooth follow */
+}
+
+.visual-window {
+  width: 100%;
+  height: 100%;
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 16px;
+  box-shadow: 0 50px 100px -20px rgba(0,0,0,0.5);
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.window-bar {
+  height: 40px;
+  background: #111;
+  border-bottom: 1px solid #222;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+}
+
+.dots { display: flex; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.red { background: #ef4444; } .yellow { background: #eab308; } .green { background: #22c55e; }
+
+.window-title { flex: 1; text-align: center; color: #444; font-size: 12px; font-family: monospace; }
+
+.window-content { padding: 24px; font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #d4d4d4; }
+.code-line { line-height: 1.6; }
+.indent { padding-left: 20px; }
+.indent-2 { padding-left: 40px; }
+.indent-3 { padding-left: 60px; }
+
+/* Syntax Highlighting */
+.k { color: #c084fc; } /* Keyword */
+.f { color: #f472b6; } /* Function */
+.c { color: #6272a4; } /* Comment/Component */
+.s { color: #f1fa8c; } /* String */
+.t { color: #8be9fd; } /* Tag */
+.p { color: #ff79c6; } /* Prop */
+
+.cursor-badge {
+  position: absolute;
+  top: 180px;
+  left: 200px;
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid #8b5cf6;
+  color: #8b5cf6;
+  padding: 4px 8px;
+  border-radius: 100px;
+  border-top-left-radius: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  animation: floatCursor 4s ease-in-out infinite;
+}
+
+@keyframes floatCursor { 0%, 100% { transform: translate(0,0); } 50% { transform: translate(20px, 40px); } }
+
+.glow-effect {
+  position: absolute;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 600px; height: 300px;
+  background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%);
+  filter: blur(60px);
+  z-index: 1;
+}
+
+/* --- BENTO GRID --- */
+.bento-section {
+  padding: 100px 0;
+}
+
+.section-header {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 300px);
+  gap: 24px;
+}
+
+.bento-card {
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 24px;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s;
+  display: flex;
+  flex-direction: column;
+}
+
+.bento-card:hover {
+  border-color: #333;
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+
+.card-content { z-index: 2; }
+.card-icon { margin-bottom: 16px; }
+.text-orange { color: #f97316; } .text-violet { color: #8b5cf6; }
+.text-blue { color: #3b82f6; } .text-green { color: #22c55e; } .text-pink { color: #ec4899; }
+
+.bento-card h3 { font-size: 20px; margin-bottom: 8px; font-weight: 600; }
+.bento-card p { color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+
+/* Grid Spans */
+.large { grid-column: span 2; }
+.tall { grid-row: span 2; }
+.medium { grid-column: span 1; }
+.wide { grid-column: span 2; }
+
+/* Visuals inside Bento */
+.list-visual {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.list-item {
+  background: #111; padding: 12px; border-radius: 8px; font-size: 13px; border: 1px solid #222;
+  display: flex; align-items: center; gap: 8px;
+}
+.checked::before { content: "✓"; color: #22c55e; font-weight: bold; }
+
+/* FOOTER */
+.footer {
+  margin-top: 100px;
+  border-top: 1px solid #222;
+  padding: 40px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.footer-links { display: flex; gap: 24px; }
+.footer-links a { color: var(--text-muted); text-decoration: none; }
+.footer-socials { display: flex; gap: 16px; }
+
+/* RESPONSIVE */
+@media (max-width: 1024px) {
+  .bento-grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: auto; }
+  .large, .wide, .medium, .tall { grid-column: span 1; grid-row: span 1; }
+  .hero-visual { width: 100%; height: 300px; }
+  .hero-title { font-size: 48px; }
+}
+
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .bento-grid { grid-template-columns: 1fr; }
+  .hero-input-group { flex-direction: column; width: 100%; }
+  .input-wrapper { width: 100%; }
+  .btn-create { width: 100%; justify-content: center; }
+}
 `;
