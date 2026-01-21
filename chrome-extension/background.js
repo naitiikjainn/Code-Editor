@@ -99,7 +99,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === "SUBMIT_CODEFORCES") {
         const { contestId, problemIndex, code, languageId } = message.payload;
-        
+
         // First try to find an existing Codeforces tab
         (async () => {
             try {
@@ -110,24 +110,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     sendResponse({ success: false, error: "Not logged in to Codeforces. Please log in first." });
                     return;
                 }
-                
+
                 // Extract handle for later polling
                 const handleMatch = loginHtml.match(/href="\/profile\/([^"]+)"/);
                 const handle = handleMatch ? handleMatch[1] : null;
-                
+
                 console.log(`[CodePlay] Logged in as: ${handle}`);
                 console.log(`[CodePlay] Submitting ${contestId}${problemIndex}...`);
-                
+
                 // Try multiple submit URLs
                 const submitUrls = [
                     `https://codeforces.com/contest/${contestId}/submit`,
                     `https://codeforces.com/problemset/submit`
                 ];
-                
+
                 let tab = null;
                 let submitSuccess = false;
                 let hiddenWindow = null;
-                
+
                 // Create a minimized window to keep the tab hidden
                 try {
                     hiddenWindow = await chrome.windows.create({
@@ -143,19 +143,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 } catch (e) {
                     console.log('[CodePlay] Could not create hidden window, using background tab');
                 }
-                
+
                 for (const submitUrl of submitUrls) {
                     if (submitSuccess) break;
-                    
+
                     console.log(`[CodePlay] Opening: ${submitUrl}`);
-                    
+
                     // Create tab in hidden window or as background tab
                     if (hiddenWindow) {
                         tab = await chrome.tabs.create({ url: submitUrl, windowId: hiddenWindow.id, active: false });
                     } else {
                         tab = await chrome.tabs.create({ url: submitUrl, active: false });
                     }
-                    
+
                     // Wait for tab to load and get result
                     const result = await new Promise((resolve, reject) => {
                         let attempts = 0;
@@ -241,22 +241,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             reject(new Error("Page load timeout"));
                         }, 60000);
                     });
-                    
+
                     // Close the tab
-                    try { chrome.tabs.remove(tab.id); } catch (e) {}
-                    
+                    try { chrome.tabs.remove(tab.id); } catch (e) { }
+
                     // Close hidden window if this was the last URL or success
                     if (submitSuccess || submitUrl === submitUrls[submitUrls.length - 1]) {
                         if (hiddenWindow) {
-                            try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                            try { chrome.windows.remove(hiddenWindow.id); } catch (e) { }
                             hiddenWindow = null;
                         }
                     }
-                    
+
                     if (result.success) {
                         submitSuccess = true;
                         sendResponse({ success: true, message: result.message, handle });
-                        
+
                         // Start polling for verdict
                         if (handle) {
                             pollVerdict(contestId, problemIndex, handle);
@@ -266,28 +266,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         // Got a specific error, return it
                         // Ensure hidden window is closed
                         if (hiddenWindow) {
-                            try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                            try { chrome.windows.remove(hiddenWindow.id); } catch (e) { }
                         }
                         sendResponse(result);
                         return;
                     }
                     // Otherwise try next URL
                 }
-                
+
                 // Ensure hidden window is closed
                 if (hiddenWindow) {
-                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) { }
                 }
-                
+
                 if (!submitSuccess) {
                     sendResponse({ success: false, error: "Failed to submit. Please try again or submit manually." });
                 }
-                
+
             } catch (err) {
                 console.error("[CodePlay] Submit Error:", err);
                 // Ensure hidden window is closed on error
                 if (hiddenWindow) {
-                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
+                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) { }
                 }
                 sendResponse({ success: false, error: err.message });
             }
@@ -305,9 +305,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 if (match) handle = match[1];
             } catch (e) { return; }
         }
-        
+
         if (!handle) return;
-        
+
         console.log(`[CodePlay] Polling verdict for ${handle} on ${contestId}${index}`);
 
         let attempts = 0;
@@ -322,7 +322,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const res = await fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=10`);
                 const data = await res.json();
                 if (data.status === "OK") {
-                    const submission = data.result.find(s => 
+                    const submission = data.result.find(s =>
                         s.contestId == contestId && s.problem.index == index
                     );
 
@@ -355,8 +355,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const { url } = message.payload;
         (async () => {
             let hiddenWindow = null;
+            let tab = null;
+
+            const cleanup = () => {
+                if (tab) {
+                    try { chrome.tabs.remove(tab.id); } catch (e) { }
+                }
+                if (hiddenWindow) {
+                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) { }
+                }
+            };
+
             try {
-                // 1. Check Cache
+                console.log(`[CodePlay] Fetching problem: ${url}`);
+
+                // 1. Check Cache first
                 const cached = await new Promise(r => chrome.storage.local.get([url], r));
                 if (cached[url]) {
                     console.log(`[CodePlay] Cache HIT for ${url}`);
@@ -364,7 +377,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     return;
                 }
 
-                console.log(`[CodePlay] Opening Tab for ${url}...`);
+                console.log(`[CodePlay] Cache MISS - Opening Tab for ${url}...`);
 
                 // 2. Create hidden window for stealth scraping
                 try {
@@ -378,61 +391,96 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         top: -1000,
                         focused: false
                     });
+                    console.log(`[CodePlay] Created hidden window: ${hiddenWindow.id}`);
                 } catch (e) {
-                    console.log('[CodePlay] Could not create hidden window');
+                    console.log('[CodePlay] Could not create hidden window, using background tab');
                 }
 
                 // 3. Open Tab in hidden window or background
-                let tab;
                 if (hiddenWindow) {
                     tab = await chrome.tabs.create({ url: url, windowId: hiddenWindow.id, active: false });
                 } else {
                     tab = await chrome.tabs.create({ url: url, active: false });
                 }
+                console.log(`[CodePlay] Created tab: ${tab.id}`);
 
-                // 4. Wait for Load & Scrape
+                // 4. Wait for tab to complete loading first
+                await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error("Tab load timeout"));
+                    }, 30000);
+
+                    const onUpdated = (tabId, changeInfo) => {
+                        if (tabId === tab.id && changeInfo.status === "complete") {
+                            chrome.tabs.onUpdated.removeListener(onUpdated);
+                            clearTimeout(timeout);
+                            resolve();
+                        }
+                    };
+
+                    chrome.tabs.onUpdated.addListener(onUpdated);
+
+                    // Check if already complete
+                    chrome.tabs.get(tab.id, (t) => {
+                        if (t && t.status === "complete") {
+                            chrome.tabs.onUpdated.removeListener(onUpdated);
+                            clearTimeout(timeout);
+                            resolve();
+                        }
+                    });
+                });
+
+                console.log(`[CodePlay] Tab loaded, waiting for content script...`);
+
+                // 5. Small delay to ensure content script is injected
+                await new Promise(r => setTimeout(r, 500));
+
+                // 6. Scrape with retries
                 const scrapeResult = await new Promise((resolve, reject) => {
                     let attempts = 0;
+                    const maxAttempts = 40; // 20 seconds max
 
-                    const interval = setInterval(() => {
+                    const tryScape = () => {
                         attempts++;
-                        if (attempts > 30) {
-                            clearInterval(interval);
-                            reject(new Error("Tab Load Timeout"));
+                        if (attempts > maxAttempts) {
+                            reject(new Error("Content script not responding after " + maxAttempts + " attempts"));
                             return;
                         }
 
                         chrome.tabs.sendMessage(tab.id, { type: "CODEPLAY_SCRAPE_CURRENT_TAB" }, (response) => {
-                            if (chrome.runtime.lastError) return;
+                            if (chrome.runtime.lastError) {
+                                console.log(`[CodePlay] Scrape attempt ${attempts}: ${chrome.runtime.lastError.message}`);
+                                setTimeout(tryScape, 500);
+                                return;
+                            }
                             if (response && response.success) {
-                                clearInterval(interval);
+                                console.log(`[CodePlay] Scrape SUCCESS on attempt ${attempts}`);
                                 resolve(response.html);
+                            } else {
+                                setTimeout(tryScape, 500);
                             }
                         });
-                    }, 500);
+                    };
+
+                    tryScape();
                 });
 
-                // 5. Close Tab and hidden window
-                chrome.tabs.remove(tab.id);
-                if (hiddenWindow) {
-                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
-                }
+                // 7. Cleanup
+                cleanup();
 
-                // 6. Verify & Cache
+                // 8. Verify & Cache
                 const html = scrapeResult;
                 if (html.length < 500 && !html.trim().startsWith('{')) {
                     throw new Error("Content Blocked (Cloudflare/Short Response)");
                 }
 
+                console.log(`[CodePlay] Successfully scraped ${url} (${html.length} bytes)`);
                 chrome.storage.local.set({ [url]: html });
                 sendResponse({ success: true, html });
 
             } catch (err) {
                 console.error("[CodePlay] Tab Scrape Error:", err);
-                // Clean up hidden window on error
-                if (hiddenWindow) {
-                    try { chrome.windows.remove(hiddenWindow.id); } catch (e) {}
-                }
+                cleanup();
                 sendResponse({ success: false, error: err.message });
             }
         })();

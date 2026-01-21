@@ -17,7 +17,7 @@ import { parseCodeforcesProblem, parseEditorial } from "./codeforces";
 const RETRY_CONFIG = {
     maxRetries: 2,
     retryDelay: 1000,
-    extensionTimeout: 10000
+    extensionTimeout: 20000  // Increased from 10s to 20s
 };
 
 // Check if extension is available
@@ -31,18 +31,37 @@ window.addEventListener("message", (event) => {
     }
 });
 
+// Ping extension on load
+setTimeout(() => {
+    window.postMessage({ type: "CODEPLAY_PING_EXTENSION" }, "*");
+}, 500);
+
 // Helper: Wait for extension
-const waitForExtension = (timeout = 2000) => {
+const waitForExtension = (timeout = 5000) => {  // Increased from 2s to 5s
     return new Promise((resolve) => {
         if (extensionReady) {
             resolve(true);
             return;
         }
+
+        // Also listen for any extension response as proof of life
+        const handler = (event) => {
+            if (event.source !== window) return;
+            if (event.data.type?.startsWith("CODEPLAY_")) {
+                extensionReady = true;
+                window.removeEventListener("message", handler);
+                resolve(true);
+            }
+        };
+        window.addEventListener("message", handler);
+
         const start = Date.now();
         const check = () => {
             if (extensionReady) {
+                window.removeEventListener("message", handler);
                 resolve(true);
             } else if (Date.now() - start > timeout) {
+                window.removeEventListener("message", handler);
                 resolve(false);
             } else {
                 setTimeout(check, 100);
@@ -65,7 +84,7 @@ const fetchViaExtension = (url) => {
             if (event.data.type === "CODEPLAY_CF_HTML_RESULT") {
                 clearTimeout(timeout);
                 window.removeEventListener("message", handler);
-                
+
                 if (event.data.payload.success) {
                     resolve(event.data.payload.html);
                 } else {
@@ -75,9 +94,9 @@ const fetchViaExtension = (url) => {
         };
 
         window.addEventListener("message", handler);
-        window.postMessage({ 
-            type: "CODEPLAY_FETCH_CF_HTML", 
-            payload: { url } 
+        window.postMessage({
+            type: "CODEPLAY_FETCH_CF_HTML",
+            payload: { url }
         }, "*");
     });
 };
@@ -86,7 +105,7 @@ const fetchViaExtension = (url) => {
 const cacheToBackend = async (problemId, data) => {
     try {
         // Validate data before caching
-        if (!data.description || 
+        if (!data.description ||
             data.description.includes("No description available") ||
             data.description.length < 100) {
             console.warn("[ProblemFetcher] Skipping cache - invalid data");
@@ -98,7 +117,7 @@ const cacheToBackend = async (problemId, data) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ problemId, data })
         });
-        
+
         console.log(`[ProblemFetcher] Cached ${problemId} to backend`);
     } catch (e) {
         console.error("[ProblemFetcher] Cache save failed:", e);
@@ -119,7 +138,7 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
     // Strategy 1: Try Backend API
     try {
         const response = await fetch(`${API_URL}/api/problems/codeforces/${contestId}/${index}`);
-        
+
         // Check for 206 Partial Content (has metadata but no description)
         if (response.status === 206) {
             const data = await response.json();
@@ -127,7 +146,7 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
             partialData = data; // Save for fallback
         } else if (response.ok) {
             const data = await response.json();
-            
+
             // Validate response
             if (data && data.description && !data.description.includes("No description available")) {
                 console.log(`[ProblemFetcher] Backend HIT for ${problemId}`);
@@ -138,7 +157,7 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
                 };
             }
         }
-        
+
         // Backend returned 404, 206, or invalid data - continue to extension
         console.log(`[ProblemFetcher] Backend needs extension for ${problemId}`);
     } catch (e) {
@@ -148,14 +167,14 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
     // Strategy 2: Try Extension Fallback
     if (!options.skipExtension) {
         const hasExtension = await waitForExtension();
-        
+
         if (hasExtension) {
             try {
                 console.log(`[ProblemFetcher] Using extension for ${problemId}`);
-                
+
                 const html = await fetchViaExtension(url);
                 const parsed = parseCodeforcesProblem(html, contestId, index);
-                
+
                 // Merge with partial data if available (has rating, tags from API)
                 const data = {
                     provider: "codeforces",
@@ -173,16 +192,16 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
                 if (data.description && !data.description.includes("No description available")) {
                     // Cache successful result
                     cacheToBackend(problemId, data);
-                    
+
                     return {
                         success: true,
                         source: "extension",
                         data
                     };
                 }
-                
+
                 throw new Error("Extension returned invalid data");
-                
+
             } catch (e) {
                 console.error(`[ProblemFetcher] Extension error: ${e.message}`);
             }
@@ -191,7 +210,7 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
         }
     }
 
-    // All strategies failed - use iframe embed as fallback
+    // All strategies failed - show "Open on Codeforces" link (iframe doesn't work due to X-Frame-Options)
     const fallbackData = partialData || {
         provider: "codeforces",
         id: problemId,
@@ -202,45 +221,58 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
         testCases: []
     };
 
+    // Check if extension was available
+    const extensionMissing = !extensionReady;
+
     return {
         success: false,
         source: partialData ? "api-metadata" : null,
         error: "Failed to fetch problem description",
         data: {
             ...fallbackData,
-            useIframe: true, // Signal to use iframe embedding
-            description: `<div class="iframe-fallback" style="width: 100%; min-height: 500px; display: flex; flex-direction: column; background: #0d1117; border-radius: 8px; overflow: hidden;">
-                <div style="padding: 16px 20px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.1)); border-bottom: 1px solid rgba(59, 130, 246, 0.2); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="font-size: 20px;">📄</span>
-                        <div>
-                            <div style="color: #e4e4e7; font-size: 14px; font-weight: 600;">Problem Preview</div>
-                            <div style="color: #71717a; font-size: 12px;">This problem is not yet cached. View directly from Codeforces.</div>
-                        </div>
-                    </div>
+            description: `<div style="width: 100%; min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, #0d1117 0%, #161b22 100%); border-radius: 12px; padding: 40px; box-sizing: border-box; text-align: center;">
+                <div style="width: 80px; height: 80px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2)); border-radius: 20px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; border: 1px solid rgba(59, 130, 246, 0.3);">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+                        <rect x="2" y="13" width="5" height="9" rx="1" fill="#FFC107"/>
+                        <rect x="9.5" y="6" width="5" height="16" rx="1" fill="#2196F3"/>
+                        <rect x="17" y="10" width="5" height="12" rx="1" fill="#F44336"/>
+                    </svg>
+                </div>
+                
+                <h3 style="color: #e4e4e7; font-size: 18px; font-weight: 600; margin: 0 0 8px 0;">Problem ${contestId}${index}</h3>
+                <p style="color: #71717a; font-size: 14px; margin: 0 0 24px 0; max-width: 400px; line-height: 1.5;">
+                    ${extensionMissing
+                    ? "The CodePlay extension is not detected. Install it to fetch problems directly, or view this problem on Codeforces."
+                    : "This problem couldn't be loaded. The extension may need to be refreshed, or you can view it directly on Codeforces."}
+                </p>
+                
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
                     <a href="${url}" target="_blank" 
-                       style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #3b82f6; color: white; font-size: 13px; font-weight: 500; text-decoration: none; border-radius: 6px; transition: background 0.2s;"
-                       onmouseover="this.style.background='#2563eb'" 
-                       onmouseout="this.style.background='#3b82f6'">
-                        Open on Codeforces <span style="font-size: 12px;">↗</span>
+                       style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 8px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); transition: transform 0.2s, box-shadow 0.2s;"
+                       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(59, 130, 246, 0.4)'" 
+                       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(59, 130, 246, 0.3)'">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                            <polyline points="15,3 21,3 21,9"/>
+                            <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                        Open on Codeforces
                     </a>
+                    ${extensionMissing ? `
+                    <a href="https://github.com/naitiikjainn/Code-Editor#chrome-extension" target="_blank"
+                       style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: rgba(139, 92, 246, 0.15); color: #a78bfa; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 8px; border: 1px solid rgba(139, 92, 246, 0.3); transition: background 0.2s;"
+                       onmouseover="this.style.background='rgba(139, 92, 246, 0.25)'" 
+                       onmouseout="this.style.background='rgba(139, 92, 246, 0.15)'">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                        </svg>
+                        Get Extension
+                    </a>
+                    ` : ''}
                 </div>
-                <div style="flex: 1; position: relative; min-height: 450px;">
-                    <iframe 
-                        src="${url}" 
-                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; background: white;"
-                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-                        loading="lazy"
-                        onload="this.parentElement.querySelector('.loading-overlay')?.remove()"
-                    ></iframe>
-                    <div class="loading-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0d1117; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;">
-                        <div style="width: 32px; height: 32px; border: 3px solid rgba(59, 130, 246, 0.3); border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                        <div style="color: #a1a1aa; font-size: 13px;">Loading from Codeforces...</div>
-                        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
-                    </div>
-                </div>
-                <div style="padding: 12px 16px; background: rgba(0,0,0,0.3); border-top: 1px solid rgba(255,255,255,0.05); color: #71717a; font-size: 11px; text-align: center;">
-                    💡 <strong>Tip:</strong> If the iframe doesn't load, Codeforces may be blocking embedded content. Click "Open on Codeforces" above.
+                
+                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.05); color: #52525b; font-size: 12px;">
+                    💡 <strong>Tip:</strong> Reload the extension or refresh the page if problems persist
                 </div>
             </div>`
         }
@@ -255,7 +287,7 @@ export const fetchCSESProblem = async (taskId) => {
 
     try {
         const response = await fetch(`${API_URL}/api/problems/cses/problem/${taskId}`);
-        
+
         if (response.ok) {
             const data = await response.json();
             return {
@@ -264,11 +296,11 @@ export const fetchCSESProblem = async (taskId) => {
                 data
             };
         }
-        
+
         throw new Error(`HTTP ${response.status}`);
     } catch (e) {
         console.error(`[ProblemFetcher] CSES error: ${e.message}`);
-        
+
         return {
             success: false,
             error: e.message,
@@ -296,7 +328,7 @@ export const fetchAtCoderProblem = async (contestId, taskId) => {
 
     try {
         const response = await fetch(`${API_URL}/api/problems/atcoder/${contestId}/${taskId}`);
-        
+
         if (response.ok) {
             const data = await response.json();
             return {
@@ -305,11 +337,11 @@ export const fetchAtCoderProblem = async (contestId, taskId) => {
                 data
             };
         }
-        
+
         throw new Error(`HTTP ${response.status}`);
     } catch (e) {
         console.error(`[ProblemFetcher] AtCoder error: ${e.message}`);
-        
+
         return {
             success: false,
             error: e.message,
@@ -330,35 +362,6 @@ export const fetchAtCoderProblem = async (contestId, taskId) => {
 };
 
 /**
- * Fetch LeetCode Problem
- */
-export const fetchLeetCodeProblem = async (slug) => {
-    console.log(`[ProblemFetcher] Fetching LeetCode ${slug}...`);
-
-    try {
-        const response = await fetch(`${API_URL}/api/problems/leetcode/${slug}`);
-        
-        if (response.ok) {
-            const data = await response.json();
-            return {
-                success: true,
-                source: "backend",
-                data
-            };
-        }
-        
-        throw new Error(`HTTP ${response.status}`);
-    } catch (e) {
-        console.error(`[ProblemFetcher] LeetCode error: ${e.message}`);
-        
-        return {
-            success: false,
-            error: e.message
-        };
-    }
-};
-
-/**
  * Fetch Codeforces Editorial
  */
 export const fetchCodeforcesEditorial = async (tutorialUrl, problemData) => {
@@ -373,15 +376,15 @@ export const fetchCodeforcesEditorial = async (tutorialUrl, problemData) => {
 
     // Try to get blog ID from URL
     const blogMatch = tutorialUrl.match(/\/blog\/entry\/(\d+)/);
-    
+
     if (blogMatch) {
         try {
             const blogId = blogMatch[1];
             const response = await fetch(`${API_URL}/api/problems/codeforces/blog/${blogId}`);
-            
+
             if (response.ok) {
                 const blogData = await response.json();
-                
+
                 if (blogData.result?.content) {
                     const parsed = parseEditorial(blogData.result.content, problemData);
                     return {
@@ -398,12 +401,12 @@ export const fetchCodeforcesEditorial = async (tutorialUrl, problemData) => {
 
     // Fallback: Try extension
     const hasExtension = await waitForExtension();
-    
+
     if (hasExtension) {
         try {
             const html = await fetchViaExtension(tutorialUrl);
             const parsed = parseEditorial(html, problemData);
-            
+
             return {
                 success: true,
                 source: "extension",
@@ -418,6 +421,76 @@ export const fetchCodeforcesEditorial = async (tutorialUrl, problemData) => {
         success: false,
         error: "Failed to fetch editorial"
     };
+};
+
+/**
+ * Fetch LeetCode Problem
+ * 
+ * @param {string} titleSlug - LeetCode problem slug (e.g., "two-sum")
+ * @returns {Promise<Object>} Problem result
+ */
+export const fetchLeetCodeProblem = async (titleSlug) => {
+    console.log(`[ProblemFetcher] Fetching LeetCode: ${titleSlug}`);
+
+    try {
+        const response = await fetch(`${API_URL}/api/problems/leetcode/${titleSlug}`);
+
+        if (!response.ok) {
+            throw new Error(`LeetCode API returned ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!data || !data.title) {
+            throw new Error("Invalid response from LeetCode API");
+        }
+
+        // Extract test cases from examples if available
+        const testCases = [];
+        if (data.examples) {
+            const lines = data.examples.split('\n').filter(l => l.trim());
+            // Try to pair inputs/outputs
+            for (let i = 0; i < lines.length - 1; i += 2) {
+                testCases.push({
+                    input: lines[i],
+                    output: lines[i + 1] || ""
+                });
+            }
+        }
+
+        return {
+            success: true,
+            source: "backend",
+            data: {
+                provider: "leetcode",
+                id: data.id,
+                questionId: data.questionId,
+                title: data.title,
+                titleSlug: data.titleSlug,
+                description: data.description || "",
+                difficulty: data.difficulty,
+                examples: data.examples,
+                snippets: data.snippets,
+                testCases: testCases,
+                url: `https://leetcode.com/problems/${titleSlug}/`
+            }
+        };
+
+    } catch (e) {
+        console.error(`[ProblemFetcher] LeetCode fetch failed: ${e.message}`);
+        return {
+            success: false,
+            error: e.message,
+            data: {
+                provider: "leetcode",
+                titleSlug: titleSlug,
+                title: titleSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                url: `https://leetcode.com/problems/${titleSlug}/`,
+                description: "",
+                testCases: []
+            }
+        };
+    }
 };
 
 /**

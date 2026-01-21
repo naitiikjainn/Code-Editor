@@ -13,31 +13,31 @@ const router = express.Router();
  */
 function extractProblemSection(htmlContent, contestId, problemIndex) {
     if (!htmlContent || !problemIndex) return null;
-    
+
     const upperIndex = problemIndex.toUpperCase();
     const lowerIndex = problemIndex.toLowerCase();
-    
+
     // Pattern 1: Look for problem link like /contest/2184/problem/F
     const problemLinkPattern = new RegExp(
         `<p[^>]*>\\s*<a[^>]*href=["'][^"']*\\/contest\\/${contestId}\\/problem\\/${upperIndex}["'][^>]*>.*?<\\/a>`,
         'i'
     );
-    
+
     // Pattern 2: Look for text like "2184F - Problem Name" or "Problem F"
     const problemTitlePattern = new RegExp(
         `<p[^>]*>.*?(?:${contestId}${upperIndex}|Problem\\s*${upperIndex})\\s*[-–—:]`,
         'i'
     );
-    
+
     // Find the start of this problem's section
     let startMatch = htmlContent.match(problemLinkPattern);
     let startIndex = startMatch ? htmlContent.indexOf(startMatch[0]) : -1;
-    
+
     if (startIndex === -1) {
         startMatch = htmlContent.match(problemTitlePattern);
         startIndex = startMatch ? htmlContent.indexOf(startMatch[0]) : -1;
     }
-    
+
     if (startIndex === -1) {
         // Try more flexible pattern: look for any paragraph starting with the problem reference
         const flexPattern = new RegExp(
@@ -47,14 +47,14 @@ function extractProblemSection(htmlContent, contestId, problemIndex) {
         startMatch = htmlContent.match(flexPattern);
         startIndex = startMatch ? htmlContent.indexOf(startMatch[0]) : -1;
     }
-    
+
     if (startIndex === -1) return null;
-    
+
     // Find the end - look for the next problem section
     // Problems are typically A, B, C, D, E, F, G, H in order
     const nextProblems = [];
     const currentCode = upperIndex.charCodeAt(0);
-    
+
     // Add next letter problems
     for (let i = currentCode + 1; i <= 'H'.charCodeAt(0); i++) {
         nextProblems.push(String.fromCharCode(i));
@@ -63,9 +63,9 @@ function extractProblemSection(htmlContent, contestId, problemIndex) {
     for (let i = 'A'.charCodeAt(0); i < currentCode; i++) {
         nextProblems.push(String.fromCharCode(i));
     }
-    
+
     let endIndex = htmlContent.length;
-    
+
     for (const nextProblem of nextProblems) {
         // Look for next problem link
         const nextPattern = new RegExp(
@@ -73,21 +73,21 @@ function extractProblemSection(htmlContent, contestId, problemIndex) {
             'i'
         );
         const nextMatch = htmlContent.slice(startIndex + 100).match(nextPattern);
-        
+
         if (nextMatch) {
             const potentialEnd = htmlContent.indexOf(nextMatch[0], startIndex + 100);
             if (potentialEnd > startIndex && potentialEnd < endIndex) {
                 endIndex = potentialEnd;
             }
         }
-        
+
         // Also try the title pattern
         const nextTitlePattern = new RegExp(
             `<p[^>]*>.*?(?:${contestId}${nextProblem}|Problem\\s*${nextProblem})\\s*[-–—:]`,
             'i'
         );
         const nextTitleMatch = htmlContent.slice(startIndex + 100).match(nextTitlePattern);
-        
+
         if (nextTitleMatch) {
             const potentialEnd = htmlContent.indexOf(nextTitleMatch[0], startIndex + 100);
             if (potentialEnd > startIndex && potentialEnd < endIndex) {
@@ -95,22 +95,197 @@ function extractProblemSection(htmlContent, contestId, problemIndex) {
             }
         }
     }
-    
+
     // Extract the section
     let section = htmlContent.slice(startIndex, endIndex);
-    
+
     // Clean up: make sure we don't cut in the middle of an HTML tag or spoiler
     // Find the last complete spoiler div
     const lastSpoilerEnd = section.lastIndexOf('</div></div>');
     if (lastSpoilerEnd > section.length * 0.5) {
         section = section.slice(0, lastSpoilerEnd + 12);
     }
-    
+
     return section.trim();
 }
 
 
 // --- LEETCODE API ---
+
+// LeetCode Problem List with filters
+router.get("/leetcode/list", async (req, res) => {
+    try {
+        const { difficulty, tag, search, skip = 0, limit = 100 } = req.query;
+
+        // Check Redis cache first
+        const cacheKey = `leetcode:list:${difficulty || 'all'}:${tag || 'all'}:${search || 'all'}:${skip}:${limit}`;
+        const cached = await redis.get(cacheKey).catch(() => null);
+        if (cached) {
+            console.log("[LeetCode] Cache HIT for list");
+            return res.json(JSON.parse(cached));
+        }
+
+        console.log(`[LeetCode] Fetching problem list (skip=${skip}, limit=${limit}, difficulty=${difficulty || 'all'}, tag=${tag || 'all'}, search=${search || 'none'})`);
+
+        const query = `
+            query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+                problemsetQuestionList: questionList(
+                    categorySlug: $categorySlug
+                    limit: $limit
+                    skip: $skip
+                    filters: $filters
+                ) {
+                    total: totalNum
+                    questions: data {
+                        questionId
+                        questionFrontendId
+                        title
+                        titleSlug
+                        difficulty
+                        acRate
+                        topicTags {
+                            name
+                            slug
+                        }
+                        status
+                        paidOnly: isPaidOnly
+                    }
+                }
+            }
+        `;
+
+        // Build filters
+        const filters = {};
+        if (difficulty) {
+            filters.difficulty = difficulty.toUpperCase();
+        }
+        if (tag) {
+            filters.tags = [tag];
+        }
+        if (search) {
+            filters.searchKeywords = search;
+        }
+
+        const response = await fetch("https://leetcode.com/graphql", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Referer": "https://leetcode.com"
+            },
+            body: JSON.stringify({
+                query,
+                variables: {
+                    categorySlug: "",
+                    skip: parseInt(skip),
+                    limit: parseInt(limit),
+                    filters: Object.keys(filters).length > 0 ? filters : {}
+                }
+            })
+        });
+
+        const data = await response.json();
+        const result = data.data?.problemsetQuestionList;
+
+        if (!result) {
+            throw new Error("Invalid response from LeetCode");
+        }
+
+        // Format the response
+        const formattedResult = {
+            total: result.total,
+            problems: result.questions.map(q => ({
+                id: q.questionFrontendId,
+                questionId: q.questionId,
+                title: q.title,
+                titleSlug: q.titleSlug,
+                difficulty: q.difficulty,
+                acceptanceRate: Math.round(q.acRate * 10) / 10,
+                tags: q.topicTags.map(t => t.name),
+                status: q.status,
+                isPremium: q.paidOnly
+            }))
+        };
+
+        // Cache for 1 hour
+        redis.setex(cacheKey, 3600, JSON.stringify(formattedResult)).catch(e => console.error("Redis cache error:", e));
+
+        res.json(formattedResult);
+
+    } catch (err) {
+        console.error("LeetCode List Error:", err);
+        res.status(500).json({ error: "Failed to fetch LeetCode problem list" });
+    }
+});
+
+// LeetCode Topic Tags List
+router.get("/leetcode/tags", async (req, res) => {
+    try {
+        // Check cache
+        const cacheKey = "leetcode:tags";
+        const cached = await redis.get(cacheKey).catch(() => null);
+        if (cached) {
+            return res.json(JSON.parse(cached));
+        }
+
+        // Hardcoded tags since API introspection is disabled
+        const tags = [
+            { name: "Array", slug: "array" },
+            { name: "String", slug: "string" },
+            { name: "Hash Table", slug: "hash-table" },
+            { name: "Dynamic Programming", slug: "dynamic-programming" },
+            { name: "Math", slug: "math" },
+            { name: "Sorting", slug: "sorting" },
+            { name: "Greedy", slug: "greedy" },
+            { name: "Depth-First Search", slug: "depth-first-search" },
+            { name: "Binary Search", slug: "binary-search" },
+            { name: "Database", slug: "database" },
+            { name: "Breadth-First Search", slug: "breadth-first-search" },
+            { name: "Tree", slug: "tree" },
+            { name: "Matrix", slug: "matrix" },
+            { name: "Two Pointers", slug: "two-pointers" },
+            { name: "Bit Manipulation", slug: "bit-manipulation" },
+            { name: "Stack", slug: "stack" },
+            { name: "Design", slug: "design" },
+            { name: "Heap (Priority Queue)", slug: "heap-priority-queue" },
+            { name: "Graph", slug: "graph" },
+            { name: "Simulation", slug: "simulation" },
+            { name: "Prefix Sum", slug: "prefix-sum" },
+            { name: "Counting", slug: "counting" },
+            { name: "Backtracking", slug: "backtracking" },
+            { name: "Sliding Window", slug: "sliding-window" },
+            { name: "Union Find", slug: "union-find" },
+            { name: "Linked List", slug: "linked-list" },
+            { name: "Ordered Set", slug: "ordered-set" },
+            { name: "Monotonic Stack", slug: "monotonic-stack" },
+            { name: "Trie", slug: "trie" },
+            { name: "Divide and Conquer", slug: "divide-and-conquer" },
+            { name: "Recursion", slug: "recursion" },
+            { name: "Bitmask", slug: "bitmask" },
+            { name: "Queue", slug: "queue" },
+            { name: "Binary Search Tree", slug: "binary-search-tree" },
+            { name: "Segment Tree", slug: "segment-tree" },
+            { name: "Memoization", slug: "memoization" },
+            { name: "Geometry", slug: "geometry" },
+            { name: "Topological Sort", slug: "topological-sort" },
+            { name: "Binary Indexed Tree", slug: "binary-indexed-tree" },
+            { name: "Hash Function", slug: "hash-function" },
+            { name: "Game Theory", slug: "game-theory" },
+            { name: "Combinatorics", slug: "combinatorics" },
+            { name: "Shortest Path", slug: "shortest-path" }
+        ];
+
+        // Cache for 24 hours
+        redis.setex(cacheKey, 86400, JSON.stringify(tags)).catch(() => { });
+
+        res.json(tags);
+
+    } catch (err) {
+        console.error("LeetCode Tags Error:", err);
+        res.status(500).json({ error: "Failed to fetch LeetCode tags" });
+    }
+});
+
+// LeetCode Individual Problem (existing)
 router.get("/leetcode/:slug", async (req, res) => {
     try {
         let { slug } = req.params;
@@ -228,24 +403,24 @@ router.get("/gfg/:slug", async (req, res) => {
                 "Referer": "https://www.geeksforgeeks.org/"
             }
         });
-        
+
         if (!pageRes.ok) {
             throw new Error(`GFG returned ${pageRes.status}`);
         }
 
         const html = await pageRes.text();
-        
+
         // Extract title
         const titleMatch = html.match(/<title>([^<]+)<\/title>/);
         let title = titleMatch ? titleMatch[1].replace(" | Practice | GeeksforGeeks", "").replace(" - GeeksforGeeks", "").trim() : slug;
-        
+
         // Try to get title from h3 header
         const h3Match = html.match(/<h3[^>]*>([^<]+)<\/h3>/);
         if (h3Match) title = h3Match[1].trim();
-        
+
         // Extract problem description - GFG uses various class names
         let description = "";
-        
+
         // Try multiple patterns for description extraction
         const descPatterns = [
             /<div[^>]*class="[^"]*problems_problem_content[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class="[^"]*problems/i,
@@ -253,7 +428,7 @@ router.get("/gfg/:slug", async (req, res) => {
             /<div[^>]*id="problemStatement"[^>]*>([\s\S]*?)<\/div>/i,
             /<div[^>]*class="[^"]*problemInfo[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
         ];
-        
+
         for (const pattern of descPatterns) {
             const match = html.match(pattern);
             if (match && match[1] && match[1].length > 50) {
@@ -261,7 +436,7 @@ router.get("/gfg/:slug", async (req, res) => {
                 break;
             }
         }
-        
+
         // If still no description, try to extract from script tags (Next.js data)
         if (!description) {
             const scriptMatch = html.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
@@ -278,7 +453,7 @@ router.get("/gfg/:slug", async (req, res) => {
                 }
             }
         }
-        
+
         // Extract difficulty
         let difficulty = "Medium";
         const diffPatterns = [
@@ -293,7 +468,7 @@ router.get("/gfg/:slug", async (req, res) => {
                 break;
             }
         }
-        
+
         // Extract examples/test cases
         const examplesMatch = html.match(/<div[^>]*class="[^"]*example[^"]*"[^>]*>([\s\S]*?)<\/div>/gi);
         let examples = [];
@@ -485,22 +660,22 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
     try {
         const { contestId } = req.params;
         const problemIndex = req.query.problem || null;
-        
+
         console.log(`[Editorial] Fetching editorial for contest ${contestId}${problemIndex ? ', problem ' + problemIndex : ''}`);
-        
+
         // Step 1: Find the editorial blog ID
         let editorialBlogId = null;
         let editorialTitle = null;
         let editorialAuthor = null;
         let roundNumber = null;
-        
+
         // First, get the round number from contest.list API (with smaller timeout)
         try {
             const contestInfoResponse = await fetch(`https://codeforces.com/api/contest.list?gym=false`, {
                 signal: AbortSignal.timeout(10000)
             });
             const contestInfoData = await contestInfoResponse.json();
-            
+
             if (contestInfoData.status === "OK") {
                 const contest = contestInfoData.result.find(c => c.id === parseInt(contestId));
                 if (contest) {
@@ -515,26 +690,26 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
         } catch (e) {
             console.log(`[Editorial] Contest lookup failed: ${e.message}`);
         }
-        
+
         // Step 1b: Try recentActions API first (fast, but only recent editorials)
         try {
             const recentResponse = await fetch(`https://codeforces.com/api/recentActions?maxCount=100`, {
                 signal: AbortSignal.timeout(10000)
             });
             const recentData = await recentResponse.json();
-            
+
             if (recentData.status === "OK" && recentData.result) {
                 const searchPatterns = [contestId];
                 if (roundNumber) searchPatterns.push(roundNumber);
-                
+
                 for (const action of recentData.result) {
                     if (action.blogEntry && action.blogEntry.title) {
                         const title = action.blogEntry.title.toLowerCase().replace(/<[^>]*>/g, '');
                         const isEditorial = title.includes('editorial') || title.includes('tutorial');
-                        
+
                         let matches = false;
                         for (const pattern of searchPatterns) {
-                            if (title.includes(`round ${pattern}`) || 
+                            if (title.includes(`round ${pattern}`) ||
                                 title.includes(`#${pattern}`) ||
                                 title.includes(` ${pattern} `) ||
                                 title.match(new RegExp(`round\\s*#?${pattern}\\b`, 'i')) ||
@@ -543,7 +718,7 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                                 break;
                             }
                         }
-                        
+
                         if (isEditorial && matches) {
                             editorialBlogId = action.blogEntry.id;
                             editorialTitle = action.blogEntry.title.replace(/<[^>]*>/g, '');
@@ -557,50 +732,50 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
         } catch (e) {
             console.log(`[Editorial] recentActions search failed: ${e.message}`);
         }
-        
+
         // Step 1c: If not in recent actions, use Puppeteer to search (for older editorials)
         if (!editorialBlogId) {
             let browser = null;
             try {
                 const searchQuery = roundNumber ? `Round ${roundNumber} Editorial` : `${contestId} Editorial`;
                 const searchUrl = `https://codeforces.com/search?query=${encodeURIComponent(searchQuery)}`;
-                
+
                 console.log(`[Editorial] Searching Codeforces: ${searchUrl}`);
-                
+
                 browser = await puppeteer.launch({
                     headless: 'new',
                     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
                 });
-                
+
                 const page = await browser.newPage();
                 await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-                
+
                 await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-                
+
                 // Wait for search results (shorter timeout)
-                await page.waitForSelector('.datatable, .searchResultsList', { timeout: 5000 }).catch(() => {});
-                
+                await page.waitForSelector('.datatable, .searchResultsList', { timeout: 5000 }).catch(() => { });
+
                 // Extract blog links from search results
                 const blogLinks = await page.evaluate((roundNum, contestNum) => {
                     const results = [];
                     const rows = document.querySelectorAll('.datatable tr, .searchResult');
-                    
+
                     for (const row of rows) {
                         const link = row.querySelector('a[href*="/blog/entry/"]');
                         if (link) {
                             const title = link.textContent.toLowerCase();
                             const href = link.getAttribute('href');
-                            
+
                             const isEditorial = title.includes('editorial') || title.includes('tutorial');
-                            
+
                             let matchesRound = false;
                             if (roundNum) {
-                                matchesRound = title.includes(`round ${roundNum}`) || 
-                                              title.includes(`round #${roundNum}`) ||
-                                              title.includes(` ${roundNum} `);
+                                matchesRound = title.includes(`round ${roundNum}`) ||
+                                    title.includes(`round #${roundNum}`) ||
+                                    title.includes(` ${roundNum} `);
                             }
                             const matchesContest = title.includes(contestNum);
-                            
+
                             if (isEditorial && (matchesRound || matchesContest)) {
                                 const blogIdMatch = href.match(/\/blog\/entry\/(\d+)/);
                                 if (blogIdMatch) {
@@ -615,7 +790,7 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                     }
                     return results;
                 }, roundNumber, contestId);
-                
+
                 // Prefer matches by round number over contestId
                 if (blogLinks.length > 0) {
                     const bestMatch = blogLinks.find(b => b.matchesRound) || blogLinks[0];
@@ -623,45 +798,45 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                     editorialTitle = bestMatch.title;
                     console.log(`[Editorial] Found via search: ${editorialBlogId} - "${editorialTitle}"`);
                 }
-                
+
             } catch (e) {
                 console.log(`[Editorial] Search failed: ${e.message}`);
             } finally {
                 if (browser) {
-                    await browser.close().catch(() => {});
+                    await browser.close().catch(() => { });
                 }
             }
         }
-        
+
         // Step 2: Fetch the actual blog content using Puppeteer (scraping)
         let editorialContent = null;
-        
+
         if (editorialBlogId) {
             let browser = null;
             try {
                 const blogUrl = `https://codeforces.com/blog/entry/${editorialBlogId}`;
-                
+
                 console.log(`[Editorial] Launching Puppeteer to fetch: ${blogUrl}`);
-                
+
                 browser = await puppeteer.launch({
                     headless: 'new',
                     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
                 });
-                
+
                 const page = await browser.newPage();
                 await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-                
+
                 await page.goto(blogUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
-                
+
                 // Wait for content to load
-                await page.waitForSelector('.ttypography', { timeout: 8000 }).catch(() => {});
-                
+                await page.waitForSelector('.ttypography', { timeout: 8000 }).catch(() => { });
+
                 // Extract the blog content
                 const content = await page.evaluate(() => {
                     const contentDiv = document.querySelector('.ttypography');
                     return contentDiv ? contentDiv.innerHTML : null;
                 });
-                
+
                 if (content) {
                     editorialContent = {
                         blogId: editorialBlogId,
@@ -676,11 +851,11 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                 console.log(`[Editorial] Puppeteer scraping failed: ${e.message}`);
             } finally {
                 if (browser) {
-                    await browser.close().catch(() => {});
+                    await browser.close().catch(() => { });
                 }
             }
         }
-        
+
         if (editorialContent) {
             // Extract problem-specific section if problemIndex is provided
             let problemSection = null;
@@ -688,7 +863,7 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                 problemSection = extractProblemSection(editorialContent.content, contestId, problemIndex);
                 console.log(`[Editorial] Problem section for ${problemIndex}: ${problemSection ? problemSection.length + ' chars' : 'not found'}`);
             }
-            
+
             res.json({
                 success: true,
                 contestId,
@@ -698,14 +873,14 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                 }
             });
         } else {
-            res.status(404).json({ 
+            res.status(404).json({
                 error: "Editorial not found",
                 contestId,
                 message: "No official tutorial found for this contest. It may not be published yet or Cloudflare is blocking.",
                 searchUrl: `https://codeforces.com/search?query=${contestId}+tutorial`
             });
         }
-        
+
     } catch (e) {
         console.error("Editorial Fetch Error:", e);
         res.status(500).json({ error: "Failed to fetch editorial", message: e.message });
@@ -720,16 +895,16 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
     try {
         // Use unified scraper service (handles caching internally)
         const problemData = await scraperService.fetchCodeforces(contestId, index);
-        
+
         if (problemData && problemData.description && !problemData.description.includes("No description available")) {
             console.log(`[Backend] Successfully fetched ${problemId}`);
             return res.json(problemData);
         }
-        
+
         throw new Error("Invalid or empty problem data");
     } catch (scrapeErr) {
         console.warn(`[Backend] Scrape failed for ${problemId}: ${scrapeErr.message}`);
-        
+
         // If we have partial data from API, return it with 206 Partial Content
         if (scrapeErr.partialData) {
             console.log(`[Backend] Returning partial data for ${problemId}`);
@@ -739,12 +914,12 @@ router.get("/codeforces/:contestId/:index", async (req, res) => {
                 requiresExtension: true
             });
         }
-        
+
         // Return 404 to trigger extension fallback on frontend
-        return res.status(404).json({ 
-            error: "Not found in cache", 
+        return res.status(404).json({
+            error: "Not found in cache",
             message: scrapeErr.message,
-            requiresExtension: scrapeErr.requiresExtension || true 
+            requiresExtension: scrapeErr.requiresExtension || true
         });
     }
 });
@@ -758,11 +933,11 @@ router.get("/cses/problem/:id", async (req, res) => {
 
         // Use unified scraper service
         const problemData = await scraperService.fetchCSES(id);
-        
+
         if (problemData) {
             return res.json(problemData);
         }
-        
+
         throw new Error("Failed to fetch CSES problem");
     } catch (err) {
         console.error("CSES Fetch Error:", err);
@@ -827,11 +1002,11 @@ router.get("/atcoder/:contestId/:taskId", async (req, res) => {
         const { contestId, taskId } = req.params;
 
         const problemData = await scraperService.fetchAtCoder(contestId, taskId);
-        
+
         if (problemData) {
             return res.json(problemData);
         }
-        
+
         throw new Error("Failed to fetch AtCoder problem");
     } catch (err) {
         console.error("AtCoder Fetch Error:", err);
@@ -844,16 +1019,16 @@ router.get("/health", async (req, res) => {
     try {
         const health = await scraperService.healthCheck();
         const allHealthy = Object.values(health).every(v => v);
-        
+
         res.status(allHealthy ? 200 : 503).json({
             status: allHealthy ? "healthy" : "degraded",
             services: health,
             timestamp: new Date().toISOString()
         });
     } catch (err) {
-        res.status(500).json({ 
-            status: "error", 
-            message: err.message 
+        res.status(500).json({
+            status: "error",
+            message: err.message
         });
     }
 });
@@ -880,7 +1055,7 @@ router.get("/refresh/codeforces/:contestId/:index", async (req, res) => {
 
         // Fetch fresh
         const problemData = await scraperService.fetchCodeforces(contestId, index);
-        
+
         res.json({
             success: true,
             message: "Refreshed from source",
