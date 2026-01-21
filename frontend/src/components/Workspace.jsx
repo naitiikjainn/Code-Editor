@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import ConfirmModal from "./ConfirmModal";
 import Editors from "./Editors";
 import Preview from "./Preview";
 import AIPanel from "./AIPanel";
@@ -378,12 +379,12 @@ export default function Workspace() {
   // --- HANDLERS ---
   const switchRightPanel = (type, data) => setRightPanel({ type, data });
 
-  const handleFileSelect = (file) => {
+  const handleFileSelect = useCallback((file) => {
 	  setActiveFile(file);
 	  setActiveCode(file.content || "");
-  };
+  }, []);
 
-  const handleFileCreate = async (name) => {
+  const handleFileCreate = useCallback(async (name) => {
       if (!user) { setAuthModalOpen(true); return; }
 	  const ext = name.split('.').pop();
 	  const langMap = { js: "javascript", html: "html", css: "css", py: "python", java: "java", cpp: "cpp" };
@@ -399,15 +400,37 @@ export default function Workspace() {
              },
 			 body: JSON.stringify({ name, language, folder: "/", roomId: id || "default" }) 
 		  });
+		  
+		  if (!res.ok) {
+		      const errorData = await res.json().catch(() => ({}));
+		      console.error("File creation failed:", errorData);
+		      setLogs(prev => [...prev, { type: "error", message: `Failed to create file: ${errorData.error || res.statusText}` }]);
+		      return;
+		  }
+		  
 		  const newFile = await res.json();
 		  setFiles(prev => [...prev, newFile]);
 		  setActiveFile(newFile);
 		  setActiveCode("");
-	  } catch (err) { console.error(err); }
-  };
+	  } catch (err) { 
+	      console.error("File creation error:", err); 
+	      setLogs(prev => [...prev, { type: "error", message: `File creation error: ${err.message}` }]);
+	  }
+  }, [user, id]);
 
-  const handleFileDelete = async (fileId) => {
+  // Delete confirmation modal state
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, fileId: null, fileName: "" });
+
+  const handleFileDeleteRequest = useCallback((fileId) => {
       if (!user) return;
+      const fileToDelete = files.find(f => f._id === fileId);
+      setDeleteConfirm({ isOpen: true, fileId, fileName: fileToDelete?.name || "this file" });
+  }, [user, files]);
+
+  const handleFileDeleteConfirm = useCallback(async () => {
+      const fileId = deleteConfirm.fileId;
+      setDeleteConfirm({ isOpen: false, fileId: null, fileName: "" });
+      
 	  try {
           const token = localStorage.getItem("codeplay_token");
 		  await fetch(`${API_URL}/api/files/${fileId}`, {
@@ -415,12 +438,12 @@ export default function Workspace() {
               headers: { "Authorization": `Bearer ${token}` }
           });
 		  setFiles(prev => prev.filter(f => f._id !== fileId));
+		  setActiveFile(prev => prev?._id === fileId ? null : prev);
 		  if (activeFile?._id === fileId) {
-			  setActiveFile(null);
 			  setActiveCode("");
 		  }
 	  } catch (err) { console.error(err); }
-  };
+  }, [deleteConfirm.fileId, activeFile]);
 
   // --- EXECUTION & TESTS ---
   // --- EXECUTION & TESTS ---
@@ -1356,7 +1379,7 @@ rl.on('line', (line) => {
                             activeFileId={activeFile?._id} 
                             onSelect={handleFileSelect} 
                             onCreate={handleFileCreate} 
-                            onDelete={handleFileDelete}
+                            onDelete={handleFileDeleteRequest}
                         />
                     )}
                     {activeSidebar === "participants" && <ParticipantsPanel users={activeUsers} />}
@@ -1694,6 +1717,17 @@ rl.on('line', (line) => {
             </div>
         </div>
       )}
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal 
+          isOpen={deleteConfirm.isOpen}
+          title="Delete File"
+          message={`Are you sure you want to delete "${deleteConfirm.fileName}"? This action cannot be undone.`}
+          onConfirm={handleFileDeleteConfirm}
+          onCancel={() => setDeleteConfirm({ isOpen: false, fileId: null, fileName: "" })}
+          confirmText="Delete"
+          danger={true}
+      />
+      
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
       
       <button 
