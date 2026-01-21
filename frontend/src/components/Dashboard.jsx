@@ -139,7 +139,7 @@ const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
   );
 };
 
-// 3. FEATURES SPOTLIGHT (REDESIGNED)
+// 3. FEATURES SPOTLIGHT (SYMMETRIC GRID REDESIGN)
 const FeaturesSpotlight = () => (
   <section id="features" className="spotlight-section">
     <div className="section-intro">
@@ -148,44 +148,58 @@ const FeaturesSpotlight = () => (
     </div>
 
     <div className="spotlight-grid">
-        {/* CARD 1 */}
-        <div className="spotlight-card primary">
+        <div className="spotlight-card">
             <div className="spotlight-content">
-                <div className="icon-box icon-purple"><Cpu size={28} /></div>
+                <div className="icon-box icon-purple"><Cpu size={24} /></div>
                 <h3>AI Copilot</h3>
                 <p>Intelligent code completion and debugging assistance powered by Gemini.</p>
             </div>
             <div className="spotlight-visual gradient-purple" />
         </div>
 
-        {/* CARD 2 */}
-        <div className="spotlight-card secondary">
+        <div className="spotlight-card">
             <div className="spotlight-content">
-                <div className="icon-box icon-blue"><Users size={28} /></div>
+                <div className="icon-box icon-blue"><Users size={24} /></div>
                 <h3>Real-time Sync</h3>
                 <p>Code with your team with zero latency. See every keystroke as it happens.</p>
             </div>
             <div className="spotlight-visual gradient-blue" />
         </div>
 
-        {/* CARD 3 */}
-        <div className="spotlight-card secondary">
+        <div className="spotlight-card">
             <div className="spotlight-content">
-                <div className="icon-box icon-green"><Trophy size={28} /></div>
+                <div className="icon-box icon-green"><Trophy size={24} /></div>
                 <h3>DSA Mastery</h3>
                 <p>Integrated CP-31 and Striver's A2Z sheets to track your progress.</p>
             </div>
             <div className="spotlight-visual gradient-green" />
         </div>
 
-        {/* CARD 4 (Wide) */}
-        <div className="spotlight-card wide">
+        <div className="spotlight-card">
             <div className="spotlight-content">
-                <div className="icon-box icon-orange"><Send size={28} /></div>
+                <div className="icon-box icon-orange"><Send size={24} /></div>
                 <h3>Direct Submissions</h3>
-                <p>Submit solutions to Codeforces and LeetCode directly from the editor without switching tabs.</p>
+                <p>Submit solutions to Codeforces and LeetCode directly from the editor.</p>
             </div>
             <div className="spotlight-visual gradient-orange" />
+        </div>
+
+        <div className="spotlight-card">
+            <div className="spotlight-content">
+                <div className="icon-box icon-pink"><PenTool size={24} /></div>
+                <h3>Whiteboard</h3>
+                <p>Plan algorithms visually with your team using a shared canvas.</p>
+            </div>
+            <div className="spotlight-visual gradient-pink" />
+        </div>
+
+        <div className="spotlight-card">
+            <div className="spotlight-content">
+                <div className="icon-box icon-yellow"><Zap size={24} /></div>
+                <h3>Instant Setup</h3>
+                <p>No configuration required. Just create a room and start coding instantly.</p>
+            </div>
+            <div className="spotlight-visual gradient-yellow" />
         </div>
     </div>
   </section>
@@ -424,22 +438,40 @@ const cssStyles = `
 .section-intro h2 { font-size: 40px; font-weight: 800; margin-bottom: 12px; }
 .section-intro p { font-size: 18px; color: var(--text-muted); }
 
-.spotlight-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-.spotlight-card { background: #0a0a0a; border: 1px solid #222; border-radius: 24px; padding: 32px; position: relative; overflow: hidden; height: 320px; transition: all 0.3s; display: flex; flex-direction: column; justify-content: space-between; }
+/* GRID UPDATES: Symmetric 3x2 Grid */
+.spotlight-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.spotlight-card {
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 20px;
+  padding: 24px; /* Reduced Padding */
+  position: relative;
+  overflow: hidden;
+  height: 220px; /* Reduced Fixed Height */
+  transition: all 0.3s;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
 .spotlight-card:hover { border-color: #333; transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
 
-.primary { grid-column: span 2; }
-.wide { grid-column: span 3; }
-
 .spotlight-content { position: relative; z-index: 2; }
-.icon-box { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justifyContent: center; margin-bottom: 20px; }
+.icon-box { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justifyContent: center; margin-bottom: 16px; }
 .icon-purple { background: rgba(139, 92, 246, 0.1); color: #a78bfa; }
 .icon-blue { background: rgba(6, 182, 212, 0.1); color: #22d3ee; }
 .icon-green { background: rgba(34, 197, 94, 0.1); color: #4ade80; }
 .icon-orange { background: rgba(249, 115, 22, 0.1); color: #fb923c; }
+.icon-pink { background: rgba(236, 72, 153, 0.1); color: #f472b6; }
+.icon-yellow { background: rgba(234, 179, 8, 0.1); color: #facc15; }
 
-.spotlight-card h3 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-.spotlight-card p { font-size: 14px; color: var(--text-muted); line-height: 1.5; max-width: 300px; }
+.spotlight-card h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.spotlight-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
 
 .spotlight-visual { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; opacity: 0.1; transition: opacity 0.3s; }
 .spotlight-card:hover .spotlight-visual { opacity: 0.2; }
@@ -447,6 +479,8 @@ const cssStyles = `
 .gradient-blue { background: radial-gradient(circle at 80% 80%, #06b6d4, transparent 60%); }
 .gradient-green { background: radial-gradient(circle at 80% 80%, #22c55e, transparent 60%); }
 .gradient-orange { background: radial-gradient(circle at 80% 20%, #f97316, transparent 60%); }
+.gradient-pink { background: radial-gradient(circle at 80% 20%, #ec4899, transparent 60%); }
+.gradient-yellow { background: radial-gradient(circle at 80% 80%, #eab308, transparent 60%); }
 
 /* --- FOOTER --- */
 .mega-footer { position: relative; background: #030303; padding: 100px 0 40px; border-top: 1px solid #1a1a1a; overflow: hidden; margin-top: 100px; }
@@ -471,7 +505,6 @@ const cssStyles = `
 /* RESPONSIVE */
 @media (max-width: 1024px) {
   .spotlight-grid { grid-template-columns: repeat(2, 1fr); }
-  .primary, .wide { grid-column: span 2; }
   .hero-visual { width: 100%; height: 300px; }
   .hero-title { font-size: 48px; }
 }
@@ -479,7 +512,6 @@ const cssStyles = `
 @media (max-width: 768px) {
   .nav-links { display: none; }
   .spotlight-grid { grid-template-columns: 1fr; }
-  .primary, .wide { grid-column: span 1; }
   .hero-input-group { flex-direction: column; width: 100%; }
   .input-wrapper { width: 100%; }
   .btn-create { width: 100%; justify-content: center; }
