@@ -1,12 +1,11 @@
 {
     "manifest_version": 3,
     "name": "CodePlay Helper",
-    "version": "1.2",
+    "version": "1.3",
     "description": "Submit code to Codeforces and LeetCode directly from CodePlay Editor.",
     "permissions": [
         "cookies",
         "activeTab",
-        "scripting",
         "declarativeNetRequest",
         "declarativeNetRequestWithHostAccess",
         "storage",

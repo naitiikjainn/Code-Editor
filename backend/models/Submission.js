@@ -4,7 +4,7 @@ const SubmissionSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 
     problemId: { type: String, required: true }, // e.g. "1903A" or "two-sum"
-    problemName: { type: String, required: true },
+    problemName: { type: String, default: "Untitled Problem" }, // Not required - fallback if missing
     platform: { type: String, required: true, enum: ["codeforces", "leetcode", "cses"] },
 
     code: { type: String, required: true },
@@ -14,7 +14,7 @@ const SubmissionSchema = new mongoose.Schema({
 
     visibility: {
         type: String,
-        enum: ["public", "friends", "private"],
+        enum: ["public", "private"],
         default: "public"
     },
 

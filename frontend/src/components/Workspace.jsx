@@ -163,8 +163,9 @@ export default function Workspace() {
 
     socket.on("sync_problem", handleSyncProblem);
 
-    // Fetch initial state when access is granted
-    if (accessStatus === "granted") {
+    // Fetch initial state when access is granted, but only if we don't have a problem from localStorage
+    if (accessStatus === "granted" && !rightPanel?.data) {
+        console.log("📥 No local problem state, requesting from server...");
         socket.emit("request_problem_state", { roomId: id });
     }
 
@@ -291,8 +292,24 @@ export default function Workspace() {
       socket.on("sync_problem_state", ({ problem }) => {
           if (problem) {
               setRightPanel({ type: "preview", data: problem });
-              setViewMode("problem_full");
+              // Don't change viewMode here - preserve user's saved layout from localStorage
           }
+      });
+
+      // --- FILE SYNC ---
+      socket.on("sync_file_created", ({ file }) => {
+          console.log(`📁 File synced from room: ${file?.name}`);
+          setFiles(prev => {
+              // Avoid duplicates
+              if (prev.find(f => f._id === file._id)) return prev;
+              return [...prev, file];
+          });
+      });
+
+      socket.on("sync_file_deleted", ({ fileId }) => {
+          console.log(`🗑️ File deleted from room: ${fileId}`);
+          setFiles(prev => prev.filter(f => f._id !== fileId));
+          setActiveFile(prev => prev?._id === fileId ? null : prev);
       });
 
 	  return () => {
@@ -310,6 +327,8 @@ export default function Workspace() {
 		  socket.off("user_left");
 		  socket.off("left_room");
           socket.off("sync_problem_state");
+          socket.off("sync_file_created");
+          socket.off("sync_file_deleted");
 	  };
   }, [user, id, navigate, authLoading]);
   
@@ -413,7 +432,7 @@ export default function Workspace() {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${token}`
             },
-			body: JSON.stringify({ content: debouncedCode })
+			body: JSON.stringify({ content: debouncedCode, hostId: hostUserId || undefined })
 		}).then(() => {
 			console.log("Saved:", activeFile.name);
 			setFiles(prev => prev.map(f => f._id === activeFile._id ? { ...f, content: debouncedCode } : f));
@@ -496,6 +515,8 @@ export default function Workspace() {
 		  setFiles(prev => [...prev, newFile]);
 		  setActiveFile(newFile);
 		  setActiveCode("");
+		  // Sync file creation to other room participants
+		  if (id) socket.emit("sync_file_created", { roomId: id, file: newFile });
 	  } catch (err) { 
 	      console.error("File creation error:", err); 
 	      setLogs(prev => [...prev, { type: "error", message: `File creation error: ${err.message}` }]);
@@ -526,8 +547,10 @@ export default function Workspace() {
 		  if (activeFile?._id === fileId) {
 			  setActiveCode("");
 		  }
+		  // Sync file deletion to other room participants
+		  if (id) socket.emit("sync_file_deleted", { roomId: id, fileId });
 	  } catch (err) { console.error(err); }
-  }, [deleteConfirm.fileId, activeFile]);
+  }, [deleteConfirm.fileId, activeFile, id]);
 
   // --- EXECUTION & TESTS ---
   // --- EXECUTION & TESTS ---

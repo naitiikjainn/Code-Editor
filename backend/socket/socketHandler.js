@@ -8,6 +8,9 @@ if (!global.roomProblems) global.roomProblems = new Map();
 // --- VOICE CHAT SIGNALING (Mesh + State) ---
 const voiceUsers = new Map(); // roomId -> Set<{ id, username }>
 
+// --- PENDING ENTRY REQUESTS (persists across host refresh) ---
+const pendingRequests = new Map(); // roomId -> Map<socketId, { username, socketId }>
+
 // Helper: Broadcast room state to all users in the room
 const broadcastRoomState = async (io, roomId) => {
   const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
@@ -96,6 +99,15 @@ export default function socketHandler(io) {
         // If host rejoined, notify others
         if (isHost) {
           socket.to(roomId).emit("host_rejoined", { username });
+
+          // Re-send any pending entry requests to host
+          const roomPendingRequests = pendingRequests.get(roomId);
+          if (roomPendingRequests && roomPendingRequests.size > 0) {
+            console.log(`👑 Host rejoined, re-sending ${roomPendingRequests.size} pending requests`);
+            for (const [, request] of roomPendingRequests) {
+              socket.emit("request_entry", { username: request.username, socketId: request.socketId });
+            }
+          }
         }
 
         // Broadcast updated room state
@@ -121,6 +133,10 @@ export default function socketHandler(io) {
           socket.roomId = roomId;
           socket.username = username;
           socket.userId = userId;
+
+          // Store pending request for persistence across host refresh
+          if (!pendingRequests.has(roomId)) pendingRequests.set(roomId, new Map());
+          pendingRequests.get(roomId).set(socket.id, { username, socketId: socket.id });
 
           io.to(hostSocketId).emit("request_entry", { username, socketId: socket.id });
           socket.emit("status_update", {
@@ -171,6 +187,10 @@ export default function socketHandler(io) {
 
           // Broadcast updated room state
           await broadcastRoomState(io, roomId);
+
+          // Clean up pending request
+          const roomPendingRequests = pendingRequests.get(roomId);
+          if (roomPendingRequests) roomPendingRequests.delete(socketId);
         }
       }
     });
@@ -185,6 +205,10 @@ export default function socketHandler(io) {
           targetSocket.emit("access_denied");
           userMap.delete(socketId);
           console.log(`⛔ Access Denied for ${socketId}`);
+
+          // Clean up pending request
+          const roomPendingRequests = pendingRequests.get(roomId);
+          if (roomPendingRequests) roomPendingRequests.delete(socketId);
         }
       }
     });
@@ -310,14 +334,30 @@ export default function socketHandler(io) {
       socket.to(roomId).emit("sync_problem", problem);
     });
 
-    socket.on("request_problem_state", ({ roomId }) => {
-      const problem = global.roomProblems.get(roomId);
-      console.log(
-        `📥 Problem state requested for room ${roomId}: ${problem ? problem.title : "NONE"}`
-      );
-      if (problem) {
-        socket.emit("sync_problem", problem);
+    socket.on("request_problem_state", async ({ roomId }) => {
+      try {
+        const room = await Room.findOne({ roomId });
+        const problem = room?.activeProblem;
+        console.log(
+          `📥 Problem state requested for room ${roomId}: ${problem ? problem.title : "NONE"}`
+        );
+        if (problem) {
+          socket.emit("sync_problem", problem);
+        }
+      } catch (e) {
+        console.error("Error fetching problem state:", e);
       }
+    });
+
+    // --- FILE SYNC ---
+    socket.on("sync_file_created", ({ roomId, file }) => {
+      console.log(`📁 File created in room ${roomId}: ${file?.name}`);
+      socket.to(roomId).emit("sync_file_created", { file });
+    });
+
+    socket.on("sync_file_deleted", ({ roomId, fileId }) => {
+      console.log(`🗑️ File deleted in room ${roomId}: ${fileId}`);
+      socket.to(roomId).emit("sync_file_deleted", { fileId });
     });
 
     socket.on("wb_cursor", ({ roomId, x, y, username, color }) => {
@@ -419,6 +459,10 @@ export default function socketHandler(io) {
 
       if (roomId) {
         socket.to(roomId).emit("request_cancelled", { socketId: socket.id });
+
+        // Clean up pending request if this was a pending guest
+        const roomPendingRequests = pendingRequests.get(roomId);
+        if (roomPendingRequests) roomPendingRequests.delete(socket.id);
       }
 
       userMap.delete(socket.id);

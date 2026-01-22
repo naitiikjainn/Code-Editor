@@ -75,11 +75,19 @@ router.put("/:id", authMiddleware, async (req, res) => {
             return res.status(400).json({ error: "Invalid file ID" });
         }
 
-        const { content } = req.body;
+        const { content, hostId } = req.body;
         const sanitizedContent = sanitizeString(content || '', 500000);
 
-        // Ensure user owns the file
-        const file = await File.findOne({ _id: req.params.id, userId: req.user.id });
+        // In collaboration mode, guests can edit host's files
+        let targetUserId = req.user.id;
+        if (hostId && isValidObjectId(hostId)) {
+            // Guest is saving host's file in collaborative mode
+            targetUserId = hostId;
+            console.log(`[Files] Guest ${req.user.id} saving host ${hostId}'s file ${req.params.id}`);
+        }
+
+        // Find the file (owned by target user)
+        const file = await File.findOne({ _id: req.params.id, userId: targetUserId });
         if (!file) {
             return res.status(404).json({ error: "File not found or access denied" });
         }
