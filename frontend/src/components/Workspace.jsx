@@ -1380,6 +1380,12 @@ rl.on('line', (line) => {
                 });
                 targetFile = await res.json();
                 setFiles(prev => [...prev, targetFile]);
+                
+                // SYNC TO ROOM
+                if (id) {
+                    console.log("[CodeNow] Broadcasting new file:", targetFile.name);
+                    socket.emit("sync_file_created", { roomId: id, file: targetFile });
+                }
             } catch (e) {
                 console.error("Failed to create file", e);
                 return;
