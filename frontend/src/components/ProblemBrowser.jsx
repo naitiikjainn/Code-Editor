@@ -75,9 +75,9 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
         if (provider !== "codeforces") return;
         
         const handle = localStorage.getItem("cf_handle") || user?.platforms?.codeforces;
-        console.log("[ProblemBrowser] Fetching status for handle:", handle);
 
-        if (!handle) return;
+        if (!handle) return; // No handle set, skip fetching status
+        console.log("[ProblemBrowser] Fetching status for handle:", handle);
         
         // Use Backend Proxy to avoid CORS
         fetch(`${API_URL}/api/problems/codeforces/status/${handle}`) 
@@ -114,7 +114,9 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     const [searchQuery, setSearchQuery] = useState("");
     const [minRating, setMinRating] = useState("");
     const [maxRating, setMaxRating] = useState("");
-    const [tagFilter, setTagFilter] = useState("");
+    const [tagFilter, setTagFilter] = useState([]); // Multi-select tags array
+    const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+    const tagDropdownRef = useRef(null);
     
     // --- LEETCODE SPECIFIC STATE ---
     const [lcDifficulty, setLcDifficulty] = useState(""); // "Easy", "Medium", "Hard"
@@ -142,6 +144,27 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     // --- INFINITE SCROLL STATE ---
     const [visibleCount, setVisibleCount] = useState(50);
     const scrollContainerRef = useRef(null);
+
+    // --- CODEFORCES AVAILABLE TAGS ---
+    const availableTags = useMemo(() => {
+        if (provider !== "codeforces" || cfProblems.length === 0) return [];
+        const tagSet = new Set();
+        cfProblems.forEach(p => {
+            p.tags?.forEach(t => tagSet.add(t));
+        });
+        return Array.from(tagSet).sort();
+    }, [cfProblems, provider]);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (tagDropdownRef.current && !tagDropdownRef.current.contains(e.target)) {
+                setTagDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     // --- FETCH LEETCODE HELPERS ---
     const fetchLeetCode = async (skip, append = false) => {
@@ -243,9 +266,13 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
         if (provider === "codeforces") {
             if (minRating) result = result.filter(p => p.rating >= parseInt(minRating));
             if (maxRating) result = result.filter(p => p.rating <= parseInt(maxRating));
-            if (tagFilter) {
-                const lowerCaseTagFilter = tagFilter.toLowerCase();
-                result = result.filter(p => p.tags?.some(t => t.includes(lowerCaseTagFilter)));
+            // Multi-tag filter: problem must have ALL selected tags
+            if (tagFilter.length > 0) {
+                result = result.filter(p => 
+                    tagFilter.every(selectedTag => 
+                        p.tags?.some(t => t.toLowerCase().includes(selectedTag.toLowerCase()))
+                    )
+                );
             }
         }
 
@@ -490,12 +517,141 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                     <>
                     {/* Search & Filters */}
                     <FilterInput icon={<Search size={14}/>} value={searchQuery} onChange={setSearchQuery} placeholder="Search problems (1000+)..." />
-                     {/* Filters */}
+                     {/* Rating Filters */}
                     <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
                         <FilterInput placeholder="Min Rating" value={minRating} onChange={setMinRating} />
                         <FilterInput placeholder="Max Rating" value={maxRating} onChange={setMaxRating} />
-                        <FilterInput placeholder="Tags..." value={tagFilter} onChange={setTagFilter} icon={<Filter size={10}/>} />
                     </div>
+                    
+                    {/* Multi-Select Tag Dropdown */}
+                    <div ref={tagDropdownRef} style={{ position: "relative", marginTop: "10px" }}>
+                        <div 
+                            onClick={() => setTagDropdownOpen(!tagDropdownOpen)}
+                            style={{
+                                background: "#18181b",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                borderRadius: "6px",
+                                padding: "8px 12px",
+                                fontSize: "11px",
+                                color: tagFilter.length > 0 ? "#e4e4e7" : "#71717a",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: "8px"
+                            }}
+                        >
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <Filter size={12} color="#71717a" />
+                                <span>{tagFilter.length > 0 ? `${tagFilter.length} tag${tagFilter.length > 1 ? 's' : ''} selected` : "Filter by tags..."}</span>
+                            </div>
+                            <ChevronDown size={14} color="#71717a" style={{ transform: tagDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                        </div>
+                        
+                        {/* Dropdown Menu */}
+                        {tagDropdownOpen && (
+                            <div style={{
+                                position: "absolute",
+                                top: "100%",
+                                left: 0,
+                                right: 0,
+                                maxHeight: "200px",
+                                overflowY: "auto",
+                                background: "#18181b",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                borderRadius: "6px",
+                                marginTop: "4px",
+                                zIndex: 100,
+                                boxShadow: "0 4px 12px rgba(0,0,0,0.5)"
+                            }}>
+                                {availableTags.map(tag => {
+                                    const isSelected = tagFilter.includes(tag);
+                                    return (
+                                        <div
+                                            key={tag}
+                                            onClick={() => {
+                                                if (isSelected) {
+                                                    setTagFilter(tagFilter.filter(t => t !== tag));
+                                                } else {
+                                                    setTagFilter([...tagFilter, tag]);
+                                                }
+                                            }}
+                                            style={{
+                                                padding: "8px 12px",
+                                                fontSize: "11px",
+                                                cursor: "pointer",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "8px",
+                                                background: isSelected ? "rgba(59, 130, 246, 0.15)" : "transparent",
+                                                color: isSelected ? "#60a5fa" : "#a1a1aa",
+                                                borderBottom: "1px solid rgba(255,255,255,0.03)"
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = isSelected ? "rgba(59, 130, 246, 0.2)" : "rgba(255,255,255,0.05)"}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = isSelected ? "rgba(59, 130, 246, 0.15)" : "transparent"}
+                                        >
+                                            <div style={{
+                                                width: "14px",
+                                                height: "14px",
+                                                borderRadius: "3px",
+                                                border: isSelected ? "none" : "1px solid #444",
+                                                background: isSelected ? "#3b82f6" : "transparent",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center"
+                                            }}>
+                                                {isSelected && <CheckCircle2 size={10} color="white" />}
+                                            </div>
+                                            {tag}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Selected Tag Chips */}
+                    {tagFilter.length > 0 && (
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "10px" }}>
+                            {tagFilter.map(tag => (
+                                <span 
+                                    key={tag}
+                                    style={{
+                                        fontSize: "10px",
+                                        padding: "4px 8px",
+                                        borderRadius: "12px",
+                                        background: "rgba(59, 130, 246, 0.15)",
+                                        border: "1px solid rgba(59, 130, 246, 0.3)",
+                                        color: "#60a5fa",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "4px"
+                                    }}
+                                >
+                                    {tag}
+                                    <X 
+                                        size={10} 
+                                        style={{ cursor: "pointer" }}
+                                        onClick={() => setTagFilter(tagFilter.filter(t => t !== tag))}
+                                    />
+                                </span>
+                            ))}
+                            <button
+                                onClick={() => setTagFilter([])}
+                                style={{
+                                    fontSize: "10px",
+                                    padding: "4px 8px",
+                                    borderRadius: "12px",
+                                    background: "rgba(239, 68, 68, 0.1)",
+                                    border: "1px solid rgba(239, 68, 68, 0.2)",
+                                    color: "#ef4444",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                Clear All
+                            </button>
+                        </div>
+                    )}
                     </>
                 ) : provider === "leetcode" ? (
                     <>

@@ -14,6 +14,7 @@ const RoomSchema = new mongoose.Schema({
         }
     ],
     activeProblem: { type: Object, default: null }, // Stores the currently open problem
+    activeFileId: { type: String, default: null }, // Stores the currently open file ID
     createdAt: { type: Date, default: Date.now },
     lastActiveAt: { type: Date, default: Date.now } // Track activity for cleanup
 });

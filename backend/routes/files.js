@@ -1,5 +1,6 @@
 import express from "express";
 import File from "../models/File.js";
+import Room from "../models/Room.js";
 import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -39,11 +40,26 @@ router.get("/", authMiddleware, async (req, res) => {
 router.post("/", authMiddleware, async (req, res) => {
     try {
         const { name, language, folder, roomId, content } = req.body;
-        const userId = req.user.id;
+        let userId = req.user.id;
 
         // Validate required fields
         if (!name || typeof name !== 'string') {
             return res.status(400).json({ error: "File name is required" });
+        }
+
+        // If created in a room, assign ownership to the Room Host
+        if (roomId) {
+            const room = await Room.findOne({ roomId });
+            if (room && room.host && room.host.userId) {
+                // Verify the creator is actually a participant or host of this room
+                const isParticipant = room.participants.some(p => p.username === req.user.username);
+                const isHost = room.host.username === req.user.username;
+
+                if (isParticipant || isHost) {
+                    console.log(`[Files] Assigning new file '${name}' to Host ${room.host.username} (Created by ${req.user.username})`);
+                    userId = room.host.userId; // Override owner to be the Host
+                }
+            }
         }
 
         const sanitizedName = sanitizeString(name, 255);

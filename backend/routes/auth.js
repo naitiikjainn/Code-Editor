@@ -203,7 +203,15 @@ router.get("/me", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.json(user);
+    // Return consistent format with 'id' field (matching login response)
+    res.json({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      authProvider: user.authProvider,
+      platforms: user.platforms // Include CF handle and other platform info
+    });
   } catch (e) {
     if (e.name === "TokenExpiredError") {
       return res.status(401).json({ error: "Token expired", code: "TOKEN_EXPIRED" });
@@ -260,7 +268,7 @@ router.post("/forgot-password", async (req, res) => {
     const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
 
     const mailOptions = {
-      from: '"CodePlay" <no-reply@codeplay.ai>',
+      from: '"CodePlay" <no-reply@codeplay.com>',
       to: email,
       subject: "Password Reset Request",
       html: `

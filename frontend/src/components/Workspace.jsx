@@ -112,6 +112,7 @@ export default function Workspace() {
   const [hoveredUser, setHoveredUser] = useState(null);
   const [pendingGuests, setPendingGuests] = useState([]);
   const [hostUserId, setHostUserId] = useState(null); // Host's user ID for fetching their files
+  const [isHost, setIsHost] = useState(false); // Am I the host of this room?
   const [hostOnline, setHostOnline] = useState(true); // Is host currently connected?
   const [isReadOnly, setIsReadOnly] = useState(false); // Read-only mode when host is offline
 
@@ -155,17 +156,25 @@ export default function Workspace() {
     
     // Listen for remote problem selection
     const handleSyncProblem = (problem) => {
-        console.log(`📥 Syncing problem: ${problem?.title} (Desc Len: ${problem?.description?.length})`);
-        setRightPanel({ type: "preview", data: problem });
-        // Also switch to full screen problem view to match the sender
-        setViewMode("problem_full");
+        console.log(`[DEBUG] 📥 Socket received sync_problem:`, problem?.title);
+        console.log(`[DEBUG] Description Length: ${problem?.description?.length}`);
+        console.log(`[DEBUG] Full Problem Object:`, problem);
+        
+        if (problem) {
+             setRightPanel({ type: "preview", data: problem });
+             // Also switch to full screen problem view to match the sender
+             setViewMode("problem_full");
+        } else {
+            console.log(`[DEBUG] ⚠️ Received null/undefined problem in sync_problem`);
+        }
     };
 
     socket.on("sync_problem", handleSyncProblem);
 
-    // Fetch initial state when access is granted, but only if we don't have a problem from localStorage
-    if (accessStatus === "granted" && !rightPanel?.data) {
-        console.log("📥 No local problem state, requesting from server...");
+    // Always request problem state from server when access is granted
+    // This ensures we get the host's current problem, not stale localStorage
+    if (accessStatus === "granted") {
+        console.log("📥 Access granted, requesting current problem state from server...");
         socket.emit("request_problem_state", { roomId: id });
     }
 
@@ -185,7 +194,7 @@ export default function Workspace() {
         (peerId) => peers.find((p) => p.peerId === peerId)?.username || peerId,
         [peers]
     );
-  const isHost = activeUsers.find(u => u.username === user?.username)?.isHost;
+  // isHost is now a state variable set in access_granted
 
   // --- AUTO LOGOUT ON TOKEN EXPIRY ---
   useEffect(() => {
@@ -239,11 +248,12 @@ export default function Workspace() {
 		  setWaitMessage(message);
 	  });
 
-	  socket.on("access_granted", ({ isHost, hostUserId: hostId }) => {
+	  socket.on("access_granted", ({ isHost: amHost, hostUserId: hostId }) => {
 		  setAccessStatus("granted");
 		  setWaitMessage("");
+		  setIsHost(amHost);
 		  if (hostId) setHostUserId(hostId);
-		  console.log(`[Room] Access granted - isHost: ${isHost}, hostId: ${hostId}`);
+		  console.log(`[Room] Access granted - isHost: ${amHost}, hostId: ${hostId}`);
 	  });
 
 	  socket.on("access_denied", () => {
@@ -289,28 +299,50 @@ export default function Workspace() {
 		  setPendingGuests(prev => prev.filter(g => g.socketId !== socketId));
 	  });
 
-      socket.on("sync_problem_state", ({ problem }) => {
-          if (problem) {
-              setRightPanel({ type: "preview", data: problem });
-              // Don't change viewMode here - preserve user's saved layout from localStorage
-          }
-      });
+      // Old sync_problem_state removed - now using sync_problem directly
 
       // --- FILE SYNC ---
       socket.on("sync_file_created", ({ file }) => {
-          console.log(`📁 File synced from room: ${file?.name}`);
+          console.log(`[DEBUG] 📥 Socket received sync_file_created for: ${file?.name} (ID: ${file?._id})`);
           setFiles(prev => {
-              // Avoid duplicates
-              if (prev.find(f => f._id === file._id)) return prev;
+              if (prev.find(f => f._id === file._id)) {
+                  console.log(`[DEBUG] ⚠️ File already exists in state, skipping.`);
+                  return prev;
+              }
+              console.log(`[DEBUG] ✅ Adding file to state: ${file.name}`);
               return [...prev, file];
           });
       });
 
       socket.on("sync_file_deleted", ({ fileId }) => {
-          console.log(`🗑️ File deleted from room: ${fileId}`);
-          setFiles(prev => prev.filter(f => f._id !== fileId));
+          console.log(`[DEBUG] 📥 Socket received sync_file_deleted for ID: ${fileId}`);
+          setFiles(prev => {
+              const exists = prev.find(f => f._id === fileId);
+              console.log(`[DEBUG] ${exists ? "✅ Found file to delete" : "⚠️ File not found in state"} for deletion.`);
+              return prev.filter(f => f._id !== fileId);
+          });
           setActiveFile(prev => prev?._id === fileId ? null : prev);
       });
+
+      // --- ACTIVE FILE SYNC ---
+      socket.on("sync_active_file", ({ fileId }) => {
+          console.log(`📂 Active file synced: ${fileId}`);
+          if (fileId) {
+              // Find the file in our list and set it as active
+              setFiles(currentFiles => {
+                  const targetFile = currentFiles.find(f => f._id === fileId);
+                  if (targetFile) {
+                      setActiveFile(targetFile);
+                  }
+                  return currentFiles;
+              });
+          }
+      });
+
+      // Request active file state when joining
+      if (accessStatus === "granted") {
+          socket.emit("request_active_file", { roomId: id });
+      }
 
 	  return () => {
 		  window.removeEventListener("beforeunload", handleBeforeUnload);
@@ -326,9 +358,9 @@ export default function Workspace() {
 		  socket.off("host_rejoined");
 		  socket.off("user_left");
 		  socket.off("left_room");
-          socket.off("sync_problem_state");
           socket.off("sync_file_created");
           socket.off("sync_file_deleted");
+          socket.off("sync_active_file");
 	  };
   }, [user, id, navigate, authLoading]);
   
@@ -358,15 +390,14 @@ export default function Workspace() {
           const token = localStorage.getItem("codeplay_token");
           
           // Determine whose files to fetch
-          // If we have a hostUserId and we're not the host, fetch host's files
-          const amIHost = !hostUserId || hostUserId === user.id;
-          const fileOwner = amIHost ? null : hostUserId;
+          // Use explicit isHost flag from server, don't derive from hostUserId
+          const fileOwner = isHost ? null : hostUserId;
           
           const url = fileOwner 
               ? `${API_URL}/api/files?hostId=${fileOwner}`
               : `${API_URL}/api/files`;
           
-          console.log(`[Files] Fetching files - amHost: ${amIHost}, from: ${fileOwner || 'self'}`);
+          console.log(`[Files] Fetching files - isHost: ${isHost}, from: ${fileOwner || 'self'}`);
           
 		  const res = await fetch(url, {
               headers: { "Authorization": `Bearer ${token}` }
@@ -485,7 +516,11 @@ export default function Workspace() {
   const handleFileSelect = useCallback((file) => {
 	  setActiveFile(file);
 	  setActiveCode(file.content || "");
-  }, []);
+      // Sync active file to room participants
+      if (id && file?._id) {
+          socket.emit("sync_active_file", { roomId: id, fileId: file._id });
+      }
+  }, [id]);
 
   const handleFileCreate = useCallback(async (name) => {
       if (!user) { setAuthModalOpen(true); return; }
@@ -516,7 +551,12 @@ export default function Workspace() {
 		  setActiveFile(newFile);
 		  setActiveCode("");
 		  // Sync file creation to other room participants
-		  if (id) socket.emit("sync_file_created", { roomId: id, file: newFile });
+		  if (id) {
+              console.log(`[DEBUG] 📤 Emitting sync_file_created for: ${newFile.name}`);
+              socket.emit("sync_file_created", { roomId: id, file: newFile });
+          } else {
+              console.log(`[DEBUG] ⚠️ No roomId (id is null), cannot emit sync_file_created`);
+          }
 	  } catch (err) { 
 	      console.error("File creation error:", err); 
 	      setLogs(prev => [...prev, { type: "error", message: `File creation error: ${err.message}` }]);
@@ -548,7 +588,12 @@ export default function Workspace() {
 			  setActiveCode("");
 		  }
 		  // Sync file deletion to other room participants
-		  if (id) socket.emit("sync_file_deleted", { roomId: id, fileId });
+		  if (id) {
+              console.log(`[DEBUG] 📤 Emitting sync_file_deleted for ID: ${fileId}`);
+              socket.emit("sync_file_deleted", { roomId: id, fileId });
+          } else {
+              console.log(`[DEBUG] ⚠️ No roomId (id is null), cannot emit sync_file_deleted`);
+          }
 	  } catch (err) { console.error(err); }
   }, [deleteConfirm.fileId, activeFile, id]);
 
@@ -964,6 +1009,42 @@ export default function Workspace() {
         
         return;
     }
+
+    // --- AUTOSAVE & STATE SYNC ---
+    useEffect(() => {
+        if (!activeFile || !activeFile._id || activeFile.type === "preview") return;
+
+        const timeout = setTimeout(async () => {
+            // 1. Update local files array so switching files preserves content
+            setFiles(prev => prev.map(f => 
+                f._id === activeFile._id ? { ...f, content: activeCode } : f
+            ));
+
+            // 2. Persist to Database
+            try {
+                const token = localStorage.getItem("codeplay_token");
+                // If guest, we are editing Host's file, so we pass hostId
+                const targetHostId = isHost ? null : hostUserId;
+                
+                await fetch(`${API_URL}/api/files/${activeFile._id}`, {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        content: activeCode,
+                        hostId: targetHostId
+                    })
+                });
+                // console.log("[Autosave] Saved:", activeFile.name); 
+            } catch (e) {
+                console.error("Autosave failed", e);
+            }
+        }, 3000); // 3 seconds debounce
+
+        return () => clearTimeout(timeout);
+    }, [activeCode, activeFile?._id, isHost, hostUserId]); // Only re-run if code or file changes
 
     let cookie = null;
     let csrfToken = null;

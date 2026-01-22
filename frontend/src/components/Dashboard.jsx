@@ -122,14 +122,25 @@ const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
                 customStyle={{ margin: 0, padding: '24px', background: 'transparent', fontSize: '14px', lineHeight: '1.5' }}
                 lineNumberStyle={{ minWidth: '2em', paddingRight: '1em', color: '#6e7681' }}
               >
-{`export default function App() {
-  const [user, setUser] = useState(null);
-  // Real-time magic happens here ✨
+{`import { Editor, useCollaboration } from 'codeplay-sdk';
+//  Welcome to the next generation of coding
+export default function LiveSession() {
+  // Connect to real-time multiplayer room
+  const { peers, isSynced } = useCollaboration('room-id-88');
+
   return (
-    <Editor 
-      mode="multiplayer"
-      ai={true}
-    />
+    <div className="workspace-container">
+      <Editor
+        filename="collaboration.tsx"
+        theme="vs-dark"
+        mode="live-share"
+        ai={{ 
+          suggestions: true, 
+          model: 'gemini-2.5-flash' 
+        }}
+        cursors={peers.map(p => p.cursor)}
+      />
+    </div>
   );
 }`}
               </SyntaxHighlighter>

@@ -12,14 +12,33 @@ const renderMath = (html) => {
     
     // Helper to clean LaTeX source (strip HTML tags, decode entities)
     const cleanTex = (tex) => {
-        return tex.replace(/<[^>]*>/g, "") // Strip <br>, <i>, <font> etc.
-                  .replace(/&lt;/g, "<")
-                  .replace(/&gt;/g, ">")
-                  .replace(/&amp;/g, "&")
-                  .replace(/&nbsp;/g, " ")
-                  .replace(/\\le\s*/g, "\\leq ")
-                  .replace(/\\ge\s*/g, "\\geq ")
-                  .trim();
+        let cleaned = tex
+            // Strip HTML tags
+            .replace(/<br\s*\/?>/gi, " ")
+            .replace(/<[^>]*>/g, "")
+            // Decode HTML entities
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&amp;/g, "&")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&le;/g, "\\leq ")
+            .replace(/&ge;/g, "\\geq ")
+            .replace(/&times;/g, "\\times ")
+            .replace(/&middot;/g, "\\cdot ")
+            .replace(/&minus;/g, "-")
+            .replace(/&plusmn;/g, "\\pm ")
+            .replace(/&#(\d+);/g, (m, code) => String.fromCharCode(parseInt(code)))
+            .replace(/&#x([0-9A-Fa-f]+);/g, (m, code) => String.fromCharCode(parseInt(code, 16)))
+            // Fix common LaTeX issues
+            .replace(/\\le\s*/g, "\\leq ")
+            .replace(/\\ge\s*/g, "\\geq ")
+            .replace(/\\cdots/g, "\\cdots ")
+            .replace(/\\ldots/g, "\\ldots ")
+            // Handle subscripts/superscripts without braces
+            .replace(/_([a-zA-Z0-9])\s/g, "_{$1} ")
+            .replace(/\^([a-zA-Z0-9])\s/g, "^{$1} ")
+            .trim();
+        return cleaned;
     };
 
     // Safe KaTeX render wrapper
@@ -34,27 +53,41 @@ const renderMath = (html) => {
                 trust: true,
                 macros: {
                     "\\le": "\\leq",
-                    "\\ge": "\\geq"
+                    "\\ge": "\\geq",
+                    "\\xor": "\\oplus",
+                    "\\and": "\\land",
+                    "\\or": "\\lor",
+                    "\\mod": "\\bmod",
+                    "\\N": "\\mathbb{N}",
+                    "\\Z": "\\mathbb{Z}",
+                    "\\R": "\\mathbb{R}",
+                    "\\C": "\\mathbb{C}"
                 }
             });
         } catch (e) { 
             console.warn("KaTeX error:", e.message, tex);
-            return tex; 
+            // Return styled fallback instead of raw LaTeX
+            return `<span style="color:#fbbf24;font-family:monospace;font-size:0.9em;background:rgba(251,191,36,0.1);padding:1px 4px;border-radius:3px;">${tex.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
         }
     };
 
     let result = html;
     
-    // 0. Handle Codeforces <span class="tex-font-style-it">x</span> (italics that should be math)
+    // 0. Pre-process: Handle Codeforces <span class="tex-font-style-it">x</span> (italics containing math variables)
     result = result.replace(/<span\s+class="tex-font-style-it">([^<]+)<\/span>/gi, (match, content) => {
-        // Only render as math if it looks like a variable (single letter or short text)
-        if (content.length <= 3 && /^[a-zA-Z0-9_]+$/.test(content.trim())) {
-            return safeRender(content.trim(), false);
+        const trimmed = content.trim();
+        // Render as math if it looks like a variable (single letter, short text, or has math symbols)
+        if (trimmed.length <= 5 && /^[a-zA-Z0-9_\s]+$/.test(trimmed)) {
+            return safeRender(trimmed, false);
+        }
+        // Check for math-like content
+        if (/[\\^_{}]/.test(trimmed) || /^\d+$/.test(trimmed)) {
+            return safeRender(trimmed, false);
         }
         return `<em>${content}</em>`;
     });
     
-    // 1. Handle Codeforces $$$...$$$  (MUST come before single $)
+    // 1. Handle Codeforces $$$ ... $$$  (MUST come before single $)
     result = result.replace(/\$\$\$([\s\S]*?)\$\$\$/g, (match, tex) => safeRender(tex, false));
     
     // 2. Handle Legacy Codeforces <span class="tex-span">...</span>
@@ -73,20 +106,25 @@ const renderMath = (html) => {
     result = result.replace(/\$\$([^\$]+?)\$\$/g, (match, tex) => safeRender(tex, true));
     
     // 7. Handle inline math $ ... $ (single dollar - must be careful not to match already processed $$)
-    // Only match if surrounded by word boundaries or punctuation, and content looks like math
     result = result.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (match, tex) => {
-        // Skip if it looks like currency (starts with number)
-        if (/^\d/.test(tex.trim())) return match;
+        // Skip if it looks like currency (starts with number followed by nothing math-like)
+        if (/^\d+(\.\d+)?$/.test(tex.trim())) return match;
         return safeRender(tex, false);
     });
     
-    // 8. Handle Codeforces <span class="tex-font-style-bf">...</span> (bold math)
+    // 8. Handle Codeforces <span class="tex-font-style-bf">...</span> (bold)
     result = result.replace(/<span\s+class="tex-font-style-bf">([^<]+)<\/span>/gi, (match, content) => {
         return `<strong>${content}</strong>`;
+    });
+    
+    // 9. Handle Codeforces <span class="tex-font-style-tt">...</span> (monospace/code)
+    result = result.replace(/<span\s+class="tex-font-style-tt">([^<]+)<\/span>/gi, (match, content) => {
+        return `<code style="background:rgba(255,255,255,0.1);padding:1px 4px;border-radius:3px;font-family:monospace;">${content}</code>`;
     });
 
     return result;
 };
+
 
 /* ... */
 
@@ -194,6 +232,18 @@ export default function ProblemPreview({ problem, onCodeNow }) {
 
     const processedDescription = React.useMemo(() => renderMath(problem.description), [problem.description]);
     const processedNote = React.useMemo(() => renderMath(problem.note), [problem.note]);
+
+    if (!processedDescription && !processedNote && !problem.isSolved) {
+        return (
+            <div style={{ padding: "40px", textAlign: "center", color: "#a1a1aa" }}>
+                <h3>Description Unavailable</h3>
+                <p>The problem description looks empty. It might not have synced correctly.</p>
+                <div style={{ marginTop: "16px" }}>
+                    <a href={problem.url} target="_blank" style={{ color: "#60a5fa" }}>View on {problem.provider === 'codeforces' ? 'Codeforces' : 'Original Site'}</a>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#09090b", color: "#e4e4e7", fontFamily: "verdana, arial, sans-serif" }}>

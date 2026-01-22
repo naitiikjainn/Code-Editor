@@ -115,7 +115,8 @@ export default function socketHandler(io) {
 
         // Sync problem state if exists
         if (room.activeProblem) {
-          socket.emit("sync_problem_state", { problem: room.activeProblem });
+          console.log(`📤 Sending problem to new joiner: ${room.activeProblem.title}`);
+          socket.emit("sync_problem", room.activeProblem);
         }
       } else {
         // New guest - needs host approval
@@ -278,34 +279,41 @@ export default function socketHandler(io) {
     });
 
     // --- TYPING INDICATOR ---
-    socket.on("typing", ({ roomId, username }) => socket.to(roomId).emit("user_typing", username));
+    socket.on("typing", ({ roomId, username }) => {
+      if (socket.roomId === roomId) socket.to(roomId).emit("user_typing", username);
+    });
 
     // --- SYNC RUN ---
-    socket.on("sync_run_trigger", ({ roomId, username }) =>
-      socket.to(roomId).emit("sync_run_start", { username })
-    );
-    socket.on("sync_run_result", ({ roomId, logs }) =>
-      socket.to(roomId).emit("sync_run_complete", { logs })
-    );
+    socket.on("sync_run_trigger", ({ roomId, username }) => {
+      if (socket.roomId === roomId) socket.to(roomId).emit("sync_run_start", { username });
+    });
+
+    socket.on("sync_run_result", ({ roomId, logs }) => {
+      if (socket.roomId === roomId) socket.to(roomId).emit("sync_run_complete", { logs });
+    });
 
     // --- WHITEBOARD ---
     socket.on("draw_line", ({ roomId, prev, curr, color, width }) => {
+      if (socket.roomId !== roomId) return;
       if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
       global.whiteboardHistory.get(roomId).push({ type: "line", prev, curr, color, width });
       socket.to(roomId).emit("draw_line", { prev, curr, color, width });
     });
 
     socket.on("clear_board", ({ roomId }) => {
+      if (socket.roomId !== roomId) return;
       global.whiteboardHistory.set(roomId, []);
       socket.to(roomId).emit("clear_board");
     });
 
     socket.on("request_whiteboard_state", ({ roomId }) => {
+      if (socket.roomId !== roomId) return;
       const history = global.whiteboardHistory.get(roomId) || [];
       socket.emit("whiteboard_state", history);
     });
 
     socket.on("draw_text", ({ roomId, x, y, text, color, fontSize }) => {
+      if (socket.roomId !== roomId) return;
       if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
       global.whiteboardHistory
         .get(roomId)
@@ -314,11 +322,17 @@ export default function socketHandler(io) {
     });
 
     socket.on("wb_view", ({ roomId, pan, scale }) => {
-      socket.to(roomId).emit("wb_view", { pan, scale });
+      if (socket.roomId === roomId) socket.to(roomId).emit("wb_view", { pan, scale });
     });
 
     // --- PROBLEM SYNC ---
     socket.on("sync_problem", async ({ roomId, problem }) => {
+      // Security: Ensure user is in the room
+      if (socket.roomId !== roomId) {
+        console.warn(`⚠️ Security: ${socket.username} tried to sync problem to ${roomId} but is in ${socket.roomId}`);
+        return;
+      }
+
       console.log(
         `📤 Syncing problem to room ${roomId}: ${problem?.title} (Desc: ${problem?.description?.length || 0} chars)`
       );
@@ -335,11 +349,25 @@ export default function socketHandler(io) {
     });
 
     socket.on("request_problem_state", async ({ roomId }) => {
+      // Allow request if waiting or joined
+      if (socket.roomId !== roomId && !socket.rooms.has(`${roomId}_waiting`)) return;
+
       try {
         const room = await Room.findOne({ roomId });
-        const problem = room?.activeProblem;
+        // Fallback to in-memory/cache if DB is empty but we have it in memory
+        // This handles cases where DB save might be lagging or failed
+        let problem = room?.activeProblem;
+
+        if (!problem || !problem.title) {
+          const cached = global.roomProblems?.get(roomId);
+          if (cached) {
+            console.log(`[Socket] Using cached problem for room ${roomId} (DB was empty)`);
+            problem = cached;
+          }
+        }
+
         console.log(
-          `📥 Problem state requested for room ${roomId}: ${problem ? problem.title : "NONE"}`
+          `📥 Problem state requested for room ${roomId}: ${problem?.title || "NONE"} (Desc Len: ${problem?.description?.length || 0})`
         );
         if (problem) {
           socket.emit("sync_problem", problem);
@@ -347,21 +375,50 @@ export default function socketHandler(io) {
       } catch (e) {
         console.error("Error fetching problem state:", e);
       }
+
     });
 
     // --- FILE SYNC ---
     socket.on("sync_file_created", ({ roomId, file }) => {
+      if (socket.roomId !== roomId) return;
       console.log(`📁 File created in room ${roomId}: ${file?.name}`);
       socket.to(roomId).emit("sync_file_created", { file });
     });
 
     socket.on("sync_file_deleted", ({ roomId, fileId }) => {
+      if (socket.roomId !== roomId) return;
       console.log(`🗑️ File deleted in room ${roomId}: ${fileId}`);
       socket.to(roomId).emit("sync_file_deleted", { fileId });
     });
 
+    // --- ACTIVE FILE SYNC ---
+    socket.on("sync_active_file", async ({ roomId, fileId }) => {
+      if (socket.roomId !== roomId) return;
+      console.log(`📂 Active file changed in room ${roomId}: ${fileId}`);
+      try {
+        await Room.updateOne({ roomId }, { activeFileId: fileId });
+      } catch (e) {
+        console.error("Error saving activeFileId:", e);
+      }
+      socket.to(roomId).emit("sync_active_file", { fileId });
+    });
+
+    socket.on("request_active_file", async ({ roomId }) => {
+      if (socket.roomId !== roomId) return;
+      try {
+        const room = await Room.findOne({ roomId });
+        const fileId = room?.activeFileId;
+        console.log(`📂 Active file requested for room ${roomId}: ${fileId || "NONE"}`);
+        if (fileId) {
+          socket.emit("sync_active_file", { fileId });
+        }
+      } catch (e) {
+        console.error("Error fetching activeFileId:", e);
+      }
+    });
+
     socket.on("wb_cursor", ({ roomId, x, y, username, color }) => {
-      socket.to(roomId).emit("wb_cursor", { x, y, username, color });
+      if (socket.roomId === roomId) socket.to(roomId).emit("wb_cursor", { x, y, username, color });
     });
 
     // --- VOICE CHAT ---
