@@ -110,7 +110,10 @@ export default function Workspace() {
   // COLLAB STATE
   const [activeUsers, setActiveUsers] = useState([]); 
   const [hoveredUser, setHoveredUser] = useState(null);
-  const [pendingGuests, setPendingGuests] = useState([]); 
+  const [pendingGuests, setPendingGuests] = useState([]);
+  const [hostUserId, setHostUserId] = useState(null); // Host's user ID for fetching their files
+  const [hostOnline, setHostOnline] = useState(true); // Is host currently connected?
+  const [isReadOnly, setIsReadOnly] = useState(false); // Read-only mode when host is offline
 
   // TEST CASE STATE
   // TEST CASE STATE
@@ -199,13 +202,22 @@ export default function Workspace() {
 	  }
 
 	  const joinRoom = () => {
-		  console.log("Joining room:", id, "as", user.username);
-		  socket.emit("join_room", { roomId: id, username: user.username });
+		  console.log("Joining room:", id, "as", user.username, "userId:", user.id);
+		  socket.emit("join_room", { roomId: id, username: user.username, userId: user.id });
 	  };
 
 	  joinRoom();
 	  socket.on("connect", joinRoom);
 
+	  // Room state with host info
+	  socket.on("room_state", ({ users, hostOnline: isHostOnline, hostUserId: hostId, readOnly }) => {
+		  setActiveUsers(users);
+		  setHostOnline(isHostOnline);
+		  setHostUserId(hostId);
+		  setIsReadOnly(readOnly);
+		  console.log(`[Room] State updated - hostOnline: ${isHostOnline}, readOnly: ${readOnly}`);
+	  });
+	  
 	  socket.on("room_users", (users) => setActiveUsers(users));
 	  
 	  socket.on("status_update", ({ status, message }) => {
@@ -213,15 +225,44 @@ export default function Workspace() {
 		  setWaitMessage(message);
 	  });
 
-	  socket.on("access_granted", () => {
+	  socket.on("access_granted", ({ isHost, hostUserId: hostId }) => {
 		  setAccessStatus("granted");
 		  setWaitMessage("");
+		  if (hostId) setHostUserId(hostId);
+		  console.log(`[Room] Access granted - isHost: ${isHost}, hostId: ${hostId}`);
 	  });
 
 	  socket.on("access_denied", () => {
 		  setAccessStatus("denied");
 		  setWaitMessage("The host has declined your request to join this room.");
 	  });
+
+	  socket.on("host_left", ({ username }) => {
+		  setHostOnline(false);
+		  setIsReadOnly(true);
+		  setLogs(prev => [...prev, `⚠️ Host ${username} has left. Files are now read-only.`]);
+	  });
+
+	  socket.on("host_rejoined", ({ username }) => {
+		  setHostOnline(true);
+		  setIsReadOnly(false);
+		  setLogs(prev => [...prev, `✅ Host ${username} is back. Editing enabled.`]);
+	  });
+
+	  socket.on("user_left", ({ username, isHost }) => {
+		  setLogs(prev => [...prev, `👋 ${username}${isHost ? " (Host)" : ""} has left the room.`]);
+	  });
+
+	  socket.on("left_room", () => {
+		  // We successfully left the room - navigate away
+		  navigate("/dashboard");
+	  });
+
+	  // Clean disconnect on tab close
+	  const handleBeforeUnload = () => {
+		  socket.emit("leave_room");
+	  };
+	  window.addEventListener("beforeunload", handleBeforeUnload);
 
 	  socket.on("request_entry", ({ username, socketId }) => {
 		  setPendingGuests(prev => {
@@ -242,13 +283,19 @@ export default function Workspace() {
       });
 
 	  return () => {
+		  window.removeEventListener("beforeunload", handleBeforeUnload);
 		  socket.off("connect", joinRoom);
+		  socket.off("room_state");
 		  socket.off("room_users");
 		  socket.off("status_update");
 		  socket.off("access_granted");
 		  socket.off("access_denied");
 		  socket.off("request_entry");
 		  socket.off("request_cancelled");
+		  socket.off("host_left");
+		  socket.off("host_rejoined");
+		  socket.off("user_left");
+		  socket.off("left_room");
           socket.off("sync_problem_state");
 	  };
   }, [user, id, navigate, authLoading]);
@@ -263,16 +310,33 @@ export default function Workspace() {
 	   setPendingGuests(prev => prev.filter(g => g.socketId !== socketId));
   };
   
-
+  // --- LEAVE ROOM ---
+  const handleLeaveRoom = () => {
+      console.log("[Room] Leaving room...");
+      socket.emit("leave_room");
+  };
 
   // --- FETCH FILES ---
+  // Fetch host's files if guest, own files if host
   const fetchFiles = async () => {
-      // Need user to fetch files now
       if (!user) return;
+      if (accessStatus !== "granted") return; // Wait for room access
 
 	  try {
           const token = localStorage.getItem("codeplay_token");
-		  const res = await fetch(`${API_URL}/api/files?roomId=${id || "default"}`, {
+          
+          // Determine whose files to fetch
+          // If we have a hostUserId and we're not the host, fetch host's files
+          const amIHost = !hostUserId || hostUserId === user.id;
+          const fileOwner = amIHost ? null : hostUserId;
+          
+          const url = fileOwner 
+              ? `${API_URL}/api/files?hostId=${fileOwner}`
+              : `${API_URL}/api/files`;
+          
+          console.log(`[Files] Fetching files - amHost: ${amIHost}, from: ${fileOwner || 'self'}`);
+          
+		  const res = await fetch(url, {
               headers: { "Authorization": `Bearer ${token}` }
           });
 		  const data = await res.json();
@@ -313,9 +377,16 @@ export default function Workspace() {
 	  } catch (err) { console.error("Failed to fetch files", err); }
   };
 
-  useEffect(() => { fetchFiles(); }, [user]); // Fetch when user logs in
+  // Fetch files when access granted or host changes
+  useEffect(() => { 
+      if (accessStatus === "granted") {
+          fetchFiles(); 
+      }
+  }, [user, accessStatus, hostUserId]);
 
   useEffect(() => {
+    // Don't autosave if read-only mode (guest when host is offline)
+	if (isReadOnly) return;
 	if (activeFile && activeFile.type !== "preview" && debouncedCode !== activeFile.content) {
         // 1. Save to Local Storage (Backup) - Debounced
         // This prevents freezing the main thread on every keystroke
@@ -1382,7 +1453,15 @@ rl.on('line', (line) => {
                             onDelete={handleFileDeleteRequest}
                         />
                     )}
-                    {activeSidebar === "participants" && <ParticipantsPanel users={activeUsers} />}
+                    {activeSidebar === "participants" && (
+                        <ParticipantsPanel 
+                            users={activeUsers} 
+                            hostOnline={hostOnline}
+                            isReadOnly={isReadOnly}
+                            onLeaveRoom={handleLeaveRoom}
+                            currentUsername={user?.username}
+                        />
+                    )}
                     {activeSidebar === "tests" && (
                         <TestPanel 
                             testCases={testCases} 
@@ -1518,7 +1597,7 @@ rl.on('line', (line) => {
                                         socket={socket}
                                         roomId={id}
                                         username={user?.username} 
-                                        
+                                        readOnly={isReadOnly}
                                         onCodeNow={handleCodeNow}
                                />
                            )

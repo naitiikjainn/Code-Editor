@@ -62,7 +62,7 @@ loader.init().then(monaco => {
 });
 
 export default function Editors({ 
-  activeFile, onCodeChange, username, roomId, onCodeNow 
+  activeFile, onCodeChange, username, roomId, onCodeNow, readOnly = false 
 }) {
   const providerRef = useRef(null);
   const docRef = useRef(null);
@@ -217,7 +217,7 @@ export default function Editors({
         height="100%" 
         defaultLanguage={activeFile.language === "js" ? "javascript" : activeFile.language}
         theme="cyber-dark" // USE CUSTOM THEME
-        options={COMMON_OPTIONS}
+        options={{...COMMON_OPTIONS, readOnly}}
         defaultValue="" 
         onMount={(editor, monaco) => {
             editor.getModel().setEOL(0);

@@ -29,7 +29,7 @@ const STATIC_REPO_CONFIG = {
     // Fallback: codewithsathya's repository (community resource)
     fallback: {
         owner: "codewithsathya",
-        repo: "codeforces-problems", 
+        repo: "codeforces-problems",
         branch: "main"
     }
 };
@@ -105,6 +105,37 @@ const rateLimitedFetch = async (url, options = {}) => {
 // --- UTILITY FUNCTIONS ---
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Strip MathJax-rendered output from HTML, keeping only LaTeX source
+ * MathJax creates spans like .mjx-chtml, .MJX_Assistive_MathML that duplicate content
+ */
+const stripMathJaxOutput = (html, $) => {
+    if (!html || !$) return html;
+
+    const $clone = $.load(html);
+
+    // Remove MathJax rendered output elements (keeps the original math source)
+    $clone('.mjx-chtml').remove();
+    $clone('.mjx-math').remove();
+    $clone('.mjx-mrow').remove();
+    $clone('.MJX_Assistive_MathML').remove();
+    $clone('.MathJax').remove();
+    $clone('.MathJax_Preview').remove();
+    $clone('.MathJax_SVG').remove();
+    $clone('.MathJax_CHTML').remove();
+    $clone('[class^="mjx-"]').remove();
+    $clone('[class*=" mjx-"]').remove();
+    $clone('script[type*="math/tex"]').remove(); // MathJax source scripts are sometimes duplicated
+    $clone('span[id^="MathJax-"]').remove();
+    $clone('nobr').each((_, el) => {
+        // MathJax wraps content in nobr, unwrap it
+        const inner = $clone(el).html();
+        $clone(el).replaceWith(inner || '');
+    });
+
+    return $clone.html();
+};
+
 const cleanHtml = (html) => {
     if (!html) return "";
     return html
@@ -162,9 +193,9 @@ const cacheService = {
                 console.log(`[Cache] MongoDB HIT for ${problemId}`);
                 // Update TTL
                 doc.lastAccessed = new Date();
-                doc.save().catch(() => {});
+                doc.save().catch(() => { });
                 // Refresh Redis
-                redis.setex(`problem:${problemId}`, CONFIG.cacheRedisTTL, JSON.stringify(doc.data)).catch(() => {});
+                redis.setex(`problem:${problemId}`, CONFIG.cacheRedisTTL, JSON.stringify(doc.data)).catch(() => { });
                 return doc.data;
             }
         } catch (e) {
@@ -224,11 +255,11 @@ const codeforcesScraper = {
     // Supports both colon (:) and underscore (_) file naming conventions
     getStaticUrls(contestId, index) {
         const urls = [];
-        
+
         // Build URL helpers for both naming conventions
-        const buildGitHubRawUrl = (config, separator) => 
+        const buildGitHubRawUrl = (config, separator) =>
             `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/content/${contestId}${separator}${index}.html`;
-        
+
         // 1. Primary: Your own repository (if configured)
         if (STATIC_REPO_CONFIG.primary.owner !== "YOUR_GITHUB_USERNAME") {
             // Try underscore first (Windows-compatible), then colon
@@ -236,11 +267,11 @@ const codeforcesScraper = {
             urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.primary, ':'));
             urls.push(`https://raw.githubusercontent.com/${STATIC_REPO_CONFIG.primary.owner}/${STATIC_REPO_CONFIG.primary.repo}/${STATIC_REPO_CONFIG.primary.branch}/content/${contestId}%3A${index}.html`);
         }
-        
+
         // 2. Fallback: Community repository (uses colon separator)
         urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.fallback, ':'));
         urls.push(`https://raw.githubusercontent.com/${STATIC_REPO_CONFIG.fallback.owner}/${STATIC_REPO_CONFIG.fallback.repo}/${STATIC_REPO_CONFIG.fallback.branch}/content/${contestId}%3A${index}.html`);
-        
+
         return urls;
     },
 
@@ -322,14 +353,14 @@ const codeforcesScraper = {
                 }
             });
 
-            description = clone.html() || description;
+            description = stripMathJaxOutput(clone.html(), cheerio) || description;
         }
 
         // --- NOTE ---
         let note = null;
         const noteNode = $(".problem-statement .note");
         if (noteNode.length) {
-            note = noteNode.html();
+            note = stripMathJaxOutput(noteNode.html(), cheerio);
         }
 
         // --- TEST CASES ---
@@ -391,7 +422,7 @@ const codeforcesScraper = {
     // The static content is a full Codeforces page, so we extract just the problem-statement
     parseStaticContent(html, contestId, index) {
         const $ = cheerio.load(html);
-        
+
         let title = `${contestId}${index}`;
         let timeLimit = "N/A";
         let memoryLimit = "N/A";
@@ -401,7 +432,7 @@ const codeforcesScraper = {
 
         // Extract the problem-statement div (the actual problem content)
         const problemStatement = $(".problem-statement").first();
-        
+
         if (!problemStatement.length) {
             console.warn("[CF Scraper] No .problem-statement found in static content");
             return null;
@@ -427,7 +458,7 @@ const codeforcesScraper = {
         const clone = problemStatement.clone();
         clone.find(".sample-tests").remove();
         clone.find(".header").remove();
-        
+
         // Fix relative URLs
         clone.find("img").each((_, img) => {
             const src = $(img).attr("src");
@@ -441,13 +472,13 @@ const codeforcesScraper = {
                 $(a).attr("href", `https://codeforces.com${href}`);
             }
         });
-        
-        description = clone.html() || description;
+
+        description = stripMathJaxOutput(clone.html(), cheerio) || description;
 
         // --- NOTE ---
         const noteDiv = problemStatement.find(".note");
         if (noteDiv.length) {
-            note = noteDiv.html();
+            note = stripMathJaxOutput(noteDiv.html(), cheerio);
         }
 
         // --- TEST CASES ---
@@ -546,23 +577,23 @@ const codeforcesScraper = {
             try {
                 console.log(`[CF Scraper] Trying static source ${url}...`);
                 const response = await rateLimitedFetch(url, { timeout: 10000 });
-                
+
                 if (response.ok) {
                     const html = await response.text();
-                    
+
                     // Static content is the full CF page, we need to extract problem-statement
                     if (html && html.length > 100 && !html.includes("404") && !html.includes("Not Found")) {
                         console.log(`[CF Scraper] Static source HIT for ${problemId}`);
-                        
+
                         // Parse the static HTML
                         const problemData = this.parseStaticContent(html, contestId, index);
-                        
+
                         // If parsing failed, continue to next source
                         if (!problemData) {
                             console.warn(`[CF Scraper] Failed to parse static content for ${problemId}`);
                             continue;
                         }
-                        
+
                         // Merge with API metadata if available
                         if (apiMetadata) {
                             problemData.rating = apiMetadata.rating;
@@ -571,10 +602,10 @@ const codeforcesScraper = {
                                 problemData.title = `${index}. ${apiMetadata.name}`;
                             }
                         }
-                        
+
                         // Mark source
                         problemData.source = "static";
-                        
+
                         // Cache the result
                         await cacheService.set(problemId, problemData);
                         return problemData;
@@ -665,10 +696,10 @@ const codeforcesScraper = {
                 requiresExtension: true,
                 scrapedAt: new Date().toISOString()
             };
-            
+
             // Don't cache placeholder data
             console.log(`[CF Scraper] Returning API metadata only for ${problemId} - needs extension for content`);
-            
+
             // Create custom error with metadata attached
             const error = new Error(`Cloudflare blocked - extension needed`);
             error.requiresExtension = true;
@@ -705,7 +736,7 @@ const csesScraper = {
         // Time/Memory Limits
         let timeLimit = "N/A";
         let memoryLimit = "N/A";
-        
+
         const taskInfo = $(".task-info");
         if (taskInfo.length) {
             const text = taskInfo.text();
@@ -823,8 +854,8 @@ const atcoderScraper = {
         }
 
         // Description (English or Japanese section)
-        const langSection = $("#task-statement .lang-en").length 
-            ? $("#task-statement .lang-en") 
+        const langSection = $("#task-statement .lang-en").length
+            ? $("#task-statement .lang-en")
             : $("#task-statement");
 
         let description = "<p>No description available.</p>";

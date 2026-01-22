@@ -17,46 +17,75 @@ const renderMath = (html) => {
                   .replace(/&gt;/g, ">")
                   .replace(/&amp;/g, "&")
                   .replace(/&nbsp;/g, " ")
+                  .replace(/\\le\s*/g, "\\leq ")
+                  .replace(/\\ge\s*/g, "\\geq ")
                   .trim();
     };
 
-    return html
-        // 1. Handle Codeforces $$$...$$$
-        .replace(/\$\$\$([\s\S]*?)\$\$\$/g, (match, tex) => {
-            try {
-                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
-            } catch (e) { return match; }
-        })
-        // 2. Handle standard \[ ... \]
-        .replace(/\\\[([\s\S]*?)\\\]/g, (match, tex) => { 
-             try {
-                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: true });
-            } catch (e) { return match; }
-        })
-        // 3. Handle standard \( ... \) inline
-        .replace(/\\\(([\s\S]*?)\\\)/g, (match, tex) => {
-             try {
-                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
-            } catch (e) { return match; }
-        })
-        // 4. Handle Legacy Codeforces <span class="tex-span">...</span>
-        .replace(/<span class="tex-span">([\s\S]*?)<\/span>/g, (match, tex) => {
-             try {
-                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
-            } catch (e) { return match; }
-        })
-        // 4b. Handle explicit \begin{...} ... \end{...} blocks (e.g. cases, pmatrix)
-        .replace(/(\\begin\{([a-zA-Z0-9*]+)\}[\s\S]*?\\end\{\2\})/g, (match, tex) => {
-             try {
-                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: true });
-            } catch (e) { return match; }
-        })
-        // 5. Handle Single $ ... $ (General Markdown Math)
-        .replace(/\$([^\$\n]+?)\$/g, (match, tex) => {
-             try {
-                return katex.renderToString(cleanTex(tex), { throwOnError: false, displayMode: false });
-            } catch (e) { return match; }
-        });
+    // Safe KaTeX render wrapper
+    const safeRender = (tex, displayMode = false) => {
+        try {
+            const cleaned = cleanTex(tex);
+            if (!cleaned) return "";
+            return katex.renderToString(cleaned, { 
+                throwOnError: false, 
+                displayMode,
+                strict: false,
+                trust: true,
+                macros: {
+                    "\\le": "\\leq",
+                    "\\ge": "\\geq"
+                }
+            });
+        } catch (e) { 
+            console.warn("KaTeX error:", e.message, tex);
+            return tex; 
+        }
+    };
+
+    let result = html;
+    
+    // 0. Handle Codeforces <span class="tex-font-style-it">x</span> (italics that should be math)
+    result = result.replace(/<span\s+class="tex-font-style-it">([^<]+)<\/span>/gi, (match, content) => {
+        // Only render as math if it looks like a variable (single letter or short text)
+        if (content.length <= 3 && /^[a-zA-Z0-9_]+$/.test(content.trim())) {
+            return safeRender(content.trim(), false);
+        }
+        return `<em>${content}</em>`;
+    });
+    
+    // 1. Handle Codeforces $$$...$$$  (MUST come before single $)
+    result = result.replace(/\$\$\$([\s\S]*?)\$\$\$/g, (match, tex) => safeRender(tex, false));
+    
+    // 2. Handle Legacy Codeforces <span class="tex-span">...</span>
+    result = result.replace(/<span class="tex-span">([\s\S]*?)<\/span>/g, (match, tex) => safeRender(tex, false));
+    
+    // 3. Handle display math \[ ... \]
+    result = result.replace(/\\\[([\s\S]*?)\\\]/g, (match, tex) => safeRender(tex, true));
+    
+    // 4. Handle inline math \( ... \)
+    result = result.replace(/\\\(([\s\S]*?)\\\)/g, (match, tex) => safeRender(tex, false));
+    
+    // 5. Handle \begin{...} ... \end{...} blocks
+    result = result.replace(/(\\begin\{([a-zA-Z0-9*]+)\}[\s\S]*?\\end\{\2\})/g, (match, tex) => safeRender(tex, true));
+    
+    // 6. Handle display math $$ ... $$ (double dollar - MUST come before single)
+    result = result.replace(/\$\$([^\$]+?)\$\$/g, (match, tex) => safeRender(tex, true));
+    
+    // 7. Handle inline math $ ... $ (single dollar - must be careful not to match already processed $$)
+    // Only match if surrounded by word boundaries or punctuation, and content looks like math
+    result = result.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (match, tex) => {
+        // Skip if it looks like currency (starts with number)
+        if (/^\d/.test(tex.trim())) return match;
+        return safeRender(tex, false);
+    });
+    
+    // 8. Handle Codeforces <span class="tex-font-style-bf">...</span> (bold math)
+    result = result.replace(/<span\s+class="tex-font-style-bf">([^<]+)<\/span>/gi, (match, content) => {
+        return `<strong>${content}</strong>`;
+    });
+
+    return result;
 };
 
 /* ... */
