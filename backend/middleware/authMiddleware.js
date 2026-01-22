@@ -1,8 +1,13 @@
 import jwt from "jsonwebtoken";
 
 export default function authMiddleware(req, res, next) {
-    // Get token from header
-    const token = req.header("Authorization")?.replace("Bearer ", "");
+    // Get token from header - support both formats for compatibility
+    // 1. "Authorization: Bearer xxx" (standard, used by Workspace.jsx)
+    // 2. "x-auth-token: xxx" (legacy, used by AuthContext)
+    let token = req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) {
+        token = req.header("x-auth-token");
+    }
 
     // Check if not token
     if (!token) {

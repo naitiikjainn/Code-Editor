@@ -15,18 +15,18 @@ const MAX_ATTEMPTS = 10;
 const checkRateLimit = (identifier) => {
   const now = Date.now();
   const attempts = loginAttempts.get(identifier);
-  
+
   if (!attempts) return { allowed: true };
-  
+
   // Clean old attempts
   const recentAttempts = attempts.filter(t => now - t < RATE_LIMIT_WINDOW);
-  
+
   if (recentAttempts.length >= MAX_ATTEMPTS) {
     const oldestAttempt = Math.min(...recentAttempts);
     const retryAfter = Math.ceil((oldestAttempt + RATE_LIMIT_WINDOW - now) / 1000);
     return { allowed: false, retryAfter };
   }
-  
+
   return { allowed: true };
 };
 
@@ -65,12 +65,12 @@ router.post("/register", async (req, res) => {
     if (password.length < 6) {
       return res.status(400).json({ error: "Password must be at least 6 characters." });
     }
-    
+
     // Validate username format
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
       return res.status(400).json({ error: "Username must be 3-20 characters, alphanumeric and underscores only." });
     }
-    
+
     // Validate email format
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: "Invalid email format." });
@@ -88,9 +88,9 @@ router.post("/register", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // Save to Database
-    const newUser = new User({ 
-      username, 
-      email, 
+    const newUser = new User({
+      username,
+      email,
       password: hashedPassword,
       authProvider: "local"
     });
@@ -107,11 +107,11 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { identifier, password } = req.body;
-    
+
     // Rate limiting check
     const rateLimit = checkRateLimit(identifier);
     if (!rateLimit.allowed) {
-      return res.status(429).json({ 
+      return res.status(429).json({
         error: `Too many login attempts. Try again in ${rateLimit.retryAfter} seconds.`,
         retryAfter: rateLimit.retryAfter
       });
@@ -126,19 +126,19 @@ router.post("/login", async (req, res) => {
       recordAttempt(identifier);
       return res.status(400).json({ error: "Invalid credentials" });
     }
-    
+
     // Check if account is locked
     if (user.isLocked) {
       const lockRemaining = Math.ceil((user.lockUntil - Date.now()) / 1000 / 60);
-      return res.status(423).json({ 
-        error: `Account locked. Try again in ${lockRemaining} minutes.` 
+      return res.status(423).json({
+        error: `Account locked. Try again in ${lockRemaining} minutes.`
       });
     }
-    
+
     // Check if user has password (OAuth users might not)
     if (!user.password) {
-      return res.status(400).json({ 
-        error: `This account uses ${user.authProvider} login. Please use that instead.` 
+      return res.status(400).json({
+        error: `This account uses ${user.authProvider} login. Please use that instead.`
       });
     }
 
@@ -149,7 +149,7 @@ router.post("/login", async (req, res) => {
       await user.incLoginAttempts();
       return res.status(400).json({ error: "Invalid credentials" });
     }
-    
+
     // Reset failed attempts on successful login
     if (user.failedLoginAttempts > 0) {
       user.failedLoginAttempts = 0;
@@ -162,16 +162,16 @@ router.post("/login", async (req, res) => {
       console.error("CRITICAL: JWT_SECRET not set!");
       return res.status(500).json({ error: "Server configuration error" });
     }
-    
+
     const accessToken = generateAccessToken(user);
     const refreshToken = await generateRefreshToken(user, req);
 
     res.json({
       token: accessToken,
       refreshToken,
-      user: { 
-        id: user._id, 
-        username: user.username, 
+      user: {
+        id: user._id,
+        username: user.username,
         email: user.email,
         avatar: user.avatar,
         authProvider: user.authProvider
@@ -185,7 +185,11 @@ router.post("/login", async (req, res) => {
 
 // 3. GET CURRENT USER (Protected)
 router.get("/me", async (req, res) => {
-  const token = req.header("x-auth-token");
+  // Support both token header formats
+  let token = req.header("Authorization")?.replace("Bearer ", "");
+  if (!token) {
+    token = req.header("x-auth-token");
+  }
   if (!token) return res.status(401).json({ error: "No token, authorization denied" });
 
   try {
@@ -194,11 +198,11 @@ router.get("/me", async (req, res) => {
     }
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id).select("-password -refreshTokens -resetPasswordToken -resetPasswordExpires");
-    
+
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-    
+
     res.json(user);
   } catch (e) {
     if (e.name === "TokenExpiredError") {
@@ -212,27 +216,27 @@ router.get("/me", async (req, res) => {
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
-    
+
     // Rate limit forgot password requests
     const rateLimit = checkRateLimit(`forgot:${email}`);
     if (!rateLimit.allowed) {
-      return res.status(429).json({ 
-        error: "Too many reset requests. Please try again later." 
+      return res.status(429).json({
+        error: "Too many reset requests. Please try again later."
       });
     }
     recordAttempt(`forgot:${email}`);
-    
+
     const user = await User.findOne({ email });
 
     if (!user) {
       // Security: Don't reveal if user exists
       return res.json({ message: "If an account with that email exists, a reset link has been sent." });
     }
-    
+
     // Check if user is OAuth-only
     if (user.authProvider !== "local" && !user.password) {
-      return res.json({ 
-        message: `This account uses ${user.authProvider} login. Please use that to sign in.` 
+      return res.json({
+        message: `This account uses ${user.authProvider} login. Please use that to sign in.`
       });
     }
 
@@ -301,10 +305,10 @@ router.post("/forgot-password", async (req, res) => {
 router.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
-    
+
     // Hash the incoming token to compare with stored hash
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    
+
     const user = await User.findOne({
       resetPasswordToken: tokenHash,
       resetPasswordExpires: { $gt: Date.now() }
@@ -312,11 +316,11 @@ router.post("/reset-password", async (req, res) => {
 
     if (!user) return res.status(400).json({ error: "Invalid or expired token" });
     if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
-    
+
     // Password strength check
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
-      return res.status(400).json({ 
-        error: "Password must contain uppercase, lowercase, and a number" 
+      return res.status(400).json({
+        error: "Password must contain uppercase, lowercase, and a number"
       });
     }
 
