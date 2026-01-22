@@ -186,6 +186,19 @@ export default function Workspace() {
     );
   const isHost = activeUsers.find(u => u.username === user?.username)?.isHost;
 
+  // --- AUTO LOGOUT ON TOKEN EXPIRY ---
+  useEffect(() => {
+      const handleAuthExpired = () => {
+          console.log("[Workspace] Token expired, opening auth modal...");
+          setAccessStatus("login_required");
+          setWaitMessage("Your session has expired. Please sign in again.");
+          setAuthModalOpen(true);
+      };
+
+      window.addEventListener("auth:expired", handleAuthExpired);
+      return () => window.removeEventListener("auth:expired", handleAuthExpired);
+  }, []);
+
   // --- SOCKET CONFIG ---
   useEffect(() => {
 	  if (!id || authLoading) return; 

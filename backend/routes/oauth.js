@@ -5,12 +5,12 @@ import User from "../models/User.js";
 
 const router = express.Router();
 
-// Helper: Generate Access Token (short-lived)
+// Helper: Generate Access Token (1 month expiry)
 const generateAccessToken = (user) => {
   return jwt.sign(
     { id: user._id, username: user.username },
     process.env.JWT_SECRET,
-    { expiresIn: "15m" } // Short-lived for security
+    { expiresIn: "30d" } // 30 days = 1 month
   );
 };
 

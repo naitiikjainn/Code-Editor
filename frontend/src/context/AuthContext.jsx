@@ -85,15 +85,16 @@ export const AuthProvider = ({ children }) => {
         // Verify token is still valid
         try {
           const response = await fetch(`${API_URL}/api/auth/me`, {
-            headers: { "x-auth-token": token }
+            headers: { "Authorization": `Bearer ${token}` }
           });
           
           if (response.ok) {
             const userData = await response.json();
             setUser(userData);
           } else if (response.status === 401) {
-            // Try refresh
-            await refreshAccessToken();
+            // Token expired - logout immediately
+            console.log("[Auth] Token expired, logging out...");
+            logout();
           } else {
             // Clear invalid session
             logout();
@@ -109,6 +110,44 @@ export const AuthProvider = ({ children }) => {
     
     initAuth();
   }, []);
+
+  // Periodic token expiry check (every 5 minutes) - auto logout when expired
+  useEffect(() => {
+    if (!user) return; // No user logged in
+
+    const checkTokenExpiry = async () => {
+      const token = localStorage.getItem("codeplay_token");
+      if (!token) {
+        logout();
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+
+        if (response.status === 401) {
+          // Token expired - auto logout without page refresh
+          console.log("[Auth] Token expired during session, auto-logout triggered");
+          logout();
+          // Dispatch custom event for components to react
+          window.dispatchEvent(new CustomEvent("auth:expired"));
+        }
+      } catch (error) {
+        // Network error - don't logout, server might be down
+        console.warn("[Auth] Token check failed (network):", error.message);
+      }
+    };
+
+    // Check every 5 minutes
+    const intervalId = setInterval(checkTokenExpiry, 5 * 60 * 1000);
+
+    // Also check immediately when user state changes
+    checkTokenExpiry();
+
+    return () => clearInterval(intervalId);
+  }, [user]);
 
   // Login Function
   const login = (userData, token, refreshToken = null) => {
