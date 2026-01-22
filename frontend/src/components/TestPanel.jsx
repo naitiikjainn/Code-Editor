@@ -4,7 +4,7 @@ import { Play, X, FlaskConical, Plus, Trash2, CheckCircle, AlertCircle, Loader2,
 import HighlightedTextarea from "./HighlightedTextarea";
 
 const TestPanel = ({ 
-    testCases, setTestCases, runTests, isRunningTests, onClose, language = "text"
+    testCases, setTestCases, runTests, runSingleTest, isRunningTests, onClose, language = "text"
 }) => {
   
   // Helper to auto-expand textarea
@@ -92,13 +92,30 @@ const TestPanel = ({
                             {test.status === "running" && <span style={{ fontSize: "11px", color: "#fbbf24", background: "rgba(251, 191, 36, 0.1)", padding: "2px 6px", borderRadius: "4px", display: "flex", alignItems: "center", gap: "4px" }}><Loader2 size={10} className="animate-spin"/> RUNNING</span>}
                         </div>
 
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); removeTestCase(test.id); }} 
-                            style={{ color: "#444", background: "none", border: "none", cursor: "pointer", transition: "color 0.2s" }} 
-                            title="Delete Case"
-                        >
-                            <Trash2 size={14} className="hover-text-red"/>
-                        </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); runSingleTest && runSingleTest(test.id); }} 
+                                disabled={test.status === "running"}
+                                style={{ 
+                                    color: test.status === "running" ? "#333" : "#8b5cf6", 
+                                    background: "none", 
+                                    border: "none", 
+                                    cursor: test.status === "running" ? "not-allowed" : "pointer", 
+                                    transition: "color 0.2s",
+                                    padding: "4px"
+                                }} 
+                                title="Run this test"
+                            >
+                                <Play size={14} fill={test.status === "running" ? "#333" : "#8b5cf6"}/>
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); removeTestCase(test.id); }} 
+                                style={{ color: "#444", background: "none", border: "none", cursor: "pointer", transition: "color 0.2s", padding: "4px" }} 
+                                title="Delete Case"
+                            >
+                                <Trash2 size={14} className="hover-text-red"/>
+                            </button>
+                        </div>
                     </div>
 
                     {/* CASE BODY (EDITABLE) */}

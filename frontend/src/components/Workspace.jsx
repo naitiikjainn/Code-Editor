@@ -656,6 +656,59 @@ export default function Workspace() {
     setIsRunningTests(false);
   }, [activeFile, rightPanel, testCases]); // Removed activeCode dependency
 
+  // Run a single test case by ID
+  const runSingleTest = useCallback(async (testId) => {
+    if (!activeFile) return;
+    
+    // AUTO RUNNER LOGIC
+    let codeToRun = activeCodeRef.current;
+    if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
+         if (rightPanel?.data) {
+             codeToRun = generateCppRunner(codeToRun, rightPanel.data);
+         }
+    }
+    
+    const testIndex = testCases.findIndex(t => t.id === testId);
+    if (testIndex === -1) return;
+    
+    const test = testCases[testIndex];
+    
+    // Set running state for this test
+    setTestCases(prev => prev.map(t => 
+        t.id === testId ? { ...t, status: "running", actualOutput: "" } : t
+    ));
+
+    try {
+        let data;
+        if (activeFile.language === "javascript") {
+            data = await executeCode(codeToRun, test.input);
+        } else {
+            const res = await fetch(`${API_URL}/api/code/execute`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    language: activeFile.language, 
+                    code: codeToRun, 
+                    stdin: test.input 
+                }),
+            });
+            data = await res.json();
+        }
+        const output = data.run?.output?.trim() || "";
+        
+        setTestCases(prev => prev.map(t => 
+            t.id === testId ? { 
+                ...t, 
+                actualOutput: output,
+                status: output === test.expectedOutput?.trim() ? "accepted" : "wrong_answer"
+            } : t
+        ));
+    } catch (err) {
+        setTestCases(prev => prev.map(t => 
+            t.id === testId ? { ...t, status: "error", actualOutput: "Execution Error" } : t
+        ));
+    }
+  }, [activeFile, rightPanel, testCases]);
+
   // Track if submission is in progress to prevent double submissions
   const submissionInProgressRef = useRef(false);
   const submissionIdRef = useRef(0); // Track which submission we're waiting for
@@ -1502,7 +1555,8 @@ rl.on('line', (line) => {
                         <TestPanel 
                             testCases={testCases} 
                             setTestCases={setTestCases} 
-                            runTests={runTests} 
+                            runTests={runTests}
+                            runSingleTest={runSingleTest}
                             isRunningTests={isRunningTests || isSubmitting}
                             language={activeFile?.language || "text"} // Pass language
                         />
