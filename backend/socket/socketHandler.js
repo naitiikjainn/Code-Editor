@@ -14,33 +14,51 @@ const pendingRequests = new Map(); // roomId -> Map<socketId, { username, socket
 // Helper: Broadcast room state to all users in the room
 const broadcastRoomState = async (io, roomId) => {
   const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-  const users = clients.map((clientId) => userMap.get(clientId)).filter((u) => u && u.status === "active");
+  let users = clients.map((clientId) => userMap.get(clientId)).filter((u) => u && u.status === "active");
 
-  // Check if host is online
-  const hostOnline = users.some(u => u.isHost);
-
-  // Get host info from room
-  let hostUserId = null;
   try {
     const room = await Room.findOne({ roomId });
+    let hostUserId = null;
+    let hostOnline = false;
+
     if (room) {
       hostUserId = room.host.userId?.toString() || null;
+      const correctHostUsername = room.host.username;
+
+      // SANITIZE: Ensure only the real host is marked as host
+      users = users.map(u => {
+        // Force isHost to match DB truth
+        const isRealHost = u.username === correctHostUsername;
+        // Update userMap if inconsistent (self-healing)
+        if (u.isHost !== isRealHost) {
+          console.log(`🔧 Correcting host status for ${u.username}: ${u.isHost} -> ${isRealHost}`);
+          u.isHost = isRealHost;
+        }
+        return { ...u, isHost: isRealHost };
+      });
+
+      hostOnline = users.some(u => u.isHost);
+
       // Update hostOnline in DB
       if (room.hostOnline !== hostOnline) {
         room.hostOnline = hostOnline;
         await room.save();
       }
+    } else {
+      // Fallback if room not found (shouldn't happen often)
+      hostOnline = users.some(u => u.isHost);
     }
+
+    io.to(roomId).emit("room_state", {
+      users,
+      hostOnline,
+      hostUserId,
+      readOnly: !hostOnline // Read-only when host is offline
+    });
+
   } catch (e) {
     console.error("Error updating room state:", e);
   }
-
-  io.to(roomId).emit("room_state", {
-    users,
-    hostOnline,
-    hostUserId,
-    readOnly: !hostOnline // Read-only when host is offline
-  });
 };
 
 export default function socketHandler(io) {
@@ -164,6 +182,16 @@ export default function socketHandler(io) {
       if (targetSocket) {
         const roomId = socket.roomId;
         if (roomId) {
+          // SECURITY CHECK: Verify requester is actually the host
+          // We check DB to be absolutely sure, as session verification (socket.isHost) 
+          // might be stale if the user was the 'False Host' from the bug.
+          const roomCheck = await Room.findOne({ roomId });
+          if (!roomCheck || roomCheck.host.username !== socket.username) {
+            console.warn(`⚠️ Security: Non-host ${socket.username} tried to grant access in ${roomId}`);
+            socket.emit("status_update", { status: "error", message: "Only the host can grant access." });
+            return;
+          }
+
           targetSocket.leave(`${roomId}_waiting`);
           targetSocket.join(roomId);
           targetSocket.roomId = roomId;
@@ -197,11 +225,18 @@ export default function socketHandler(io) {
     });
 
     // --- DENY ACCESS ---
-    socket.on("deny_access", ({ socketId }) => {
+    socket.on("deny_access", async ({ socketId }) => {
       const targetSocket = io.sockets.sockets.get(socketId);
       if (targetSocket) {
         const roomId = socket.roomId;
         if (roomId) {
+          // SECURITY CHECK
+          const roomCheck = await Room.findOne({ roomId });
+          if (!roomCheck || roomCheck.host.username !== socket.username) {
+            console.warn(`⚠️ Security: Non-host ${socket.username} tried to deny access.`);
+            return;
+          }
+
           targetSocket.leave(`${roomId}_waiting`);
           targetSocket.emit("access_denied");
           userMap.delete(socketId);
