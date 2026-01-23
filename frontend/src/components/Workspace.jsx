@@ -754,6 +754,43 @@ export default function Workspace() {
     }
   }, [activeFile, rightPanel, testCases]);
 
+    // --- AUTOSAVE & STATE SYNC (Moved to top level) ---
+    useEffect(() => {
+        if (!activeFile || !activeFile._id || activeFile.type === "preview") return;
+
+        const timeout = setTimeout(async () => {
+            // 1. Update local files array so switching files preserves content
+            setFiles(prev => prev.map(f => 
+                f._id === activeFile._id ? { ...f, content: activeCode } : f
+            ));
+
+            // 2. Persist to Database
+            try {
+                const token = localStorage.getItem("codeplay_token");
+                // If guest, we are editing Host's file, so we pass hostId
+                const targetHostId = isHost ? null : hostUserId;
+                
+                await fetch(`${API_URL}/api/files/${activeFile._id}`, {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        content: activeCode,
+                        hostId: targetHostId
+                    })
+                });
+                // console.log("[Autosave] Saved:", activeFile.name); 
+            } catch (e) {
+                console.error("Autosave failed", e);
+            }
+        }, 3000); // 3 seconds debounce
+
+        return () => clearTimeout(timeout);
+    }, [activeCode, activeFile?._id, isHost, hostUserId]); // Only re-run if code or file changes
+
+
   // Track if submission is in progress to prevent double submissions
   const submissionInProgressRef = useRef(false);
   const submissionIdRef = useRef(0); // Track which submission we're waiting for
@@ -1011,40 +1048,7 @@ export default function Workspace() {
     }
 
     // --- AUTOSAVE & STATE SYNC ---
-    useEffect(() => {
-        if (!activeFile || !activeFile._id || activeFile.type === "preview") return;
 
-        const timeout = setTimeout(async () => {
-            // 1. Update local files array so switching files preserves content
-            setFiles(prev => prev.map(f => 
-                f._id === activeFile._id ? { ...f, content: activeCode } : f
-            ));
-
-            // 2. Persist to Database
-            try {
-                const token = localStorage.getItem("codeplay_token");
-                // If guest, we are editing Host's file, so we pass hostId
-                const targetHostId = isHost ? null : hostUserId;
-                
-                await fetch(`${API_URL}/api/files/${activeFile._id}`, {
-                    method: "PUT",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        content: activeCode,
-                        hostId: targetHostId
-                    })
-                });
-                // console.log("[Autosave] Saved:", activeFile.name); 
-            } catch (e) {
-                console.error("Autosave failed", e);
-            }
-        }, 3000); // 3 seconds debounce
-
-        return () => clearTimeout(timeout);
-    }, [activeCode, activeFile?._id, isHost, hostUserId]); // Only re-run if code or file changes
 
     let cookie = null;
     let csrfToken = null;
