@@ -54,22 +54,31 @@ const FloatingNav = ({ user, logout, setAuthOpen }) => (
 );
 
 // 2. HERO SECTION
+// 2. HERO SECTION
 const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
-  const mouse = useMousePosition();
-  const heroRef = useRef(null);
+  const containerRef = useRef(null);
+  const visualWindowRef = useRef(null);
 
-  const calculateTilt = () => {
-    if (!heroRef.current) return { x: 0, y: 0 };
-    const rect = heroRef.current.getBoundingClientRect();
-    const x = (mouse.x - rect.left - rect.width / 2) / 30;
-    const y = -(mouse.y - rect.top - rect.height / 2) / 30;
-    return { x, y };
-  };
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!containerRef.current || !visualWindowRef.current) return;
+      
+      const { clientX, clientY } = e;
+      const rect = containerRef.current.getBoundingClientRect();
+      
+      const x = (clientX - rect.left - rect.width / 2) / 30;
+      const y = -(clientY - rect.top - rect.height / 2) / 30;
+      
+      // Direct DOM update - No React render cycle
+      visualWindowRef.current.style.transform = `perspective(1000px) rotateY(${x}deg) rotateX(${y}deg)`;
+    };
 
-  const tilt = calculateTilt();
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []);
 
   return (
-    <section className="hero-section" ref={heroRef}>
+    <section className="hero-section" ref={containerRef}>
       <div className="hero-content">
         <div className="pill-badge">
           <Sparkles size={12} className="text-accent" />
@@ -103,50 +112,263 @@ const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
         </div>
       </div>
 
-      <div className="hero-visual" style={{ transform: `perspective(1000px) rotateY(${tilt.x}deg) rotateX(${tilt.y}deg)` }}>
-        <div className="visual-window">
-          <div className="window-bar">
-            <div className="dots">
-              <div className="dot red"/>
-              <div className="dot yellow"/>
-              <div className="dot green"/>
-            </div>
-            <div className="window-title">collaboration.tsx</div>
-          </div>
-            <div className="window-content code-block-container">
-              <pre className="code-block"><code>{`<span class="ln">1</span><span class="k">import</span> { Editor, useCollaboration } <span class="k">from</span> <span class="s">'codeplay-sdk'</span>;
-<span class="ln">2</span><span class="c">//  Welcome to the next generation of coding</span>
-<span class="ln">3</span><span class="k">export default function</span> <span class="f">LiveSession</span>() {
-<span class="ln">4</span>  <span class="c">// Connect to real-time multiplayer room</span>
-<span class="ln">5</span>  <span class="k">const</span> { peers, isSynced } = <span class="f">useCollaboration</span>(<span class="s">'room-id-88'</span>);
-<span class="ln">6</span>
-<span class="ln">7</span>  <span class="k">return</span> (
-<span class="ln">8</span>    &lt;<span class="t">div</span> <span class="p">className</span>=<span class="s">"workspace-container"</span>&gt;
-<span class="ln">9</span>      &lt;<span class="t">Editor</span>
-<span class="ln">10</span>        <span class="p">filename</span>=<span class="s">"collaboration.tsx"</span>
-<span class="ln">11</span>        <span class="p">theme</span>=<span class="s">"vs-dark"</span>
-<span class="ln">12</span>        <span class="p">mode</span>=<span class="s">"live-share"</span>
-<span class="ln">13</span>        <span class="p">ai</span>={{ 
-<span class="ln">14</span>          <span class="p">suggestions</span>: <span class="k">true</span>, 
-<span class="ln">15</span>          <span class="p">model</span>: <span class="s">'gemini-2.5-flash'</span> 
-<span class="ln">16</span>        }}
-<span class="ln">17</span>        <span class="p">cursors</span>={peers.map(p =&gt; p.cursor)}
-<span class="ln">18</span>      /&gt;
-<span class="ln">19</span>    &lt;/<span class="t">div</span>&gt;
-<span class="ln">20</span>  );
-<span class="ln">21</span>}`}</code></pre>
-
-              <div className="cursor-badge">
-                <MousePointer2 size={12} fill="#8b5cf6" />
-                <span>CodePlay</span>
-              </div>
-            </div>
-        </div>
-        <div className="glow-effect" />
-      </div>
+      <HeroVisual ref={visualWindowRef} />
     </section>
   );
 };
+
+// --- HERO VISUAL (3D VS CODE MOCKUP) ---
+const HeroVisual = React.forwardRef((props, ref) => {
+  return (
+    <div className="hero-visual" ref={ref} style={{ transition: "transform 0.1s ease-out" }}>
+      <div className="visual-window">
+        
+        {/* 1. TITLE BAR */}
+        <div className="window-bar">
+          <div className="dots">
+            <div className="dot red"/>
+            <div className="dot yellow"/>
+            <div className="dot green"/>
+          </div>
+          <div className="tab-container">
+            <div className="tab active">
+              <span className="file-icon tsx-icon">TSX</span>
+              <span>collaboration.tsx</span>
+              <span className="close-icon">×</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. EDITOR BODY */}
+        <div className="editor-body">
+          {/* Gutter (Line Numbers) */}
+          <div className="gutter">
+            {Array.from({length: 21}).map((_, i) => (
+              <div key={i} className="gutter-ln">{i + 1}</div>
+            ))}
+          </div>
+
+          {/* Code Content */}
+          <div className="code-content">
+             <div className="code-line"><span className="k">import</span> {"{ Editor, useCollaboration }"} <span className="k">from</span> <span className="s">'codeplay-sdk'</span>;</div>
+             <div className="code-line"><span className="c">//  Welcome to the next generation of coding</span></div>
+             <div className="code-line"><span className="k">export default function</span> <span className="f">LiveSession</span>() {"{"}</div>
+             <div className="code-line indent"><span className="c">// Connect to real-time multiplayer room</span></div>
+             <div className="code-line indent"><span className="k">const</span> {"{ peers, isSynced }"} = <span className="f">useCollaboration</span>(<span className="s">'room-id-88'</span>);</div>
+             <div className="code-line"></div>
+             <div className="code-line indent"><span className="k">return</span> (</div>
+             <div className="code-line indent-2">&lt;<span className="t">div</span> <span className="p">className</span>=<span className="s">"workspace-container"</span>&gt;</div>
+             <div className="code-line indent-3">&lt;<span className="t">Editor</span></div>
+             <div className="code-line indent-4"><span className="p">filename</span>=<span className="s">"collaboration.tsx"</span></div>
+             <div className="code-line indent-4"><span className="p">theme</span>=<span className="s">"vs-dark"</span></div>
+             <div className="code-line indent-4"><span className="p">mode</span>=<span className="s">"live-share"</span></div>
+             <div className="code-line indent-4"><span className="p">ai</span>={"{{ "}</div>
+             <div className="code-line indent-5"><span className="p">suggestions</span>: <span className="k">true</span>,</div>
+             <div className="code-line indent-5"><span className="p">model</span>: <span className="s">'gemini-2.5-flash'</span></div>
+             <div className="code-line indent-4">{"}}"}</div>
+             <div className="code-line indent-4"><span className="p">cursors</span>={"{"}peers.map(p =&gt; p.cursor){"}"}</div>
+             <div className="code-line indent-3">/&gt;</div>
+             <div className="code-line indent-2">&lt;/<span className="t">div</span>&gt;</div>
+             <div className="code-line indent">);</div>
+             <div className="code-line">{"}"}</div>
+
+             {/* Cursor Overlay */}
+             <div className="cursor-badge">
+                <MousePointer2 size={12} fill="#ffffff" />
+                <span>CodePlay</span>
+              </div>
+          </div>
+
+
+        </div>
+
+        {/* 3. STATUS BAR */}
+        <div className="status-bar">
+           <div className="sb-left">
+              <div className="sb-item"><Zap size={10} /> master*</div>
+              <div className="sb-item">0 errors</div>
+           </div>
+           <div className="sb-right">
+              <div className="sb-item">Ln 21, Col 1</div>
+              <div className="sb-item">UTF-8</div>
+              <div className="sb-item">TypeScript React</div>
+              <div className="sb-item"><Users size={10} /> CodePlay</div>
+           </div>
+        </div>
+
+      </div>
+      <div className="glow-effect" />
+    </div>
+  );
+});
+
+/* --- HERO VISUAL CSS (VS CODE THEME) --- */
+const cssHeroVisual = `
+.hero-visual {
+  width: 90%;
+  max-width: 900px;
+  height: auto;
+  aspect-ratio: 16/10;
+  position: relative;
+  transition: transform 0.1s ease-out;
+  animation: heroEntry 1s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  perspective: 1000px;
+}
+
+.visual-window {
+  width: 100%;
+  height: 100%;
+  background: #000000; /* Dark Black */
+  border-radius: 8px; /* Sharper corners like actual windows */
+  box-shadow: 
+    0 50px 100px -20px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(255,255,255,0.05); /* Border ring */
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* 1. TITLE BAR */
+.window-bar {
+  height: 35px;
+  background: #0a0a0a; /* Darker Title Bar */
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+}
+
+.dots { display: flex; gap: 8px; opacity: 0.8; margin-right: 16px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; }
+
+.tab-container {
+  display: flex;
+  height: 100%;
+  align-items: flex-end;
+}
+
+.tab {
+  background: #000000; /* Active Tab */
+  color: #ffffff;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  font-size: 13px;
+  border-right: 1px solid #111;
+  border-top: 1px solid #007acc; /* VS Code Active Tab highlight */
+  position: relative;
+}
+
+.file-icon { font-size: 12px; font-weight: bold; }
+.tsx-icon { color: #61DAFB; }
+.close-icon { color: #aaa; margin-left: 4px; font-size: 16px; opacity: 0; }
+.tab:hover .close-icon { opacity: 1; }
+
+/* 2. EDITOR BODY */
+.editor-body {
+  flex: 1;
+  display: flex;
+  background: #000000;
+  overflow: hidden;
+  position: relative;
+}
+
+.gutter {
+  width: 50px;
+  background: #000000;
+  border-right: 1px solid #111; /* Slight border? VS Code actually doesn't strictly have one, but helps separation */
+  display: flex;
+  flex-direction: column;
+  padding-top: 16px;
+  align-items: flex-end;
+  padding-right: 16px;
+  color: #858585; /* Line number color */
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  user-select: none;
+}
+
+.code-content {
+  line-height: 1.5;
+  color: #d4d4d4;
+  overflow: hidden;
+  position: relative;
+  text-align: left;
+}
+
+.code-line { white-space: pre; }
+.indent { padding-left: 2ch; }
+.indent-2 { padding-left: 4ch; }
+.indent-3 { padding-left: 6ch; }
+.indent-4 { padding-left: 8ch; }
+.indent-5 { padding-left: 10ch; }
+
+/* VS Code Dark+ Colors */
+.k { color: #569cd6; } /* keywords: import, export, const, return */
+.f { color: #dcdcaa; } /* functions */
+.c { color: #6a9955; } /* comments */
+.s { color: #ce9178; } /* strings */
+.t { color: #4ec9b0; } /* types */
+.p { color: #9cdcfe; } /* properties/variables */
+
+/* Cursor */
+.cursor-badge {
+  position: absolute;
+  top: 55%;
+  left: 60%;
+  background: #ea8124; /* Different color */
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border-top-left-radius: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  animation: floatCursor 6s ease-in-out infinite;
+  z-index: 10;
+  font-family: sans-serif;
+}
+
+
+
+/* 3. STATUS BAR */
+.status-bar {
+  height: 22px;
+  background: #007acc; /* VS Code Blue */
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 11px;
+  user-select: none;
+}
+
+.sb-left, .sb-right { display: flex; gap: 16px; }
+.sb-item { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.sb-item:hover { opacity: 0.8; }
+
+.glow-effect {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 110%; height: 110%;
+  background: radial-gradient(circle, rgba(97, 218, 251, 0.15) 0%, transparent 70%); /* React Blue Glow */
+  filter: blur(80px);
+  z-index: 1;
+  animation: pulseGlow 5s ease-in-out infinite;
+  pointer-events: none;
+}
+`;
+
 
 // 3. FEATURES SPOTLIGHT (SYMMETRIC GRID REDESIGN)
 const FeaturesSpotlight = () => (
@@ -263,7 +485,7 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-container">
-      <style>{cssStyles}</style>
+      <style>{cssStyles + cssHeroVisual}</style>
       <div className="bg-gradient" />
 
       <FloatingNav user={user} logout={logout} setAuthOpen={setAuthOpen} />
@@ -399,20 +621,128 @@ const cssStyles = `
 .btn-create:hover { transform: scale(1.02); }
 
 /* --- HERO VISUAL (3D) --- */
-.hero-visual { width: 800px; height: 500px; position: relative; transition: transform 0.1s ease-out; }
-.visual-window { width: 100%; height: 100%; background: #0a0a0a; border: 1px solid #222; border-radius: 16px; box-shadow: 0 50px 100px -20px rgba(0,0,0,0.5); overflow: hidden; position: relative; z-index: 2; }
-.window-bar { height: 40px; background: #111; border-bottom: 1px solid #222; display: flex; align-items: center; padding: 0 16px; }
-.dots { display: flex; gap: 6px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; }
-.red { background: #ef4444; } .yellow { background: #eab308; } .green { background: #22c55e; }
-.window-title { flex: 1; text-align: center; color: #444; font-size: 12px; font-family: monospace; }
-.window-content { padding: 24px; font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #d4d4d4; }
-.code-line { line-height: 1.6; } .indent { padding-left: 20px; } .indent-2 { padding-left: 40px; } .indent-3 { padding-left: 60px; }
-.k { color: #c084fc; } .f { color: #f472b6; } .c { color: #6272a4; } .s { color: #f1fa8c; } .t { color: #8be9fd; } .p { color: #ff79c6; }
-.cursor-badge { position: absolute; top: 180px; left: 200px; background: rgba(139, 92, 246, 0.2); border: 1px solid #8b5cf6; color: #8b5cf6; padding: 4px 8px; border-radius: 100px; border-top-left-radius: 0; display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; animation: floatCursor 4s ease-in-out infinite; }
-@keyframes floatCursor { 0%, 100% { transform: translate(0,0); } 50% { transform: translate(20px, 40px); } }
-.glow-effect { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; height: 300px; background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%); filter: blur(60px); z-index: 1; animation: pulseGlow 4s ease-in-out infinite; }
-@keyframes pulseGlow { 0%, 100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); } 50% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); } }
+.hero-visual {
+  width: 90%;
+  max-width: 900px;
+  height: auto;
+  aspect-ratio: 16/10;
+  position: relative;
+  transition: transform 0.1s ease-out;
+  animation: heroEntry 1s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+@keyframes heroEntry {
+  from { opacity: 0; transform: translateY(60px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.visual-window {
+  width: 100%;
+  height: 100%;
+  background: rgba(10, 10, 10, 0.85); /* More transparent for glass effect */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08); /* Lighter border */
+  border-radius: 16px;
+  box-shadow: 
+    0 50px 100px -20px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(255,255,255,0.05) inset; /* Inner glow */
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+}
+
+.window-bar {
+  height: 48px; /* Slightly taller */
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.dots { display: flex; gap: 8px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+.red { background: #ff5f56; } .yellow { background: #ffbd2e; } .green { background: #27c93f; }
+
+.window-title {
+  flex: 1;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+}
+
+.window-content {
+  flex: 1;
+  padding: 32px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px; /* Larger font */
+  color: #e4e4e7;
+  overflow: hidden;
+  position: relative;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01) 0%, transparent 100%);
+}
+
+.code-line { line-height: 1.7; } 
+.indent { padding-left: 24px; } 
+.indent-2 { padding-left: 48px; } 
+.indent-3 { padding-left: 72px; }
+
+/* Syntax Highlighting - Vibrant */
+.k { color: #c084fc; font-weight: 500; } /* keywords */
+.f { color: #60a5fa; } /* functions */
+.c { color: #52525b; font-style: italic; } /* comments */
+.s { color: #a5f3fc; } /* strings */
+.t { color: #f472b6; } /* types/components */
+.p { color: #c084fc; } /* props */
+.ln { display: inline-block; width: 32px; color: rgba(255,255,255,0.1); user-select: none; }
+
+.cursor-badge {
+  position: absolute;
+  top: 45%;
+  left: 55%;
+  background: #8b5cf6;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border-top-left-radius: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  animation: floatCursor 5s ease-in-out infinite;
+  z-index: 10;
+}
+
+@keyframes floatCursor {
+  0%, 100% { transform: translate(0,0); }
+  50% { transform: translate(30px, 40px); }
+}
+
+.glow-effect {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 120%;
+  height: 120%;
+  background: radial-gradient(circle at center, rgba(139,92,246,0.15) 0%, transparent 60%);
+  filter: blur(80px);
+  z-index: 1;
+  pointer-events: none;
+  animation: pulseGlow 5s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.1); }
+}
 
 /* --- FEATURES SPOTLIGHT --- */
 .spotlight-section { padding: 120px 0; }
