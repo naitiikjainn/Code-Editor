@@ -3,8 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API_URL } from "../config";
 import AuthModal from "./AuthModal";
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+// Syntax highlighter removed for stability
 import { 
   Code2, Sparkles, Users, Zap, Terminal, ArrowRight,
   Cpu, PenTool, Trophy, Send, MousePointer2
@@ -114,36 +113,28 @@ const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
             </div>
             <div className="window-title">collaboration.tsx</div>
           </div>
-            <div className="window-content" style={{ padding: 0, background: '#1e1e1e' }}>
-              <SyntaxHighlighter 
-                language="jsx" 
-                style={vscDarkPlus}
-                showLineNumbers={true}
-                customStyle={{ margin: 0, padding: '24px', background: 'transparent', fontSize: '14px', lineHeight: '1.5' }}
-                lineNumberStyle={{ minWidth: '2em', paddingRight: '1em', color: '#6e7681' }}
-              >
-{`import { Editor, useCollaboration } from 'codeplay-sdk';
-//  Welcome to the next generation of coding
-export default function LiveSession() {
-  // Connect to real-time multiplayer room
-  const { peers, isSynced } = useCollaboration('room-id-88');
-
-  return (
-    <div className="workspace-container">
-      <Editor
-        filename="collaboration.tsx"
-        theme="vs-dark"
-        mode="live-share"
-        ai={{ 
-          suggestions: true, 
-          model: 'gemini-2.5-flash' 
-        }}
-        cursors={peers.map(p => p.cursor)}
-      />
-    </div>
-  );
-}`}
-              </SyntaxHighlighter>
+            <div className="window-content code-block-container">
+              <pre className="code-block"><code>{`<span class="ln">1</span><span class="k">import</span> { Editor, useCollaboration } <span class="k">from</span> <span class="s">'codeplay-sdk'</span>;
+<span class="ln">2</span><span class="c">//  Welcome to the next generation of coding</span>
+<span class="ln">3</span><span class="k">export default function</span> <span class="f">LiveSession</span>() {
+<span class="ln">4</span>  <span class="c">// Connect to real-time multiplayer room</span>
+<span class="ln">5</span>  <span class="k">const</span> { peers, isSynced } = <span class="f">useCollaboration</span>(<span class="s">'room-id-88'</span>);
+<span class="ln">6</span>
+<span class="ln">7</span>  <span class="k">return</span> (
+<span class="ln">8</span>    &lt;<span class="t">div</span> <span class="p">className</span>=<span class="s">"workspace-container"</span>&gt;
+<span class="ln">9</span>      &lt;<span class="t">Editor</span>
+<span class="ln">10</span>        <span class="p">filename</span>=<span class="s">"collaboration.tsx"</span>
+<span class="ln">11</span>        <span class="p">theme</span>=<span class="s">"vs-dark"</span>
+<span class="ln">12</span>        <span class="p">mode</span>=<span class="s">"live-share"</span>
+<span class="ln">13</span>        <span class="p">ai</span>={{ 
+<span class="ln">14</span>          <span class="p">suggestions</span>: <span class="k">true</span>, 
+<span class="ln">15</span>          <span class="p">model</span>: <span class="s">'gemini-2.5-flash'</span> 
+<span class="ln">16</span>        }}
+<span class="ln">17</span>        <span class="p">cursors</span>={peers.map(p =&gt; p.cursor)}
+<span class="ln">18</span>      /&gt;
+<span class="ln">19</span>    &lt;/<span class="t">div</span>&gt;
+<span class="ln">20</span>  );
+<span class="ln">21</span>}`}</code></pre>
 
               <div className="cursor-badge">
                 <MousePointer2 size={12} fill="#8b5cf6" />

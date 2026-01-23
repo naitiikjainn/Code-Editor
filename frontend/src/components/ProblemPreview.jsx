@@ -3,8 +3,9 @@ import { Play, Clock, Database, Tag, Copy, Check, Globe, X, BookOpen, Loader2, E
 import "katex/dist/katex.min.css";
 import katex from "katex";
 import { getEditorial, extractCodeBlocks } from "../utils/editorialService";
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+// SyntaxHighlighter removed
+// import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+// import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // --- MATH RENDERER ---
 const renderMath = (html) => {
@@ -764,14 +765,9 @@ export default function ProblemPreview({ problem, onCodeNow }) {
                                                             {copiedCodeIndex === idx ? 'Copied!' : 'Copy'}
                                                         </button>
                                                     </div>
-                                                    <SyntaxHighlighter
-                                                        language={block.language === "cpp" ? "cpp" : "python"} // Simple mapping, can be improved
-                                                        style={vscDarkPlus}
-                                                        showLineNumbers={true}
-                                                        customStyle={{ margin: 0, padding: "16px", fontSize: "13px", lineHeight: "1.5", maxHeight: "400px" }}
-                                                    >
-                                                        {block.code}
-                                                    </SyntaxHighlighter>
+                                                    <pre style={{ margin: 0, padding: "16px", fontSize: "13px", lineHeight: "1.5", maxHeight: "400px", background: "#0a0a0a", color: "#d4d4d8", overflowX: "auto", fontFamily: "Consolas, monospace" }}>
+                                                        <code>{block.code}</code>
+                                                    </pre>
                                                 </div>
                                             ))}
                                         </div>

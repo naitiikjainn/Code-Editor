@@ -1,7 +1,8 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+// SyntaxHighlighter removed
+// import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+// import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 export default function AIPanel({ open, onClose, onAsk }) {
   const [prompt, setPrompt] = useState("");
@@ -47,16 +48,11 @@ export default function AIPanel({ open, onClose, onAsk }) {
             </button>
           </div>
           
-          {/* The Syntax Highlighter */}
-          <SyntaxHighlighter
-            style={vscDarkPlus}
-            language={match[1]}
-            PreTag="div"
-            customStyle={{ margin: 0, padding: "12px", fontSize: "13px" }}
-            {...props}
-          >
-            {codeString}
-          </SyntaxHighlighter>
+          
+          {/* Static Code Block */}
+          <div style={{ margin: 0, padding: "12px", background: "#1e1e1e", color: "#d4d4d8", overflowX: "auto", fontSize: "13px", fontFamily: "Consolas, monospace" }}>
+             <pre style={{ margin: 0 }}>{codeString}</pre>
+          </div>
         </div>
       );
     }
