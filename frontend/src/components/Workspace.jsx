@@ -1108,13 +1108,22 @@ export default function Workspace() {
              codeToSubmit = codeToSubmit.split("int main() {")[0];
         }
 
+        // Map internal language names to LeetCode's expected lang slugs
+        const leetcodeLangMap = {
+            cpp: "cpp",
+            java: "java",
+            python: "python3",
+            javascript: "javascript"
+        };
+        const leetcodeLang = leetcodeLangMap[activeFile?.language] || "cpp";
+
         const res = await fetch(`${API_URL}/api/leettools/submit`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 slug: problem.titleSlug,
                 questionId: problem.questionId,
-                lang: "cpp",
+                lang: leetcodeLang,
                 code: codeToSubmit,
                 cookie,
                 csrfToken
@@ -1206,7 +1215,7 @@ export default function Workspace() {
                          problemName: problem.title || problem.titleSlug,
                          platform: "leetcode",
                          code: codeToSubmit,
-                         language: "cpp",
+                         language: activeFile?.language || "cpp",
                          verdict: isSuccess ? "Accepted" : result.status_msg,
                          visibility: "public"
                      })
