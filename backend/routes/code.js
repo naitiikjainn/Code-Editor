@@ -19,16 +19,16 @@ const sanitizeCode = (code, maxLength = 100000) => {
 router.post("/execute", async (req, res) => {
   // 1. Accept 'stdin' from the request
   const { language, code, stdin } = req.body;
-  
+
   // Validate inputs
   if (!language || typeof language !== 'string') {
     return res.status(400).json({ error: "Language is required" });
   }
-  
+
   if (!code || typeof code !== 'string') {
     return res.status(400).json({ error: "Code is required" });
   }
-  
+
   console.log(`🚀 Executing ${language} code...`);
 
   if (!RUNTIMES[language]) {
@@ -48,7 +48,7 @@ router.post("/execute", async (req, res) => {
         version: runtime.version,
         files: [{
           content: sanitizedCode,
-          name: language === "cpp" ? "main.cpp" : (language === "java" ? "Main.java" : "main.py")
+          name: language === "cpp" ? "main.cpp" : language === "java" ? "Main.java" : language === "python" ? "main.py" : "index.js"
         }],
         stdin: sanitizedStdin,
       }),

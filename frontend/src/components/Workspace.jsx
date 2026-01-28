@@ -11,6 +11,7 @@ import FileExplorer from "./FileExplorer";
 import ParticipantsPanel from "./ParticipantsPanel";
 import TestPanel from "./TestPanel";
 import { generateCppRunner } from "../utils/cppRunner"; 
+import { generateJavaRunner } from "../utils/javaRunner"; 
 import { executeCode } from "../utils/execution"; 
 import ProblemBrowser from "./ProblemBrowser"; 
 import CP31Browser from "./CP31Browser";
@@ -609,12 +610,21 @@ export default function Workspace() {
 
     if (id) socket.emit("sync_run_trigger", { roomId: id, username: user.username });
 
-    // AUTO RUNNER LOGIC - Use Ref for stable callback
+    // AUTO RUNNER LOGIC - C++ - Use Ref for stable callback
     let codeToRun = activeCodeRef.current;
     if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
          if (rightPanel?.data) {
-             console.log("Injecting Auto-Runner...");
+             console.log("Injecting C++ Auto-Runner...");
              codeToRun = generateCppRunner(codeToRun, rightPanel.data);
+         } else {
+             setLogs(prev => [...prev, { type: "warning", message: "Warning: Problem description (Right Panel) is closed. Auto-runner might fail." }]);
+         }
+    }
+    // AUTO RUNNER LOGIC - Java
+    if (activeFile.language === "java" && codeToRun.includes("class Solution") && !codeToRun.includes("public static void main")) {
+         if (rightPanel?.data) {
+             console.log("Injecting Java Auto-Runner...");
+             codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
          } else {
              setLogs(prev => [...prev, { type: "warning", message: "Warning: Problem description (Right Panel) is closed. Auto-runner might fail." }]);
          }
@@ -654,11 +664,17 @@ export default function Workspace() {
     if (!activeFile) return;
     setIsRunningTests(true);
     
-    // AUTO RUNNER LOGIC
+    // AUTO RUNNER LOGIC - C++
     let codeToRun = activeCodeRef.current; // Use Ref
     if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
          if (rightPanel?.data) {
              codeToRun = generateCppRunner(codeToRun, rightPanel.data);
+         }
+    }
+    // AUTO RUNNER LOGIC - Java
+    if (activeFile.language === "java" && codeToRun.includes("class Solution") && !codeToRun.includes("public static void main")) {
+         if (rightPanel?.data) {
+             codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
          }
     }
     
@@ -712,11 +728,17 @@ export default function Workspace() {
         return;
     }
     
-    // AUTO RUNNER LOGIC
+    // AUTO RUNNER LOGIC - C++
     let codeToRun = activeCodeRef.current;
     if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
          if (rightPanel?.data) {
              codeToRun = generateCppRunner(codeToRun, rightPanel.data);
+         }
+    }
+    // AUTO RUNNER LOGIC - Java
+    if (activeFile.language === "java" && codeToRun.includes("class Solution") && !codeToRun.includes("public static void main")) {
+         if (rightPanel?.data) {
+             codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
          }
     }
     
@@ -1504,28 +1526,40 @@ rl.on('line', (line) => {
                     const inputLines = lines.slice(i, i + argCount);
                     if (inputLines.length === argCount) {
                         parsedTests.push({
+                            id: Date.now() + testIndex,
                             input: inputLines.join('\n'),
-                            expectedOutput: expectedOutputs[testIndex] || ""
+                            expectedOutput: expectedOutputs[testIndex] || "",
+                            status: "idle",
+                            actualOutput: "",
+                            expanded: true
                         });
                         testIndex++;
                     }
                 }
                 
-                setTestCases(parsedTests.length > 0 ? parsedTests : [{ input: "", expectedOutput: "" }]);
+                setTestCases(parsedTests.length > 0 ? parsedTests : [{ id: Date.now(), input: "", expectedOutput: "", status: "idle", actualOutput: "", expanded: true }]);
                 console.log("[LeetCode] Parsed", parsedTests.length, "test cases with", argCount, "args each, found", expectedOutputs.length, "expected outputs");
             } else if (problem.testCases && Array.isArray(problem.testCases)) {
-                setTestCases(problem.testCases.map(tc => ({
+                setTestCases(problem.testCases.map((tc, idx) => ({
+                    id: Date.now() + idx,
                     input: tc.input || "",
-                    expectedOutput: tc.expectedOutput || tc.output || ""
+                    expectedOutput: tc.expectedOutput || tc.output || "",
+                    status: "idle",
+                    actualOutput: "",
+                    expanded: true
                 })));
             } else {
-                setTestCases([{ input: "", expectedOutput: "" }]);
+                setTestCases([{ id: Date.now(), input: "", expectedOutput: "", status: "idle", actualOutput: "", expanded: true }]);
             }
         } else if (problem.testCases && Array.isArray(problem.testCases)) {
             // Codeforces/GFG: standard format
-            setTestCases(problem.testCases.map(tc => ({
+            setTestCases(problem.testCases.map((tc, idx) => ({
+                id: Date.now() + idx,
                 input: tc.input || "",
-                expectedOutput: tc.expectedOutput || tc.output || ""
+                expectedOutput: tc.expectedOutput || tc.output || "",
+                status: "idle",
+                actualOutput: "",
+                expanded: true
             })));
         } else {
             setTestCases([]);
