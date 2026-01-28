@@ -48,7 +48,7 @@ router.post("/execute", async (req, res) => {
         version: runtime.version,
         files: [{
           content: sanitizedCode,
-          name: language === "cpp" ? "main.cpp" : language === "java" ? "Main.java" : language === "python" ? "main.py" : "index.js"
+          name: language === "cpp" ? "main.cpp" : language === "java" ? "Solution.java" : language === "python" ? "main.py" : "index.js"
         }],
         stdin: sanitizedStdin,
       }),

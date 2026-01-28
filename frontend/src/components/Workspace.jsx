@@ -1425,12 +1425,25 @@ rl.on('line', (line) => {
             }
         }
 
-
         // 2. Create File
         const extMap = { cpp: "cpp", java: "java", python: "py", javascript: "js" };
         const ext = extMap[language] || "txt";
-        // Ensure Main.java for Java if required, or unique name
-        const fileName = language === "java" ? "Main.java" : `solution_${problem.id}.${ext}`; 
+        
+        // Generate unique file name based on problem
+        let fileName;
+        if (language === "java") {
+            // For Java, create unique filename based on problem slug
+            // Convert slug like "two-sum" to "TwoSum.java"
+            const slug = problem.titleSlug || problem.id || "Solution";
+            const javaClassName = slug
+                .split('-')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join('');
+            fileName = `${javaClassName}.java`;
+        } else {
+            // For other languages, use solution_<problem_id>.<ext>
+            fileName = `solution_${problem.titleSlug || problem.id}.${ext}`;
+        }
         
         let targetFile = files.find(f => f.name === fileName);
         
