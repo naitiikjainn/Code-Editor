@@ -703,7 +703,14 @@ export default function Workspace() {
 
   // Run a single test case by ID
   const runSingleTest = useCallback(async (testId) => {
-    if (!activeFile) return;
+    if (!activeFile) {
+        setLogs(prev => [...prev, { type: "error", message: "No file selected to run test." }]);
+        return;
+    }
+    if (!user) {
+        setAuthModalOpen(true);
+        return;
+    }
     
     // AUTO RUNNER LOGIC
     let codeToRun = activeCodeRef.current;
@@ -714,14 +721,24 @@ export default function Workspace() {
     }
     
     const testIndex = testCases.findIndex(t => t.id === testId);
-    if (testIndex === -1) return;
+    if (testIndex === -1) {
+        setLogs(prev => [...prev, { type: "error", message: "Test case not found." }]);
+        return;
+    }
     
     const test = testCases[testIndex];
+    const testNumber = testIndex + 1;
     
     // Set running state for this test
     setTestCases(prev => prev.map(t => 
         t.id === testId ? { ...t, status: "running", actualOutput: "" } : t
     ));
+    
+    // Show in console
+    setConsoleOpen(true);
+    setLogs(prev => [...prev, { type: "info", message: `Running Test ${testNumber}...` }]);
+
+    const startTime = Date.now();
 
     try {
         let data;
@@ -738,21 +755,42 @@ export default function Workspace() {
             });
             data = await res.json();
         }
+        
+        const executionTime = Date.now() - startTime;
         const output = data.run?.output?.trim() || "";
+        const isAccepted = output === test.expectedOutput?.trim();
         
         setTestCases(prev => prev.map(t => 
             t.id === testId ? { 
                 ...t, 
                 actualOutput: output,
-                status: output === test.expectedOutput?.trim() ? "accepted" : "wrong_answer"
+                status: isAccepted ? "accepted" : "wrong_answer"
             } : t
         ));
+        
+        // Log result to console
+        if (isAccepted) {
+            setLogs(prev => [...prev, { 
+                type: "success", 
+                message: `✓ Test ${testNumber} PASSED (${executionTime}ms)` 
+            }]);
+        } else {
+            setLogs(prev => [...prev, { 
+                type: "error", 
+                message: `✗ Test ${testNumber} FAILED (${executionTime}ms)\nExpected: ${test.expectedOutput?.trim()}\nGot: ${output}` 
+            }]);
+        }
     } catch (err) {
+        const executionTime = Date.now() - startTime;
         setTestCases(prev => prev.map(t => 
-            t.id === testId ? { ...t, status: "error", actualOutput: "Execution Error" } : t
+            t.id === testId ? { ...t, status: "error", actualOutput: err.message || "Execution Error" } : t
         ));
+        setLogs(prev => [...prev, { 
+            type: "error", 
+            message: `✗ Test ${testNumber} ERROR (${executionTime}ms): ${err.message || "Execution failed"}` 
+        }]);
     }
-  }, [activeFile, rightPanel, testCases]);
+  }, [activeFile, rightPanel, testCases, user]);
 
     // --- AUTOSAVE & STATE SYNC (Moved to top level) ---
     useEffect(() => {
