@@ -21,4 +21,12 @@ const SubmissionSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// Compound indexes for common queries
+SubmissionSchema.index({ userId: 1, createdAt: -1 }); // User's recent submissions
+SubmissionSchema.index({ userId: 1, platform: 1 }); // User submissions by platform
+SubmissionSchema.index({ userId: 1, problemId: 1 }); // User submissions for problem
+SubmissionSchema.index({ problemId: 1, visibility: 1 }); // Public submissions for problem
+SubmissionSchema.index({ platform: 1, verdict: 1, createdAt: -1 }); // Leaderboard queries
+SubmissionSchema.index({ visibility: 1, createdAt: -1 }); // Recent public submissions
+
 export default mongoose.model("Submission", SubmissionSchema);

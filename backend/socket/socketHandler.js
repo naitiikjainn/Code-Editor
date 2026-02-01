@@ -11,6 +11,97 @@ const voiceUsers = new Map(); // roomId -> Set<{ id, username }>
 // --- PENDING ENTRY REQUESTS (persists across host refresh) ---
 const pendingRequests = new Map(); // roomId -> Map<socketId, { username, socketId }>
 
+// --- THROTTLING / BATCHING UTILITIES ---
+const throttleMap = new Map(); // key -> { lastCall, pending }
+const batchQueues = new Map(); // roomId -> { events: [], timer }
+
+/**
+ * Throttle function calls - useful for high-frequency events
+ * @param {string} key - Unique key for this throttle
+ * @param {Function} fn - Function to throttle
+ * @param {number} delay - Minimum delay between calls (ms)
+ */
+const throttle = (key, fn, delay = 50) => {
+    const now = Date.now();
+    const state = throttleMap.get(key) || { lastCall: 0, pending: null };
+    
+    if (now - state.lastCall >= delay) {
+        state.lastCall = now;
+        throttleMap.set(key, state);
+        fn();
+    } else if (!state.pending) {
+        state.pending = setTimeout(() => {
+            state.lastCall = Date.now();
+            state.pending = null;
+            throttleMap.set(key, state);
+            fn();
+        }, delay - (now - state.lastCall));
+        throttleMap.set(key, state);
+    }
+};
+
+/**
+ * Batch multiple events and emit them together
+ * @param {string} roomId - Room to batch events for
+ * @param {string} eventType - Event type
+ * @param {Object} data - Event data
+ * @param {Object} io - Socket.IO instance
+ * @param {number} delay - Batch window (ms)
+ */
+const batchEmit = (roomId, eventType, data, io, delay = 100) => {
+    const key = `${roomId}:${eventType}`;
+    if (!batchQueues.has(key)) {
+        batchQueues.set(key, { events: [], timer: null });
+    }
+    
+    const batch = batchQueues.get(key);
+    batch.events.push(data);
+    
+    if (!batch.timer) {
+        batch.timer = setTimeout(() => {
+            if (batch.events.length > 0) {
+                // Emit batched events
+                io.to(roomId).emit(`${eventType}_batch`, batch.events);
+                batch.events = [];
+            }
+            batch.timer = null;
+        }, delay);
+    }
+};
+
+/**
+ * Debounce for database operations
+ */
+const dbDebounce = new Map();
+const debounceDbUpdate = (key, fn, delay = 500) => {
+    if (dbDebounce.has(key)) {
+        clearTimeout(dbDebounce.get(key));
+    }
+    dbDebounce.set(key, setTimeout(() => {
+        dbDebounce.delete(key);
+        fn();
+    }, delay));
+};
+
+// Cleanup throttle/batch state periodically
+setInterval(() => {
+    const now = Date.now();
+    const maxAge = 5 * 60 * 1000; // 5 minutes
+    
+    for (const [key, state] of throttleMap.entries()) {
+        if (now - state.lastCall > maxAge) {
+            if (state.pending) clearTimeout(state.pending);
+            throttleMap.delete(key);
+        }
+    }
+    
+    for (const [key, batch] of batchQueues.entries()) {
+        if (batch.events.length === 0 && !batch.timer) {
+            batchQueues.delete(key);
+        }
+    }
+}, 60 * 1000);
+
 // Helper: Broadcast room state to all users in the room
 const broadcastRoomState = async (io, roomId) => {
   const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
@@ -328,9 +419,14 @@ export default function socketHandler(io) {
       socket.emit("left_room");
     });
 
-    // --- TYPING INDICATOR ---
+    // --- TYPING INDICATOR (throttled) ---
     socket.on("typing", ({ roomId, username }) => {
-      if (socket.roomId === roomId) socket.to(roomId).emit("user_typing", username);
+      if (socket.roomId === roomId) {
+        // Throttle typing indicators to max once per 100ms per user
+        throttle(`typing:${roomId}:${username}`, () => {
+          socket.to(roomId).emit("user_typing", username);
+        }, 100);
+      }
     });
 
     // --- SYNC RUN ---
@@ -342,12 +438,16 @@ export default function socketHandler(io) {
       if (socket.roomId === roomId) socket.to(roomId).emit("sync_run_complete", { logs });
     });
 
-    // --- WHITEBOARD ---
+    // --- WHITEBOARD (throttled for high-frequency drawing) ---
     socket.on("draw_line", ({ roomId, prev, curr, color, width }) => {
       if (socket.roomId !== roomId) return;
       if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
       global.whiteboardHistory.get(roomId).push({ type: "line", prev, curr, color, width });
-      socket.to(roomId).emit("draw_line", { prev, curr, color, width });
+      
+      // Throttle draw events to max 60fps (16ms)
+      throttle(`draw:${roomId}:${socket.id}`, () => {
+        socket.to(roomId).emit("draw_line", { prev, curr, color, width });
+      }, 16);
     });
 
     socket.on("clear_board", ({ roomId }) => {
@@ -372,7 +472,22 @@ export default function socketHandler(io) {
     });
 
     socket.on("wb_view", ({ roomId, pan, scale }) => {
-      if (socket.roomId === roomId) socket.to(roomId).emit("wb_view", { pan, scale });
+      if (socket.roomId === roomId) {
+        // Throttle view sync to max 30fps (33ms)
+        throttle(`wb_view:${roomId}:${socket.id}`, () => {
+          socket.to(roomId).emit("wb_view", { pan, scale });
+        }, 33);
+      }
+    });
+
+    // --- CURSOR POSITION (throttled) ---
+    socket.on("wb_cursor", ({ roomId, x, y, username, color }) => {
+      if (socket.roomId === roomId) {
+        // Throttle cursor updates to max 30fps
+        throttle(`cursor:${roomId}:${socket.id}`, () => {
+          socket.to(roomId).emit("wb_cursor", { x, y, username, color });
+        }, 33);
+      }
     });
 
     // --- PROBLEM SYNC ---
@@ -388,12 +503,14 @@ export default function socketHandler(io) {
       );
       global.roomProblems.set(roomId, problem);
 
-      // Also save to DB for persistence
-      try {
-        await Room.updateOne({ roomId }, { activeProblem: problem });
-      } catch (e) {
-        console.error("Error saving activeProblem:", e);
-      }
+      // Debounce DB update to avoid excessive writes
+      debounceDbUpdate(`problem:${roomId}`, async () => {
+        try {
+          await Room.updateOne({ roomId }, { activeProblem: problem });
+        } catch (e) {
+          console.error("Error saving activeProblem:", e);
+        }
+      }, 1000);
 
       socket.to(roomId).emit("sync_problem", problem);
     });

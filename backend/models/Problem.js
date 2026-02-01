@@ -9,7 +9,8 @@ const problemSchema = new mongoose.Schema({
     },
     platform: {
         type: String,
-        default: "codeforces"
+        default: "codeforces",
+        index: true
     },
     data: {
         type: Object,
@@ -25,5 +26,10 @@ const problemSchema = new mongoose.Schema({
         expires: '30d' // TTL: Deletes if not accessed (updated) for 30 days
     }
 });
+
+// Compound indexes for efficient queries
+problemSchema.index({ platform: 1, problemId: 1 });
+problemSchema.index({ platform: 1, createdAt: -1 });
+problemSchema.index({ lastAccessed: 1 }); // For TTL queries
 
 export default mongoose.model("Problem", problemSchema);

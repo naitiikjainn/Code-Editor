@@ -111,7 +111,14 @@ UserSchema.methods.cleanExpiredTokens = function() {
   this.refreshTokens = this.refreshTokens.filter(t => t.expiresAt > Date.now());
 };
 
-// Index for faster OAuth lookups
+// Indexes for faster lookups
 UserSchema.index({ authProvider: 1, providerId: 1 });
+UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ username: 1 }, { unique: true });
+UserSchema.index({ createdAt: -1 });
+UserSchema.index({ "platforms.codeforces": 1 }, { sparse: true });
+UserSchema.index({ "platforms.leetcode": 1 }, { sparse: true });
+UserSchema.index({ friends: 1 });
+UserSchema.index({ lockUntil: 1 }, { sparse: true, expireAfterSeconds: 0 }); // Auto-cleanup
 
 export default mongoose.model("User", UserSchema);

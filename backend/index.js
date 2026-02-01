@@ -23,6 +23,13 @@ import { WebSocketServer } from 'ws';
 import { createRequire } from 'module';
 import Room from "./models/Room.js";
 
+// Performance middleware imports
+import { requestTiming, getMetrics } from "./middleware/performance.js";
+import { rateLimiters } from "./middleware/rateLimiter.js";
+import { cacheMiddleware } from "./middleware/cache.js";
+import { getAllCircuitStates, resetCircuit } from "./middleware/circuitBreaker.js";
+import { errorHandler, notFoundHandler, asyncHandler } from "./middleware/errorHandler.js";
+
 const require = createRequire(import.meta.url);
 const { setupWSConnection } = require('y-websocket/bin/utils');
 
@@ -54,46 +61,25 @@ const app = express();
 // Security: Set secure HTTP headers
 app.use(helmet());
 
-// Performance: Compress responses
-app.use(compression());
+// Performance: Request timing middleware (must be first)
+app.use(requestTiming());
+
+// Performance: Compress responses with Brotli/Gzip
+app.use(compression({
+    level: 6, // Balance between speed and compression
+    threshold: 1024, // Only compress responses > 1KB
+    filter: (req, res) => {
+        // Don't compress if client doesn't accept it
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    }
+}));
 
 // Security: Limit JSON body size to prevent DoS
 app.use(express.json({ limit: '1mb' }));
 
-// Security: Simple in-memory rate limiter for auth routes
-const rateLimitMap = new Map();
-const rateLimit = (windowMs, maxRequests) => (req, res, next) => {
-    const ip = req.ip || req.connection.remoteAddress;
-    const now = Date.now();
-    const windowStart = now - windowMs;
-    
-    if (!rateLimitMap.has(ip)) {
-        rateLimitMap.set(ip, []);
-    }
-    
-    const requests = rateLimitMap.get(ip).filter(time => time > windowStart);
-    requests.push(now);
-    rateLimitMap.set(ip, requests);
-    
-    if (requests.length > maxRequests) {
-        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
-    }
-    next();
-};
-
-// Clean up old rate limit entries every 5 minutes
-setInterval(() => {
-    const now = Date.now();
-    const windowMs = 15 * 60 * 1000; // 15 minutes
-    for (const [ip, times] of rateLimitMap.entries()) {
-        const filtered = times.filter(t => t > now - windowMs);
-        if (filtered.length === 0) {
-            rateLimitMap.delete(ip);
-        } else {
-            rateLimitMap.set(ip, filtered);
-        }
-    }
-}, 5 * 60 * 1000);
+// Global rate limiting for all API routes
+app.use('/api/', rateLimiters.api);
 
 // ROOM CLEANUP JOB
 // Check for inactive rooms every 10 minutes
@@ -168,11 +154,13 @@ server.on('upgrade', (request, socket, head) => {
   console.warn(`⚠️ Unknown WebSocket upgrade request: ${url}`);
 });
 
-// Apply rate limiting to auth routes (5 requests per minute for login/register)
-const authRateLimiter = rateLimit(60 * 1000, 5);
-app.use("/api/auth/login", authRateLimiter);
-app.use("/api/auth/register", authRateLimiter);
-app.use("/api/auth/forgot-password", authRateLimiter);
+// Apply strict rate limiting to auth routes
+app.use("/api/auth/login", rateLimiters.auth);
+app.use("/api/auth/register", rateLimiters.auth);
+app.use("/api/auth/forgot-password", rateLimiters.auth);
+
+// Apply AI rate limiter
+app.use("/api/ai", rateLimiters.ai);
 
 // Debug logging middleware
 app.use((req, res, next) => {
@@ -194,6 +182,31 @@ app.use("/api/leettools", leetRoutes);
 app.use("/api/submissions", submissionRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/livekit", livekitRoutes);
+
+// --- MONITORING ENDPOINTS ---
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+    res.json({ status: "healthy", timestamp: new Date().toISOString() });
+});
+
+// Performance metrics endpoint
+app.get("/api/metrics", (req, res) => {
+    res.json({
+        performance: getMetrics(),
+        circuitBreakers: getAllCircuitStates(),
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Reset circuit breaker endpoint
+app.post("/api/circuits/:name/reset", (req, res) => {
+    const { name } = req.params;
+    if (resetCircuit(name)) {
+        res.json({ success: true, message: `Circuit ${name} reset` });
+    } else {
+        res.status(404).json({ error: `Circuit ${name} not found` });
+    }
+});
 
 app.get("/api/proxy/codechef/:handle", async (req, res) => {
   try {
@@ -267,6 +280,13 @@ app.get("/api/proxy/leetcode/:username", async (req, res) => {
 });
 
 app.get("/", (req, res) => res.send("API & Collaboration Server is running..."));
+
+// --- ERROR HANDLING MIDDLEWARE (must be last) ---
+// Handle 404 for unmatched routes
+app.use(notFoundHandler);
+
+// Global error handler
+app.use(errorHandler);
 
 // Initialize Socket.IO logic
 socketHandler(io);

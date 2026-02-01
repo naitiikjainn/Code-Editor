@@ -38,5 +38,12 @@ const fileSchema = new mongoose.Schema({
     }
 });
 
+// Compound indexes for common queries
+fileSchema.index({ userId: 1, folder: 1 }); // User's files in folder
+fileSchema.index({ userId: 1, language: 1 }); // User's files by language
+fileSchema.index({ roomId: 1 }, { sparse: true }); // Room files
+fileSchema.index({ userId: 1, updatedAt: -1 }); // Recent files
+fileSchema.index({ userId: 1, name: 1 }); // File lookup by name
+
 const File = mongoose.model("File", fileSchema);
 export default File;

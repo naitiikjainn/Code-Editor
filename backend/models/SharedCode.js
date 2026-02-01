@@ -7,7 +7,11 @@ const SharedCodeSchema = new mongoose.Schema({
   code: { type: mongoose.Schema.Types.Mixed, required: true }, 
   
   stdin: { type: String, default: "" }, // For C++ inputs
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now, expires: '7d' } // TTL: Auto-delete after 7 days
 });
+
+// Indexes
+SharedCodeSchema.index({ createdAt: -1 });
+SharedCodeSchema.index({ language: 1 });
 
 export default mongoose.model("SharedCode", SharedCodeSchema);
