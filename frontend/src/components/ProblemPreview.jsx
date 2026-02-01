@@ -31,8 +31,8 @@ const renderMath = (html) => {
             .replace(/&#(\d+);/g, (m, code) => String.fromCharCode(parseInt(code)))
             .replace(/&#x([0-9A-Fa-f]+);/g, (m, code) => String.fromCharCode(parseInt(code, 16)))
             // Fix common LaTeX issues
-            .replace(/\\le\s*/g, "\\leq ")
-            .replace(/\\ge\s*/g, "\\geq ")
+            .replace(/\\le(?!q)\s*/g, "\\leq ")
+            .replace(/\\ge(?!q)\s*/g, "\\geq ")
             .replace(/\\cdots/g, "\\cdots ")
             .replace(/\\ldots/g, "\\ldots ")
             // Handle subscripts/superscripts without braces
@@ -108,8 +108,6 @@ const renderMath = (html) => {
     
     // 7. Handle inline math $ ... $ (single dollar - must be careful not to match already processed $$)
     result = result.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (match, tex) => {
-        // Skip if it looks like currency (starts with number followed by nothing math-like)
-        if (/^\d+(\.\d+)?$/.test(tex.trim())) return match;
         return safeRender(tex, false);
     });
     
@@ -124,6 +122,62 @@ const renderMath = (html) => {
     });
 
     return result;
+};
+
+// Normalize MathJax HTML into inline LaTeX/text so variables don't disappear
+const normalizeMathJaxHtml = (html) => {
+    if (!html) return "";
+
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+        const root = doc.body || doc;
+
+        // Convert MathJax script tags to inline LaTeX
+        root.querySelectorAll('script[type*="math/tex"]').forEach(script => {
+            const tex = script.textContent || "";
+            const type = (script.getAttribute("type") || "").toLowerCase();
+            if (!tex.trim()) {
+                script.remove();
+                return;
+            }
+            const latex = type.includes("mode=display") ? `$$${tex}$$` : `$${tex}$`;
+            script.replaceWith(doc.createTextNode(latex));
+        });
+
+        // Remove preview-only nodes
+        root.querySelectorAll('.MathJax_Preview, .MJX_Assistive_MathML').forEach(node => node.remove());
+
+        // Replace rendered MathJax spans with their text content
+        root.querySelectorAll('.MathJax, .MathJax_SVG, .MathJax_CHTML, [class^="mjx-"], [class*=" mjx-"]')
+            .forEach(node => {
+                const text = node.textContent || "";
+                if (text.trim()) {
+                    node.replaceWith(doc.createTextNode(text));
+                } else {
+                    node.remove();
+                }
+            });
+
+        return root.innerHTML || "";
+    } catch (e) {
+        console.warn("MathJax normalize failed:", e.message);
+        return html;
+    }
+};
+
+// Wrap bare LaTeX commands outside $...$ so they render with KaTeX
+const wrapBareLatexOutsideMath = (html) => {
+    if (!html) return html;
+    const parts = html.split("$");
+    const wrapped = parts.map((part, idx) => {
+        if (idx % 2 !== 0) return part; // inside math
+        return part.replace(/\\[a-zA-Z]+[^$<\n.;:]*/g, (m) => {
+            const trimmed = m.trim();
+            return trimmed ? `$${trimmed}$` : m;
+        });
+    });
+    return wrapped.join("$");
 };
 
 
@@ -231,8 +285,14 @@ export default function ProblemPreview({ problem, onCodeNow }) {
         return processed;
     };
 
-    const processedDescription = React.useMemo(() => renderMath(problem.description), [problem.description]);
-    const processedNote = React.useMemo(() => renderMath(problem.note), [problem.note]);
+    const processedDescription = React.useMemo(
+        () => renderMath(wrapBareLatexOutsideMath(normalizeMathJaxHtml(problem.description))),
+        [problem.description]
+    );
+    const processedNote = React.useMemo(
+        () => renderMath(wrapBareLatexOutsideMath(normalizeMathJaxHtml(problem.note))),
+        [problem.note]
+    );
 
     if (!processedDescription && !processedNote && !problem.isSolved) {
         return (

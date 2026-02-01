@@ -57,7 +57,9 @@ export default function ConsolePanel({
                 <div key={i} style={{ padding: "2px 0", color: log.type === "error" ? "#ef5350" : (log.type === "info" ? "#4fc3f7" : "#d4d4d4"), display: "flex", alignItems: "flex-start" }}>
                   <span style={{ color: "#666", marginRight: "10px", userSelect: "none" }}>$</span>
                   <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                      {typeof log.message === 'object' ? JSON.stringify(log.message) : String(log.message || "")}
+                      {typeof log === "string"
+                        ? log
+                        : (typeof log.message === 'object' ? JSON.stringify(log.message) : String(log.message || ""))}
                   </div>
                 </div>
                 )

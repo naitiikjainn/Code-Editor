@@ -445,15 +445,44 @@ export const fetchLeetCodeProblem = async (titleSlug) => {
             throw new Error("Invalid response from LeetCode API");
         }
 
-        // Extract test cases from examples if available
+        // Extract test cases from description examples (Input/Output)
         const testCases = [];
-        if (data.examples) {
+
+        const extractFromDescription = (html) => {
+            if (!html) return [];
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, "text/html");
+                const pres = Array.from(doc.querySelectorAll("pre"));
+                const cases = [];
+
+                pres.forEach((pre) => {
+                    const text = pre.textContent || "";
+                    const inputMatch = text.match(/Input:\s*([\s\S]*?)(?:\n|\r|$)/i);
+                    const outputMatch = text.match(/Output:\s*([\s\S]*?)(?:\n|\r|$)/i);
+                    if (inputMatch || outputMatch) {
+                        cases.push({
+                            input: (inputMatch?.[1] || "").trim(),
+                            expectedOutput: (outputMatch?.[1] || "").trim()
+                        });
+                    }
+                });
+
+                return cases.filter(c => c.input || c.expectedOutput);
+            } catch (e) {
+                return [];
+            }
+        };
+
+        const parsedExamples = extractFromDescription(data.description);
+        if (parsedExamples.length > 0) {
+            testCases.push(...parsedExamples);
+        } else if (data.examples) {
             const lines = data.examples.split('\n').filter(l => l.trim());
-            // Try to pair inputs/outputs
-            for (let i = 0; i < lines.length - 1; i += 2) {
+            for (let i = 0; i < lines.length; i++) {
                 testCases.push({
                     input: lines[i],
-                    output: lines[i + 1] || ""
+                    expectedOutput: ""
                 });
             }
         }

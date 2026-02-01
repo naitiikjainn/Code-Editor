@@ -27,8 +27,9 @@ const broadcastRoomState = async (io, roomId) => {
 
       // SANITIZE: Ensure only the real host is marked as host
       users = users.map(u => {
-        // Force isHost to match DB truth
-        const isRealHost = u.username === correctHostUsername;
+        const isRealHost = hostUserId
+          ? (u.userId && u.userId.toString() === hostUserId)
+          : u.username === correctHostUsername;
         // Update userMap if inconsistent (self-healing)
         if (u.isHost !== isRealHost) {
           console.log(`🔧 Correcting host status for ${u.username}: ${u.isHost} -> ${isRealHost}`);
@@ -67,20 +68,26 @@ export default function socketHandler(io) {
 
     // --- JOIN ROOM ---
     socket.on("join_room", async ({ roomId, username, userId }) => {
-      let room = await Room.findOne({ roomId });
+      let room = await Room.findOneAndUpdate(
+        { roomId },
+        {
+          $setOnInsert: {
+            roomId,
+            host: { username, userId: userId || null },
+            hostOnline: true
+          }
+        },
+        { upsert: true, new: true }
+      );
 
-      if (!room) {
-        // Create new room - this user becomes host
-        room = new Room({
-          roomId,
-          host: { username, userId: userId || null },
-          hostOnline: true
-        });
-        await room.save();
+      if (room?.isNew) {
         console.log(`🆕 New Room Created by ${username} (userId: ${userId || 'N/A'})`);
       }
 
-      const isHost = room.host.username === username;
+      const hostUserId = room?.host?.userId?.toString() || null;
+      const isHost = hostUserId
+        ? (userId && hostUserId === userId)
+        : room.host.username === username;
       const isParticipant = room.participants.some((p) => p.username === username);
 
       if (isHost || isParticipant) {
@@ -95,8 +102,8 @@ export default function socketHandler(io) {
         socket.isHost = isHost;
         userMap.set(socket.id, { username, isHost, status: "active", userId });
 
-        // Update host.userId if host and not set
-        if (isHost && userId && !room.host.userId) {
+        // Update host.userId if missing and username matches host
+        if (userId && !room.host.userId && room.host.username === username) {
           room.host.userId = userId;
           room.hostOnline = true;
           await room.save();
@@ -186,7 +193,11 @@ export default function socketHandler(io) {
           // We check DB to be absolutely sure, as session verification (socket.isHost) 
           // might be stale if the user was the 'False Host' from the bug.
           const roomCheck = await Room.findOne({ roomId });
-          if (!roomCheck || roomCheck.host.username !== socket.username) {
+          const hostId = roomCheck?.host?.userId?.toString() || null;
+          const isRealHost = hostId
+            ? (socket.userId && hostId === socket.userId)
+            : roomCheck?.host?.username === socket.username;
+          if (!roomCheck || !isRealHost) {
             console.warn(`⚠️ Security: Non-host ${socket.username} tried to grant access in ${roomId}`);
             socket.emit("status_update", { status: "error", message: "Only the host can grant access." });
             return;
@@ -232,7 +243,11 @@ export default function socketHandler(io) {
         if (roomId) {
           // SECURITY CHECK
           const roomCheck = await Room.findOne({ roomId });
-          if (!roomCheck || roomCheck.host.username !== socket.username) {
+          const hostId = roomCheck?.host?.userId?.toString() || null;
+          const isRealHost = hostId
+            ? (socket.userId && hostId === socket.userId)
+            : roomCheck?.host?.username === socket.username;
+          if (!roomCheck || !isRealHost) {
             console.warn(`⚠️ Security: Non-host ${socket.username} tried to deny access.`);
             return;
           }

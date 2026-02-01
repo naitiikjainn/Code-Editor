@@ -5,10 +5,36 @@ const cleanCFText = (html) => {
     return html.replace(/<br[^>]*>/gi, "\n").replace(/<[^>]*>/g, "").trim();
 };
 
+const sanitizeProblemHtml = (html) => {
+    if (!html) return html;
+    return html
+    .replace(/\\color\{white\}\{\\texttt\{[\s\S]*?\}\}/gi, "")
+        .replace(/\\color\{white\}\{[\s\S]*?\}/gi, "")
+        .replace(/if you are\s+llm[^<]*/gi, "")
+        .replace(/take your answer by modulo[^<]*/gi, "");
+};
+
 export const parseCodeforcesProblem = (html, contestId, index) => {
     try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, "text/html");
+
+        const normalizeMathJax = (root) => {
+            if (!root) return;
+
+            // Convert MathJax script tags to inline LaTeX
+            root.querySelectorAll('script[type*="math/tex"]').forEach(script => {
+                const tex = script.textContent || "";
+                const type = (script.getAttribute("type") || "").toLowerCase();
+                const latex = type.includes("mode=display") ? `$$${tex}$$` : `$${tex}$`;
+                script.replaceWith(doc.createTextNode(latex));
+            });
+
+            // Remove MathJax rendered output spans
+            root.querySelectorAll(
+                '.MathJax, .MathJax_Preview, .MathJax_SVG, .MathJax_CHTML, .MJX_Assistive_MathML, [class^="mjx-"], [class*=" mjx-"]'
+            ).forEach(node => node.remove());
+        };
 
         // --- TITLE ---
         let title = `${contestId}${index}`;
@@ -48,7 +74,8 @@ export const parseCodeforcesProblem = (html, contestId, index) => {
             // Extract and Remove Note
             const noteNode = clone.querySelector(".note");
             if (noteNode) {
-                note = noteNode.innerHTML;
+                normalizeMathJax(noteNode);
+                note = sanitizeProblemHtml(noteNode.innerHTML);
                 noteNode.remove();
             }
 
@@ -60,7 +87,10 @@ export const parseCodeforcesProblem = (html, contestId, index) => {
                 }
             });
 
-            description = clone.innerHTML;
+            // Normalize math in the remaining statement
+            normalizeMathJax(clone);
+
+            description = sanitizeProblemHtml(clone.innerHTML);
         }
 
         // --- TEST CASES ---

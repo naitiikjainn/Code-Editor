@@ -12,6 +12,7 @@ import ParticipantsPanel from "./ParticipantsPanel";
 import TestPanel from "./TestPanel";
 import { generateCppRunner } from "../utils/cppRunner"; 
 import { generateJavaRunner } from "../utils/javaRunner"; 
+import { generatePythonRunner } from "../utils/pythonRunner"; 
 import { executeCode } from "../utils/execution"; 
 import ProblemBrowser from "./ProblemBrowser"; 
 import CP31Browser from "./CP31Browser";
@@ -265,17 +266,17 @@ export default function Workspace() {
 	  socket.on("host_left", ({ username }) => {
 		  setHostOnline(false);
 		  setIsReadOnly(true);
-		  setLogs(prev => [...prev, `⚠️ Host ${username} has left. Files are now read-only.`]);
+          setLogs(prev => [...prev, { type: "warning", message: `⚠️ Host ${username} has left. Files are now read-only.` }]);
 	  });
 
 	  socket.on("host_rejoined", ({ username }) => {
 		  setHostOnline(true);
 		  setIsReadOnly(false);
-		  setLogs(prev => [...prev, `✅ Host ${username} is back. Editing enabled.`]);
+          setLogs(prev => [...prev, { type: "success", message: `✅ Host ${username} is back. Editing enabled.` }]);
 	  });
 
 	  socket.on("user_left", ({ username, isHost }) => {
-		  setLogs(prev => [...prev, `👋 ${username}${isHost ? " (Host)" : ""} has left the room.`]);
+          setLogs(prev => [...prev, { type: "info", message: `👋 ${username}${isHost ? " (Host)" : ""} has left the room.` }]);
 	  });
 
 	  socket.on("left_room", () => {
@@ -625,6 +626,15 @@ export default function Workspace() {
          if (rightPanel?.data) {
              console.log("Injecting Java Auto-Runner...");
              codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
+         } else {
+             setLogs(prev => [...prev, { type: "warning", message: "Warning: Problem description (Right Panel) is closed. Auto-runner might fail." }]);
+         }
+    }
+    // AUTO RUNNER LOGIC - Python
+    if (activeFile.language === "python" && codeToRun.includes("class Solution") && !codeToRun.includes("if __name__")) {
+         if (rightPanel?.data) {
+             console.log("Injecting Python Auto-Runner...");
+             codeToRun = generatePythonRunner(codeToRun, rightPanel.data);
          } else {
              setLogs(prev => [...prev, { type: "warning", message: "Warning: Problem description (Right Panel) is closed. Auto-runner might fail." }]);
          }
@@ -1009,14 +1019,14 @@ export default function Workspace() {
                                                  const testCount = submission.passedTestCount + 1;
                                                  setLogs(prev => {
                                                      // Remove previous "Running on test" logs to avoid clutter
-                                                     const filtered = prev.filter(l => !l.message.startsWith("Running on test"));
+                                                     const filtered = prev.filter(l => !String(l?.message ?? l ?? "").startsWith("Running on test"));
                                                      return [...filtered, { type: "info", message: `Running on test ${testCount}...` }];
                                                  });
                                             } else {
                                                 clearInterval(pollInterval);
                                                 const isAc = verdict === "OK";
                                                 setLogs(prev => {
-                                                     const filtered = prev.filter(l => !l.message.startsWith("Running on test"));
+                                                     const filtered = prev.filter(l => !String(l?.message ?? l ?? "").startsWith("Running on test"));
                                                      return [...filtered, { 
                                                         type: isAc ? "success" : "error", 
                                                         message: `Verdict: ${verdict === "OK" ? "ACCEPTED" : verdict} (${submission.timeConsumedMillis}ms) [Tests: ${submission.passedTestCount}]` 

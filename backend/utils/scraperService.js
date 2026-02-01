@@ -114,19 +114,63 @@ const stripMathJaxOutput = (html, $) => {
 
     const $clone = $.load(html);
 
-    // Remove MathJax rendered output elements (keeps the original math source)
-    $clone('.mjx-chtml').remove();
-    $clone('.mjx-math').remove();
-    $clone('.mjx-mrow').remove();
-    $clone('.MJX_Assistive_MathML').remove();
-    $clone('.MathJax').remove();
-    $clone('.MathJax_Preview').remove();
-    $clone('.MathJax_SVG').remove();
-    $clone('.MathJax_CHTML').remove();
-    $clone('[class^="mjx-"]').remove();
-    $clone('[class*=" mjx-"]').remove();
-    $clone('script[type*="math/tex"]').remove(); // MathJax source scripts are sometimes duplicated
-    $clone('span[id^="MathJax-"]').remove();
+    const hasOriginalTex = $clone('script[type*="math/tex"], .tex-span, .tex-math, .tex-font-style-it, .tex-font-style-bf, .tex-font-style-tt').length > 0;
+
+    const replaceWithText = (selector) => {
+        $clone(selector).each((_, el) => {
+            const text = $clone(el).text();
+            if (text && text.trim().length > 0) {
+                $clone(el).replaceWith(text);
+            } else {
+                $clone(el).remove();
+            }
+        });
+    };
+
+    if (hasOriginalTex) {
+        // Convert MathJax source scripts into inline LaTeX before removing rendered output
+        $clone('script[type*="math/tex"]').each((_, el) => {
+            const tex = $clone(el).text();
+            const type = ($clone(el).attr('type') || '').toLowerCase();
+            if (!tex || !tex.trim()) {
+                $clone(el).remove();
+                return;
+            }
+            const isDisplay = type.includes('mode=display');
+            $clone(el).replaceWith(isDisplay ? `$$${tex}$$` : `$${tex}$`);
+        });
+
+        // Remove MathJax rendered output elements (keeps the original math source)
+        $clone('.mjx-chtml').remove();
+        $clone('.mjx-math').remove();
+        $clone('.mjx-mrow').remove();
+        $clone('.MJX_Assistive_MathML').remove();
+        $clone('.MathJax').remove();
+        $clone('.MathJax_Preview').remove();
+        $clone('.MathJax_SVG').remove();
+        $clone('.MathJax_CHTML').remove();
+        $clone('[class^="mjx-"]').remove();
+        $clone('[class*=" mjx-"]').remove();
+        $clone('span[id^="MathJax-"]').remove();
+    } else {
+        // No original TeX source present: preserve MathJax text content to avoid blank variables
+        replaceWithText('.mjx-chtml');
+        replaceWithText('.mjx-math');
+        replaceWithText('.mjx-mrow');
+        replaceWithText('.MJX_Assistive_MathML');
+        replaceWithText('.MathJax');
+        replaceWithText('.MathJax_Preview');
+        replaceWithText('.MathJax_SVG');
+        replaceWithText('.MathJax_CHTML');
+        replaceWithText('[class^="mjx-"]');
+        replaceWithText('[class*=" mjx-"]');
+        // If TeX scripts exist without visible output, inline them for frontend math renderer
+        $clone('script[type*="math/tex"]').each((_, el) => {
+            const tex = $clone(el).text();
+            $clone(el).replaceWith(tex ? `$${tex}$` : '');
+        });
+        $clone('span[id^="MathJax-"]').remove();
+    }
     $clone('nobr').each((_, el) => {
         // MathJax wraps content in nobr, unwrap it
         const inner = $clone(el).html();
@@ -153,6 +197,19 @@ const cleanHtml = (html) => {
         .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(num))
         .replace(/\n{3,}/g, "\n\n")
         .trim();
+};
+
+// Remove prompt-injection artifacts and hidden LaTeX blocks from scraped HTML
+const sanitizeProblemHtml = (html) => {
+    if (!html) return html;
+    return html
+    // Remove nested color+texttt injection blocks
+    .replace(/\\color\{white\}\{\\texttt\{[\s\S]*?\}\}/gi, "")
+        // Remove hidden LaTeX blocks often used for prompt injection
+        .replace(/\\color\{white\}\{[\s\S]*?\}/gi, "")
+        // Remove common prompt-injection phrases
+        .replace(/if you are\s+llm[^<]*/gi, "")
+        .replace(/take your answer by modulo[^<]*/gi, "");
 };
 
 const retryWithBackoff = async (fn, attempts = CONFIG.retryAttempts) => {
@@ -338,6 +395,12 @@ const codeforcesScraper = {
             clone.find(".sample-tests").remove();
             clone.find(".header").remove(); // Remove header from description HTML
 
+            // Extract and remove note from description to avoid duplication
+            const noteNodeInClone = clone.find(".note");
+            if (noteNodeInClone.length) {
+                noteNodeInClone.remove();
+            }
+
             // Fix relative URLs
             clone.find("img").each((_, img) => {
                 const src = $(img).attr("src");
@@ -353,14 +416,14 @@ const codeforcesScraper = {
                 }
             });
 
-            description = stripMathJaxOutput(clone.html(), cheerio) || description;
+            description = sanitizeProblemHtml(stripMathJaxOutput(clone.html(), cheerio)) || description;
         }
 
         // --- NOTE ---
         let note = null;
         const noteNode = $(".problem-statement .note");
         if (noteNode.length) {
-            note = stripMathJaxOutput(noteNode.html(), cheerio);
+            note = sanitizeProblemHtml(stripMathJaxOutput(noteNode.html(), cheerio));
         }
 
         // --- TEST CASES ---
@@ -473,12 +536,16 @@ const codeforcesScraper = {
             }
         });
 
-        description = stripMathJaxOutput(clone.html(), cheerio) || description;
+        // Remove note from description to avoid duplicate note rendering
+        const noteInClone = clone.find(".note");
+        if (noteInClone.length) noteInClone.remove();
+
+        description = sanitizeProblemHtml(stripMathJaxOutput(clone.html(), cheerio)) || description;
 
         // --- NOTE ---
         const noteDiv = problemStatement.find(".note");
         if (noteDiv.length) {
-            note = stripMathJaxOutput(noteDiv.html(), cheerio);
+            note = sanitizeProblemHtml(stripMathJaxOutput(noteDiv.html(), cheerio));
         }
 
         // --- TEST CASES ---
