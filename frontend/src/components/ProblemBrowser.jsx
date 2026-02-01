@@ -168,7 +168,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
 
     // --- FETCH LEETCODE HELPERS ---
     const fetchLeetCode = async (skip, append = false) => {
-        if (skip === 0 && !append) setCfLoading(true);
+        setCfLoading(true);
         
         try {
             const params = new URLSearchParams();

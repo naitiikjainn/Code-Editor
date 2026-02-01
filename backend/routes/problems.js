@@ -6,6 +6,21 @@ import puppeteer from "puppeteer";
 
 const router = express.Router();
 
+// In-memory fallback cache (used when Redis is unavailable)
+const memoryCache = new Map();
+const getMemoryCache = (key) => {
+    const entry = memoryCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt && Date.now() > entry.expiresAt) {
+        memoryCache.delete(key);
+        return null;
+    }
+    return entry.value;
+};
+const setMemoryCache = (key, value, ttlMs) => {
+    memoryCache.set(key, { value, expiresAt: ttlMs ? Date.now() + ttlMs : null });
+};
+
 /**
  * Extract the section for a specific problem from the editorial HTML
  * Codeforces editorials typically have problem links like /contest/2184/problem/F
@@ -125,6 +140,12 @@ router.get("/leetcode/list", async (req, res) => {
             return res.json(JSON.parse(cached));
         }
 
+        // Fallback to in-memory cache when Redis is unavailable
+        const memoryCached = getMemoryCache(cacheKey);
+        if (memoryCached) {
+            return res.json(memoryCached);
+        }
+
         console.log(`[LeetCode] Fetching problem list (skip=${skip}, limit=${limit}, difficulty=${difficulty || 'all'}, tag=${tag || 'all'}, search=${search || 'none'})`);
 
         const query = `
@@ -208,6 +229,7 @@ router.get("/leetcode/list", async (req, res) => {
 
         // Cache for 1 hour
         redis.setex(cacheKey, 3600, JSON.stringify(formattedResult)).catch(e => console.error("Redis cache error:", e));
+        setMemoryCache(cacheKey, formattedResult, 3600 * 1000);
 
         res.json(formattedResult);
 
@@ -225,6 +247,11 @@ router.get("/leetcode/tags", async (req, res) => {
         const cached = await redis.get(cacheKey).catch(() => null);
         if (cached) {
             return res.json(JSON.parse(cached));
+        }
+
+        const memoryCached = getMemoryCache(cacheKey);
+        if (memoryCached) {
+            return res.json(memoryCached);
         }
 
         // Hardcoded tags since API introspection is disabled
@@ -276,6 +303,7 @@ router.get("/leetcode/tags", async (req, res) => {
 
         // Cache for 24 hours
         redis.setex(cacheKey, 86400, JSON.stringify(tags)).catch(() => { });
+        setMemoryCache(cacheKey, tags, 86400 * 1000);
 
         res.json(tags);
 

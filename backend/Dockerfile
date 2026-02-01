@@ -1,24 +1,28 @@
-# Use official Node.js image as base
-FROM node:18-alpine
+# Build stage
+FROM node:20-alpine AS build
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm install --production
-
-# Copy application source
 COPY . .
 
-# Expose port
-EXPOSE 5000
+# Runtime stage
+FROM node:20-alpine
 
-# Environment variables should be passed at runtime, but we can set defaults
+WORKDIR /app
+
 ENV PORT=5000
 ENV NODE_ENV=production
 
-# Start the application
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package*.json ./
+COPY --from=build /app .
+
+# Use non-root user
+USER node
+
+EXPOSE 5000
+
 CMD ["npm", "start"]
