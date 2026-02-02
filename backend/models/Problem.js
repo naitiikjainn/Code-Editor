@@ -30,6 +30,6 @@ const problemSchema = new mongoose.Schema({
 // Compound indexes for efficient queries
 problemSchema.index({ platform: 1, problemId: 1 });
 problemSchema.index({ platform: 1, createdAt: -1 });
-problemSchema.index({ lastAccessed: 1 }); // For TTL queries
+// Note: lastAccessed already has TTL index from schema expires option
 
 export default mongoose.model("Problem", problemSchema);

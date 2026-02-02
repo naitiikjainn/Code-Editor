@@ -1,6 +1,19 @@
 import { createContext, useState, useEffect, useContext, useCallback } from "react";
 
-const AuthContext = createContext();
+// Default context value to prevent crashes during HMR
+const defaultContextValue = {
+  user: null,
+  loading: true,
+  login: () => {},
+  logout: () => {},
+  fetchWithAuth: () => Promise.resolve(new Response()),
+  handleOAuthCallback: () => {},
+  refreshAccessToken: () => Promise.resolve(null),
+  needsUsername: false,
+  setUsername: () => Promise.resolve()
+};
+
+const AuthContext = createContext(defaultContextValue);
 
 // API base URL
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
@@ -250,4 +263,8 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  // Context will always have the default value at minimum
+  return context;
+};

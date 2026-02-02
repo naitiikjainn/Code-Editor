@@ -14,10 +14,6 @@ const UserSchema = new mongoose.Schema({
   },
   providerId: { type: String }, // Google/GitHub user ID
   avatar: { type: String }, // Profile picture URL from OAuth
-  oauth: {
-    googleId: { type: String },
-    githubId: { type: String }
-  },
   
   // Password Reset
   resetPasswordToken: { type: String },
@@ -64,6 +60,7 @@ UserSchema.methods.generateRefreshToken = function(userAgent, ip) {
   const token = crypto.randomBytes(64).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
   
+
   // Limit to 5 active sessions
   if (this.refreshTokens.length >= 5) {
     this.refreshTokens.shift(); // Remove oldest
@@ -115,10 +112,8 @@ UserSchema.methods.cleanExpiredTokens = function() {
   this.refreshTokens = this.refreshTokens.filter(t => t.expiresAt > Date.now());
 };
 
-// Indexes for faster lookups
+// Indexes for faster lookups (email and username already have unique index from schema definition)
 UserSchema.index({ authProvider: 1, providerId: 1 });
-UserSchema.index({ email: 1 }, { unique: true });
-UserSchema.index({ username: 1 }, { unique: true });
 UserSchema.index({ createdAt: -1 });
 UserSchema.index({ "platforms.codeforces": 1 }, { sparse: true });
 UserSchema.index({ "platforms.leetcode": 1 }, { sparse: true });

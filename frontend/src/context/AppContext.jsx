@@ -206,9 +206,10 @@ export const useNotifications = () => useAppSelector(state => state.notification
 export const usePreferences = () => useAppSelector(state => state.preferences);
 
 /**
- * Hook for user authentication state
+ * Hook for user authentication state (App-level, use AuthContext's useAuth for actual auth)
+ * @deprecated Use useAuth from AuthContext.jsx instead
  */
-export const useAuth = () => {
+export const useAppAuth = () => {
     const user = useUser();
     const { setUser, logout } = useAppActions();
     
