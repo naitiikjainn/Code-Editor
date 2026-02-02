@@ -30,6 +30,9 @@ import SettingsModal from "./SettingsModal";
 import SettingsPanel from "./SettingsPanel";
 import Whiteboard from "./Whiteboard"; 
 import VoicePanel from "./VoicePanel";
+import RecordingPanel from "./RecordingPanel";
+import RecordingIndicator from "./RecordingIndicator";
+import { useScreenRecording } from "../hooks/useScreenRecording";
 import { stringToColor } from "../utils/colors";
 
 // Move socket outside to avoid multiple connections
@@ -197,6 +200,25 @@ export default function Workspace() {
         [peers]
     );
   // isHost is now a state variable set in access_granted
+
+  // --- SCREEN RECORDING ---
+  const {
+    isRecording,
+    isPaused,
+    formattedTime: recordingTime,
+    recordedBlob,
+    audioLevel: recordingAudioLevel,
+    isPreviewOpen: isRecordingPreviewOpen,
+    countdownActive,
+    countdown,
+    startRecording,
+    pauseRecording,
+    resumeRecording,
+    stopRecording,
+    downloadRecording,
+    discardRecording,
+    setIsPreviewOpen: setIsRecordingPreviewOpen
+  } = useScreenRecording();
 
   // --- AUTO LOGOUT ON TOKEN EXPIRY ---
   useEffect(() => {
@@ -1820,6 +1842,9 @@ rl.on('line', (line) => {
                         />
                     )}
                     {activeSidebar === "settings" && <SettingsPanel />}
+                    {activeSidebar === "recording" && (
+                        <RecordingPanel onClose={() => setActiveSidebar(null)} />
+                    )}
                 </div>
                     {/* RESIZE HANDLE */}
                     <div 
@@ -2033,6 +2058,20 @@ rl.on('line', (line) => {
         onPeerVolumeChange={setPeerVolume}
         resolvePeerName={getPeerName}
       />
+
+      {/* Floating Recording Indicator - Shows when recording but panel is closed */}
+      {isRecording && activeSidebar !== "recording" && (
+        <RecordingIndicator
+          isRecording={isRecording}
+          isPaused={isPaused}
+          formattedTime={recordingTime}
+          audioLevel={recordingAudioLevel}
+          onPause={pauseRecording}
+          onResume={resumeRecording}
+          onStop={stopRecording}
+          onExpand={() => setActiveSidebar("recording")}
+        />
+      )}
 
       <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)} url={shareUrl} />
       <SettingsModal isOpen={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} />

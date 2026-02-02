@@ -7,3 +7,6 @@ export {
     InfiniteList, 
     LazyImage 
 } from './VirtualizedList';
+// Recording components
+export { default as RecordingPanel } from './RecordingPanel';
+export { default as RecordingIndicator } from './RecordingIndicator';

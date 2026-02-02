@@ -6,12 +6,7 @@ export * from './useApi';
 // Performance hooks (debounce, throttle, etc.)
 export * from './usePerformance';
 
-// Re-export React Query hooks for convenience
-export { 
-    useQuery, 
-    useMutation, 
-    useQueryClient,
-    useInfiniteQuery,
-    useIsFetching,
-    useIsMutating,
+// Screen recording hook
+export { useScreenRecording } from './useScreenRecording';
+
 } from '@tanstack/react-query';

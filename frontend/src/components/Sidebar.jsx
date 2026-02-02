@@ -1,5 +1,5 @@
 import React from "react";
-import { Files, Settings, Users, FlaskConical, PenTool } from "lucide-react";
+import { Files, Settings, Users, FlaskConical, PenTool, Video } from "lucide-react";
 
 // --- PLATFORM LOGOS ---
 
@@ -129,6 +129,7 @@ const Sidebar = ({ activeTab, setActiveTab, onToggle, isOpen }) => {
 
             {renderIcon("tests", FlaskConical, "Test Cases", "#eab308")}
             {renderIcon("whiteboard", PenTool, "Whiteboard", "#ec4899")}
+            {renderIcon("recording", Video, "Record Solution", "#ef4444")}
 
             <div style={{ flex: 1 }} />
             
