@@ -113,6 +113,7 @@ router.get("/google/callback", async (req, res) => {
     let user = await User.findOne({
       $or: [
         { email: googleUser.email },
+        { "oauth.googleId": googleUser.id },
         { authProvider: "google", providerId: googleUser.id }
       ]
     });
@@ -127,18 +128,21 @@ router.get("/google/callback", async (req, res) => {
         authProvider: "google",
         providerId: googleUser.id,
         avatar: googleUser.picture,
+        oauth: { googleId: googleUser.id },
         lastLogin: new Date()
       });
       await user.save();
-    } else if (user.authProvider === "local") {
-      // Link Google to existing local account
-      user.authProvider = "google";
-      user.providerId = googleUser.id;
+    } else if (user.password) {
+      // Link Google to existing local account (keep local login)
+      user.oauth = user.oauth || {};
+      user.oauth.googleId = googleUser.id;
       user.avatar = user.avatar || googleUser.picture;
       user.lastLogin = new Date();
       await user.save();
     } else {
       // Update last login
+      user.oauth = user.oauth || {};
+      user.oauth.googleId = user.oauth.googleId || googleUser.id;
       user.lastLogin = new Date();
       await user.save();
     }
@@ -253,6 +257,7 @@ router.get("/github/callback", async (req, res) => {
     let user = await User.findOne({
       $or: [
         { email },
+        { "oauth.githubId": String(githubUser.id) },
         { authProvider: "github", providerId: String(githubUser.id) }
       ]
     });
@@ -268,13 +273,14 @@ router.get("/github/callback", async (req, res) => {
         providerId: String(githubUser.id),
         avatar: githubUser.avatar_url,
         "platforms.github": githubUser.login,
+        oauth: { githubId: String(githubUser.id) },
         lastLogin: new Date()
       });
       await user.save();
-    } else if (user.authProvider === "local") {
-      // Link GitHub to existing local account
-      user.authProvider = "github";
-      user.providerId = String(githubUser.id);
+    } else if (user.password) {
+      // Link GitHub to existing local account (keep local login)
+      user.oauth = user.oauth || {};
+      user.oauth.githubId = String(githubUser.id);
       user.avatar = user.avatar || githubUser.avatar_url;
       if (!user.platforms.github) {
         user.platforms.github = githubUser.login;
@@ -283,6 +289,8 @@ router.get("/github/callback", async (req, res) => {
       await user.save();
     } else {
       // Update last login
+      user.oauth = user.oauth || {};
+      user.oauth.githubId = user.oauth.githubId || String(githubUser.id);
       user.lastLogin = new Date();
       await user.save();
     }

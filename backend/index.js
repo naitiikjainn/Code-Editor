@@ -78,9 +78,6 @@ app.use(compression({
 // Security: Limit JSON body size to prevent DoS
 app.use(express.json({ limit: '1mb' }));
 
-// Global rate limiting for all API routes
-app.use('/api/', rateLimiters.api);
-
 // ROOM CLEANUP JOB
 // Check for inactive rooms every 10 minutes
 setInterval(async () => {
@@ -107,6 +104,12 @@ app.use(cors({
   methods: ["GET", "POST", "DELETE", "PUT", "OPTIONS"],
   credentials: true
 }));
+
+// Handle preflight requests early (Express 5 safe pattern)
+app.options(/.*/, cors());
+
+// Global rate limiting for all API routes (after CORS)
+app.use('/api/', rateLimiters.api);
 
 const server = http.createServer(app);
 

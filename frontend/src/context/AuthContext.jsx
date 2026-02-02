@@ -9,6 +9,11 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [needsUsername, setNeedsUsername] = useState(false);
+  const isUsernameValid = useCallback((value) => {
+    if (!value || typeof value !== "string") return false;
+    return /^[a-zA-Z0-9_]{3,20}$/.test(value.trim());
+  }, []);
 
   // Refresh token function
   const refreshAccessToken = useCallback(async () => {
@@ -91,6 +96,7 @@ export const AuthProvider = ({ children }) => {
           if (response.ok) {
             const userData = await response.json();
             setUser(userData);
+            setNeedsUsername(!isUsernameValid(userData?.username));
           } else if (response.status === 401) {
             // Token expired - logout immediately
             console.log("[Auth] Token expired, logging out...");
@@ -102,7 +108,9 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
           console.error("Auth check failed:", error);
           // Keep local user data if server is unreachable
-          setUser(JSON.parse(storedUser));
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+          setNeedsUsername(!isUsernameValid(parsedUser?.username));
         }
       }
       setLoading(false);
@@ -152,6 +160,7 @@ export const AuthProvider = ({ children }) => {
   // Login Function
   const login = (userData, token, refreshToken = null) => {
     setUser(userData);
+    setNeedsUsername(!isUsernameValid(userData?.username));
     localStorage.setItem("codeplay_user", JSON.stringify(userData));
     localStorage.setItem("codeplay_token", token);
     if (refreshToken) {
@@ -181,6 +190,7 @@ export const AuthProvider = ({ children }) => {
     }
     
     setUser(null);
+    setNeedsUsername(false);
     localStorage.removeItem("codeplay_user");
     localStorage.removeItem("codeplay_token");
     localStorage.removeItem("codeplay_refresh_token");
@@ -201,6 +211,28 @@ export const AuthProvider = ({ children }) => {
       });
   };
 
+  const setUsername = async (username) => {
+    const token = localStorage.getItem("codeplay_token");
+    if (!token) throw new Error("Not authenticated");
+
+    const res = await fetch(`${API_URL}/api/auth/username`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ username })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to set username");
+
+    setUser(data);
+    setNeedsUsername(false);
+    localStorage.setItem("codeplay_user", JSON.stringify(data));
+    return data;
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, 
@@ -209,7 +241,9 @@ export const AuthProvider = ({ children }) => {
       logout, 
       fetchWithAuth,
       handleOAuthCallback,
-      refreshAccessToken
+      refreshAccessToken,
+      needsUsername,
+      setUsername
     }}>
       {children}
     </AuthContext.Provider>

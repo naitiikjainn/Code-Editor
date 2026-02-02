@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import User from "../models/User.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -108,6 +109,10 @@ router.post("/login", async (req, res) => {
   try {
     const { identifier, password } = req.body;
 
+    if (!identifier || !password) {
+      return res.status(400).json({ error: "Please enter all fields." });
+    }
+
     // Rate limiting check
     const rateLimit = checkRateLimit(identifier);
     if (!rateLimit.allowed) {
@@ -137,8 +142,11 @@ router.post("/login", async (req, res) => {
 
     // Check if user has password (OAuth users might not)
     if (!user.password) {
+      const provider = user.authProvider !== "local"
+        ? user.authProvider
+        : (user.oauth?.googleId ? "google" : user.oauth?.githubId ? "github" : "oauth");
       return res.status(400).json({
-        error: `This account uses ${user.authProvider} login. Please use that instead.`
+        error: `This account uses ${provider} login. Please use that instead.`
       });
     }
 
@@ -217,6 +225,48 @@ router.get("/me", async (req, res) => {
       return res.status(401).json({ error: "Token expired", code: "TOKEN_EXPIRED" });
     }
     res.status(400).json({ error: "Token is not valid" });
+  }
+});
+
+// 4. SET USERNAME (OAuth users who are missing one)
+router.post("/username", authMiddleware, async (req, res) => {
+  try {
+    const { username } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ error: "Username is required." });
+    }
+
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+      return res.status(400).json({ error: "Username must be 3-20 characters, alphanumeric and underscores only." });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (user.username && user.username.trim().length > 0) {
+      return res.status(400).json({ error: "Username already set." });
+    }
+
+    const existing = await User.findOne({ username });
+    if (existing) {
+      return res.status(400).json({ error: "Username already exists." });
+    }
+
+    user.username = username;
+    await user.save();
+
+    res.json({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      authProvider: user.authProvider,
+      platforms: user.platforms
+    });
+  } catch (err) {
+    console.error("Set username error:", err);
+    res.status(500).json({ error: "Server error" });
   }
 });
 

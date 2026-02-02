@@ -14,6 +14,10 @@ const UserSchema = new mongoose.Schema({
   },
   providerId: { type: String }, // Google/GitHub user ID
   avatar: { type: String }, // Profile picture URL from OAuth
+  oauth: {
+    googleId: { type: String },
+    githubId: { type: String }
+  },
   
   // Password Reset
   resetPasswordToken: { type: String },

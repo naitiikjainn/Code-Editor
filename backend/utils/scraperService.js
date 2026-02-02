@@ -20,17 +20,18 @@ import redis from "../config/redis.js";
 // --- STATIC REPOSITORY CONFIGURATION ---
 // Update this with your GitHub username after creating the repository
 const STATIC_REPO_CONFIG = {
-    // Primary: Your own repository (update YOUR_GITHUB_USERNAME after setup)
+    // Primary: codewithsathya's repository (community resource)
+    // You can override via env to point to your own repo.
     primary: {
-        owner: process.env.GITHUB_PROBLEMS_OWNER || "naitiikjainn",
+        owner: process.env.GITHUB_PROBLEMS_OWNER || "codewithsathya",
         repo: process.env.GITHUB_PROBLEMS_REPO || "codeforces-problems",
-        branch: "main"
+        branch: process.env.GITHUB_PROBLEMS_BRANCH || "main"
     },
-    // Fallback: codewithsathya's repository (community resource)
+    // Fallback: optional secondary repo
     fallback: {
-        owner: "codewithsathya",
-        repo: "codeforces-problems",
-        branch: "main"
+        owner: process.env.GITHUB_PROBLEMS_FALLBACK_OWNER || "naitiikjainn",
+        repo: process.env.GITHUB_PROBLEMS_FALLBACK_REPO || "codeforces-problems",
+        branch: process.env.GITHUB_PROBLEMS_FALLBACK_BRANCH || "main"
     }
 };
 
@@ -318,7 +319,7 @@ const codeforcesScraper = {
             `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch}/content/${contestId}${separator}${index}.html`;
 
         // 1. Primary: Your own repository (if configured)
-        if (STATIC_REPO_CONFIG.primary.owner !== "YOUR_GITHUB_USERNAME") {
+        if (STATIC_REPO_CONFIG.primary.owner) {
             // Try underscore first (Windows-compatible), then colon
             urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.primary, '_'));
             urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.primary, ':'));
@@ -326,8 +327,10 @@ const codeforcesScraper = {
         }
 
         // 2. Fallback: Community repository (uses colon separator)
-        urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.fallback, ':'));
-        urls.push(`https://raw.githubusercontent.com/${STATIC_REPO_CONFIG.fallback.owner}/${STATIC_REPO_CONFIG.fallback.repo}/${STATIC_REPO_CONFIG.fallback.branch}/content/${contestId}%3A${index}.html`);
+        if (STATIC_REPO_CONFIG.fallback.owner) {
+            urls.push(buildGitHubRawUrl(STATIC_REPO_CONFIG.fallback, ':'));
+            urls.push(`https://raw.githubusercontent.com/${STATIC_REPO_CONFIG.fallback.owner}/${STATIC_REPO_CONFIG.fallback.repo}/${STATIC_REPO_CONFIG.fallback.branch}/content/${contestId}%3A${index}.html`);
+        }
 
         return urls;
     },

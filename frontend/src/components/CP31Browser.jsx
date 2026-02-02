@@ -36,9 +36,8 @@ const CP31Browser = ({ onOpenProblem, user }) => {
 
     const handleProblemClick = async (problem) => {
         if (loadingId) return;
-        setLoadingId(problem.id);
-        
         const id = `${problem.contestId}${problem.index}`;
+        setLoadingId(id);
         const problemObj = {
             provider: "codeforces",
             contestId: problem.contestId,
@@ -227,7 +226,7 @@ const CP31Browser = ({ onOpenProblem, user }) => {
 
                                                 {/* Rating Column + Loader */}
                                                 <div style={{ width: "48px", textAlign: "right", flexShrink: 0, marginTop: "2px" }}>
-                                                     {loadingId === problem.id ? (
+                                                     {loadingId === pid ? (
                                                          <div style={{ display: "flex", justifyContent: "flex-end" }}>
                                                              <span className="animate-spin" style={{ display: "block", height: "12px", width: "12px", borderRadius: "50%", border: "2px solid white", borderTopColor: "transparent" }}></span>
                                                          </div>

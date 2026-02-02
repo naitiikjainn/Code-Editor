@@ -6,7 +6,7 @@ import AuthModal from "./AuthModal";
 // Syntax highlighter removed for stability
 import { 
   Code2, Sparkles, Users, Zap, Terminal, ArrowRight,
-  Cpu, PenTool, Trophy, Send, MousePointer2
+  Cpu, PenTool, Trophy, Send, MousePointer2, User
 } from "lucide-react";
 
 // --- HOOKS ---
@@ -23,7 +23,10 @@ const useMousePosition = () => {
 // --- COMPONENTS ---
 
 // 1. FLOATING NAVBAR (Updated)
-const FloatingNav = ({ user, logout, setAuthOpen }) => (
+const FloatingNav = ({ user, logout, setAuthOpen }) => {
+  const [avatarError, setAvatarError] = React.useState(false);
+
+  return (
   <nav className="floating-nav">
     <div className="nav-glass">
       <Link to="/" className="nav-logo">
@@ -39,7 +42,28 @@ const FloatingNav = ({ user, logout, setAuthOpen }) => (
         {user ? (
           <>
             <Link to="/profile" className="nav-user">
-              {user.avatar ? <img src={user.avatar} alt={user.username} /> : <span>{user.username[0]}</span>}
+              {user.avatar && !avatarError ? (
+                <img
+                  src={user.avatar}
+                  alt={user.username || user.email || "User"}
+                  onError={() => setAvatarError(true)}
+                />
+              ) : (
+                <span
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "999px",
+                    background: "#1f1f23",
+                    color: "#a1a1aa"
+                  }}
+                >
+                  <User size={14} />
+                </span>
+              )}
             </Link>
             <button onClick={logout} className="btn-ghost-sm">Logout</button>
           </>
@@ -51,7 +75,8 @@ const FloatingNav = ({ user, logout, setAuthOpen }) => (
       </div>
     </div>
   </nav>
-);
+  );
+};
 
 // 2. HERO SECTION
 // 2. HERO SECTION

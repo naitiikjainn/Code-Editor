@@ -4,11 +4,15 @@ import Workspace from "./components/Workspace";
 import ProfilePage from "./components/ProfilePage";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 import OAuthCallback from "./components/OAuthCallback";
-import { AuthProvider } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import UsernamePrompt from "./components/UsernamePrompt";
 
-export default function App() {
+const AppShell = () => {
+  const { needsUsername } = useAuth();
+
   return (
-    <AuthProvider>
+    <>
+      <UsernamePrompt open={needsUsername} />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -20,6 +24,14 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>
+    </>
+  );
+};
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
     </AuthProvider>
   );
 }

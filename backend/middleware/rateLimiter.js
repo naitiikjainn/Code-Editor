@@ -145,6 +145,12 @@ export const rateLimiters = {
     auth: rateLimiter({
         windowMs: 60 * 1000,
         maxRequests: 5,
+        keyGenerator: (req) => {
+            const identifier = req.body?.identifier || req.body?.email || "";
+            const ip = req.ip || req.connection?.remoteAddress || "unknown";
+            return `${ip}:${identifier.toLowerCase()}`;
+        },
+        skip: (req) => req.method === "OPTIONS",
         message: "Too many authentication attempts. Please try again in a minute."
     }),
     
@@ -152,6 +158,12 @@ export const rateLimiters = {
     api: rateLimiter({
         windowMs: 60 * 1000,
         maxRequests: 100,
+        skip: (req) => {
+            if (req.method === "OPTIONS") return true;
+            // Allow frequent auth token checks without tripping global limiter
+            if (req.path === "/auth/me" || req.path === "/oauth/refresh") return true;
+            return false;
+        },
         message: "API rate limit exceeded. Please slow down."
     }),
     
