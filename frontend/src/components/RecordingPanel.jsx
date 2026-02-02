@@ -4,7 +4,6 @@ import {
   Mic, MicOff, Monitor, AppWindow, Chrome, X, Settings,
   Circle, Volume2, Eye, Check, ChevronDown, Sparkles
 } from "lucide-react";
-import { useScreenRecording } from "../hooks/useScreenRecording";
 
 // Recording quality options
 const QUALITY_OPTIONS = [
@@ -511,32 +510,33 @@ const SettingsDropdown = memo(function SettingsDropdown({
   );
 });
 
-// Main Recording Panel
-const RecordingPanel = memo(function RecordingPanel({ onClose }) {
+// Main Recording Panel - Now receives recording state as props
+const RecordingPanel = memo(function RecordingPanel({ 
+  onClose,
+  // Recording state from parent
+  isRecording,
+  isPaused,
+  formattedTime,
+  recordedBlob,
+  recordingError,
+  audioLevel,
+  isPreviewOpen,
+  countdownActive,
+  countdown,
+  // Recording actions from parent
+  startRecording,
+  pauseRecording,
+  resumeRecording,
+  stopRecording,
+  downloadRecording,
+  discardRecording,
+  setIsPreviewOpen
+}) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [quality, setQuality] = useState("medium");
   const [captureMode, setCaptureMode] = useState("tab"); // Default to current tab
   const [includeAudio, setIncludeAudio] = useState(true);
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
-
-  const {
-    isRecording,
-    isPaused,
-    formattedTime,
-    recordedBlob,
-    recordingError,
-    audioLevel,
-    isPreviewOpen,
-    countdownActive,
-    countdown,
-    startRecording,
-    pauseRecording,
-    resumeRecording,
-    stopRecording,
-    downloadRecording,
-    discardRecording,
-    setIsPreviewOpen
-  } = useScreenRecording();
 
   const handleStartRecording = () => {
     startRecording({
@@ -551,25 +551,6 @@ const RecordingPanel = memo(function RecordingPanel({ onClose }) {
 
   return (
     <>
-      {/* Countdown Overlay */}
-      <CountdownOverlay count={countdown} active={countdownActive} />
-
-      {/* Recording Preview Modal */}
-      <RecordingPreview
-        blob={recordedBlob}
-        isOpen={isPreviewOpen}
-        onClose={() => setIsPreviewOpen(false)}
-        onDownload={() => {
-          downloadRecording("codeplay-solution");
-          setIsPreviewOpen(false);
-        }}
-        onDiscard={() => {
-          discardRecording();
-          setIsPreviewOpen(false);
-        }}
-        duration={formattedTime}
-      />
-
       {/* Main Panel */}
       <div style={{
         height: "100%",
@@ -902,4 +883,6 @@ const RecordingPanel = memo(function RecordingPanel({ onClose }) {
   );
 });
 
+// Export components for use in Workspace
+export { CountdownOverlay, RecordingPreview };
 export default RecordingPanel;

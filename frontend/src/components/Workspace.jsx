@@ -30,7 +30,7 @@ import SettingsModal from "./SettingsModal";
 import SettingsPanel from "./SettingsPanel";
 import Whiteboard from "./Whiteboard"; 
 import VoicePanel from "./VoicePanel";
-import RecordingPanel from "./RecordingPanel";
+import RecordingPanel, { CountdownOverlay, RecordingPreview } from "./RecordingPanel";
 import RecordingIndicator from "./RecordingIndicator";
 import { useScreenRecording } from "../hooks/useScreenRecording";
 import { stringToColor } from "../utils/colors";
@@ -207,6 +207,7 @@ export default function Workspace() {
     isPaused,
     formattedTime: recordingTime,
     recordedBlob,
+    recordingError,
     audioLevel: recordingAudioLevel,
     isPreviewOpen: isRecordingPreviewOpen,
     countdownActive,
@@ -1843,7 +1844,25 @@ rl.on('line', (line) => {
                     )}
                     {activeSidebar === "settings" && <SettingsPanel />}
                     {activeSidebar === "recording" && (
-                        <RecordingPanel onClose={() => setActiveSidebar(null)} />
+                        <RecordingPanel 
+                          onClose={() => setActiveSidebar(null)}
+                          isRecording={isRecording}
+                          isPaused={isPaused}
+                          formattedTime={recordingTime}
+                          recordedBlob={recordedBlob}
+                          recordingError={recordingError}
+                          audioLevel={recordingAudioLevel}
+                          isPreviewOpen={isRecordingPreviewOpen}
+                          countdownActive={countdownActive}
+                          countdown={countdown}
+                          startRecording={startRecording}
+                          pauseRecording={pauseRecording}
+                          resumeRecording={resumeRecording}
+                          stopRecording={stopRecording}
+                          downloadRecording={downloadRecording}
+                          discardRecording={discardRecording}
+                          setIsPreviewOpen={setIsRecordingPreviewOpen}
+                        />
                     )}
                 </div>
                     {/* RESIZE HANDLE */}
@@ -2002,6 +2021,26 @@ rl.on('line', (line) => {
       
       
       {/* OVERLAYS */}
+      
+      {/* Recording Countdown Overlay - Always rendered at top level */}
+      <CountdownOverlay count={countdown} active={countdownActive} />
+      
+      {/* Recording Preview Modal - Always rendered at top level */}
+      <RecordingPreview
+        blob={recordedBlob}
+        isOpen={isRecordingPreviewOpen}
+        onClose={() => setIsRecordingPreviewOpen(false)}
+        onDownload={() => {
+          downloadRecording("codeplay-solution");
+          setIsRecordingPreviewOpen(false);
+        }}
+        onDiscard={() => {
+          discardRecording();
+          setIsRecordingPreviewOpen(false);
+        }}
+        duration={recordingTime}
+      />
+
       {(accessStatus === "waiting" || accessStatus === "loading" || accessStatus === "login_required" || accessStatus === "denied") && (
           <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.9)", backdropFilter: "blur(10px)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white" }}>
               <div className="animate-pulse" style={{ fontSize: "64px", marginBottom: "20px", color: accessStatus === "denied" ? "#ef5350" : "white" }}>
