@@ -120,16 +120,26 @@ export function useScreenRecording() {
 
       const preset = qualityPresets[quality];
 
-      // Get display media
+      // Get display media with options that ALLOW current tab capture
+      // Key options:
+      // - selfBrowserSurface: "include" - Shows the current tab in the picker
+      // - preferCurrentTab: true - Preselects the current tab
+      // - surfaceSwitching: "include" - Allows switching during recording
       const displayMediaOptions = {
         video: {
           cursor: "always",
-          displaySurface: captureMode,
+          displaySurface: captureMode === "tab" ? "browser" : captureMode,
           width: { ideal: preset.width },
           height: { ideal: preset.height },
           frameRate: { ideal: 30, max: 60 }
         },
-        audio: includeSystemAudio
+        audio: includeSystemAudio,
+        // These options allow capturing the CURRENT tab (CodePlay)
+        preferCurrentTab: captureMode === "tab",
+        selfBrowserSurface: "include", // CRITICAL: Shows current tab in picker
+        systemAudio: includeSystemAudio ? "include" : "exclude",
+        surfaceSwitching: "include",
+        monitorTypeSurfaces: captureMode === "screen" ? "include" : "exclude"
       };
 
       const displayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);

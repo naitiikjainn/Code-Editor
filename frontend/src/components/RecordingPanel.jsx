@@ -15,9 +15,9 @@ const QUALITY_OPTIONS = [
 
 // Capture mode options
 const CAPTURE_MODES = [
-  { id: "screen", label: "Entire Screen", icon: Monitor, desc: "Record your whole display" },
-  { id: "window", label: "Application", icon: AppWindow, desc: "Record a specific app" },
-  { id: "tab", label: "Browser Tab", icon: Chrome, desc: "Record this tab only" }
+  { id: "tab", label: "This Tab", icon: Chrome, desc: "Record CodePlay (recommended)", recommended: true },
+  { id: "screen", label: "Full Screen", icon: Monitor, desc: "Record entire display" },
+  { id: "window", label: "Application", icon: AppWindow, desc: "Record a specific app" }
 ];
 
 // Animated recording indicator
@@ -348,8 +348,16 @@ const SettingsDropdown = memo(function SettingsDropdown({
                 flex: 1,
                 padding: "12px 8px",
                 borderRadius: "10px",
-                border: captureMode === mode.id ? "1px solid #8b5cf6" : "1px solid rgba(255,255,255,0.1)",
-                background: captureMode === mode.id ? "rgba(139, 92, 246, 0.15)" : "rgba(255,255,255,0.03)",
+                border: captureMode === mode.id 
+                  ? "1px solid #8b5cf6" 
+                  : mode.recommended 
+                    ? "1px solid rgba(139, 92, 246, 0.3)" 
+                    : "1px solid rgba(255,255,255,0.1)",
+                background: captureMode === mode.id 
+                  ? "rgba(139, 92, 246, 0.15)" 
+                  : mode.recommended && captureMode !== mode.id
+                    ? "rgba(139, 92, 246, 0.05)"
+                    : "rgba(255,255,255,0.03)",
                 color: captureMode === mode.id ? "#a78bfa" : "#a1a1aa",
                 fontSize: "12px",
                 cursor: "pointer",
@@ -357,14 +365,39 @@ const SettingsDropdown = memo(function SettingsDropdown({
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                gap: "6px"
+                gap: "6px",
+                position: "relative"
               }}
             >
+              {mode.recommended && (
+                <span style={{
+                  position: "absolute",
+                  top: "-8px",
+                  right: "-4px",
+                  background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
+                  color: "white",
+                  fontSize: "8px",
+                  fontWeight: "bold",
+                  padding: "2px 6px",
+                  borderRadius: "8px",
+                  textTransform: "uppercase"
+                }}>
+                  Best
+                </span>
+              )}
               <mode.icon size={18} />
               <span style={{ fontWeight: "500" }}>{mode.label}</span>
             </button>
           ))}
         </div>
+        <p style={{ 
+          margin: "10px 0 0", 
+          fontSize: "11px", 
+          color: "#6b7280",
+          textAlign: "center"
+        }}>
+          💡 "This Tab" lets you record your CodePlay coding session
+        </p>
       </div>
 
       <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
@@ -482,7 +515,7 @@ const SettingsDropdown = memo(function SettingsDropdown({
 const RecordingPanel = memo(function RecordingPanel({ onClose }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [quality, setQuality] = useState("medium");
-  const [captureMode, setCaptureMode] = useState("screen");
+  const [captureMode, setCaptureMode] = useState("tab"); // Default to current tab
   const [includeAudio, setIncludeAudio] = useState(true);
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
 
@@ -658,7 +691,9 @@ const RecordingPanel = memo(function RecordingPanel({ onClose }) {
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#a1a1aa" }}>
                   <Check size={14} color="#22c55e" />
                   <span>
-                    {CAPTURE_MODES.find(m => m.id === captureMode)?.label || "Screen"} capture
+                    {captureMode === "tab" 
+                      ? "📹 Record this CodePlay tab" 
+                      : CAPTURE_MODES.find(m => m.id === captureMode)?.label || "Screen"} capture
                   </span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#a1a1aa" }}>
@@ -671,7 +706,7 @@ const RecordingPanel = memo(function RecordingPanel({ onClose }) {
                   {includeAudio ? (
                     <>
                       <Check size={14} color="#22c55e" />
-                      <span>Microphone {includeSystemAudio ? "& system audio" : "audio"}</span>
+                      <span>🎤 Microphone {includeSystemAudio ? "& system audio" : "audio"}</span>
                     </>
                   ) : (
                     <>
@@ -711,13 +746,13 @@ const RecordingPanel = memo(function RecordingPanel({ onClose }) {
               border: "1px solid rgba(255,255,255,0.05)"
             }}>
               <h4 style={{ margin: "0 0 12px", fontSize: "13px", fontWeight: "600", color: "#e4e4e7" }}>
-                💡 Tips for great recordings
+                💡 How to record your solution
               </h4>
               <ul style={{ margin: 0, padding: "0 0 0 20px", fontSize: "12px", color: "#a1a1aa", lineHeight: "1.8" }}>
-                <li>Close unnecessary tabs and apps</li>
-                <li>Speak clearly when explaining your solution</li>
-                <li>Use keyboard shortcuts for smoother navigation</li>
-                <li>Enable "Tab" capture for best performance</li>
+                <li>Click <strong>Start Recording</strong> below</li>
+                <li>Select <strong>"This Tab"</strong> when the browser prompt appears</li>
+                <li>Check <strong>"Share tab audio"</strong> if you want system sounds</li>
+                <li>Code and explain your solution!</li>
               </ul>
             </div>
           )}
