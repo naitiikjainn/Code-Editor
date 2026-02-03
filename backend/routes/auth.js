@@ -244,7 +244,22 @@ router.post("/username", authMiddleware, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (user.username && user.username.trim().length > 0) {
+    const isValidUsername = (value) => /^[a-zA-Z0-9_]{3,20}$/.test((value || "").trim());
+
+    // If the user already has the requested username, treat it as success
+    if (user.username && user.username.trim() === username.trim()) {
+      return res.json({
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+        authProvider: user.authProvider,
+        platforms: user.platforms
+      });
+    }
+
+    // Only block if existing username is valid (local users or already finalized)
+    if (user.username && isValidUsername(user.username)) {
       return res.status(400).json({ error: "Username already set." });
     }
 

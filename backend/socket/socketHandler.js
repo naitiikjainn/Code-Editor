@@ -1,4 +1,5 @@
 import Room from "../models/Room.js";
+import User from "../models/User.js";
 
 const userMap = new Map();
 // Global maps (moved from index.js)
@@ -171,6 +172,16 @@ export default function socketHandler(io) {
         { upsert: true, new: true }
       );
 
+      // If host.userId missing, try to resolve from username
+      if (room?.host && !room.host.userId && room.host.username) {
+        const hostUser = await User.findOne({ username: room.host.username }).select("_id");
+        if (hostUser?._id) {
+          room.host.userId = hostUser._id;
+          await room.save();
+          console.log(`💾 Resolved host userId for ${room.host.username}: ${hostUser._id}`);
+        }
+      }
+
       if (room?.isNew) {
         console.log(`🆕 New Room Created by ${username} (userId: ${userId || 'N/A'})`);
       }
@@ -193,12 +204,17 @@ export default function socketHandler(io) {
         socket.isHost = isHost;
         userMap.set(socket.id, { username, isHost, status: "active", userId });
 
-        // Update host.userId if missing and username matches host
-        if (userId && !room.host.userId && room.host.username === username) {
-          room.host.userId = userId;
+        // Update host.userId/username if this socket is the real host
+        if (isHost) {
+          if (userId && !room.host.userId) {
+            room.host.userId = userId;
+          }
+          if (room.host.username !== username) {
+            room.host.username = username;
+          }
           room.hostOnline = true;
           await room.save();
-          console.log(`💾 Updated host userId: ${userId}`);
+          console.log(`💾 Synced host identity: ${username} (${room.host.userId || "no-id"})`);
         }
 
         // If host rejoining, update hostOnline

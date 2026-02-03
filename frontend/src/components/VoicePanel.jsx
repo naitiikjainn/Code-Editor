@@ -1,5 +1,5 @@
-import { memo, useMemo } from "react";
-import { Volume2, VolumeX, MicOff } from "lucide-react";
+import { memo, useMemo, useState } from "react";
+import { Volume2, VolumeX, MicOff, ChevronDown, ChevronUp } from "lucide-react";
 import { stringToColor } from "../utils/colors";
 
 const getConnectionStatus = (quality) => {
@@ -80,6 +80,7 @@ const VoicePanel = memo(function VoicePanel({
     resolvePeerName,
 }) {
     const connectionState = getConnectionStatus(connectionQuality);
+    const [isMinimized, setIsMinimized] = useState(false);
 
     const speakingPeerSet = useMemo(() => {
         if (!speakingPeers) {
@@ -101,6 +102,46 @@ const VoicePanel = memo(function VoicePanel({
 
     if (!isConnected) {
         return null;
+    }
+
+    if (isMinimized) {
+        return (
+            <div
+                style={{
+                    position: "fixed",
+                    top: "70px",
+                    right: "20px",
+                    width: "220px",
+                    background: "rgba(20, 20, 30, 0.95)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "12px",
+                    padding: "10px 12px",
+                    zIndex: 1000,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer"
+                }}
+                onClick={() => setIsMinimized(false)}
+            >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div
+                        style={{
+                            width: "8px",
+                            height: "8px",
+                            borderRadius: "50%",
+                            background: connectionState.color,
+                            animation: "pulse 2s infinite",
+                        }}
+                    />
+                    <span style={{ color: "#ddd", fontSize: "12px", fontWeight: "600" }}>
+                        Voice Chat ({memoizedPeers.length + 1})
+                    </span>
+                </div>
+                <ChevronDown size={16} color="#aaa" />
+            </div>
+        );
     }
 
     return (
@@ -131,6 +172,21 @@ const VoicePanel = memo(function VoicePanel({
                         }}
                     />
                     <span style={{ color: connectionState.color, fontSize: "10px" }}>{connectionState.label}</span>
+                    <button
+                        onClick={() => setIsMinimized(true)}
+                        style={{
+                            marginLeft: "6px",
+                            background: "transparent",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: "2px",
+                            display: "flex",
+                            alignItems: "center"
+                        }}
+                        title="Minimize"
+                    >
+                        <ChevronUp size={14} color="#aaa" />
+                    </button>
                 </div>
             </div>
 
