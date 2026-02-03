@@ -2,7 +2,8 @@ import React, { memo, useState, useRef, useEffect } from "react";
 import { 
   Video, VideoOff, Pause, Play, Square, Download, Trash2, 
   Mic, MicOff, Monitor, AppWindow, Chrome, X, Settings,
-  Circle, Volume2, Eye, Check, ChevronDown, Sparkles
+  Circle, Volume2, VolumeX, Eye, Check, ChevronDown, Sparkles,
+  Camera, CameraOff, Move
 } from "lucide-react";
 
 // Recording quality options
@@ -131,25 +132,168 @@ const RecordingPreview = memo(function RecordingPreview({
   onClose, 
   onDownload, 
   onDiscard,
-  duration 
+  duration,
+  isRecording
 }) {
   const videoRef = useRef(null);
+  const durationFixRef = useRef(false);
+  const [videoUrl, setVideoUrl] = useState(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
 
+  // Create blob URL when blob changes
   useEffect(() => {
-    if (blob && videoRef.current) {
-      videoRef.current.src = URL.createObjectURL(blob);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      setVideoUrl(url);
+      setIsLoaded(false);
+      setCurrentTime(0);
+      setVideoDuration(0);
+      setIsPlaying(false);
+      durationFixRef.current = false;
+      
+      return () => {
+        URL.revokeObjectURL(url);
+        setVideoUrl(null);
+      };
     }
-    return () => {
-      if (videoRef.current?.src) {
-        URL.revokeObjectURL(videoRef.current.src);
-      }
-    };
   }, [blob]);
 
-  if (!isOpen || !blob) return null;
+  // Load video when URL is ready
+  useEffect(() => {
+    if (videoUrl && videoRef.current) {
+      videoRef.current.load();
+    }
+  }, [videoUrl]);
+
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return;
+    if (isFinite(videoRef.current.currentTime)) {
+      setCurrentTime(videoRef.current.currentTime);
+    }
+
+    const dur = videoRef.current.duration;
+    if ((!isFinite(videoDuration) || videoDuration <= 0) && isFinite(dur) && dur > 0) {
+      setVideoDuration(dur);
+      setIsLoaded(true);
+    }
+
+    if (durationFixRef.current && isFinite(dur) && dur > 0 && videoRef.current.currentTime > dur) {
+      durationFixRef.current = false;
+      videoRef.current.currentTime = 0;
+      setCurrentTime(0);
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (!videoRef.current) return;
+    const dur = videoRef.current.duration;
+    if (isFinite(dur) && dur > 0) {
+      setVideoDuration(dur);
+      setIsLoaded(true);
+      return;
+    }
+    if (!durationFixRef.current) {
+      durationFixRef.current = true;
+      try {
+        videoRef.current.currentTime = 1e101;
+      } catch {}
+    }
+  };
+
+  const handleLoadedData = () => {
+    if (!videoRef.current) return;
+    const dur = videoRef.current.duration;
+    if (isFinite(dur) && dur > 0) {
+      setVideoDuration(dur);
+      setIsLoaded(true);
+    }
+  };
+
+  const handleCanPlay = () => {
+    setIsLoaded(true);
+  };
+
+  const handleDurationChange = () => {
+    if (!videoRef.current) return;
+    const dur = videoRef.current.duration;
+    if (isFinite(dur) && dur > 0) {
+      setVideoDuration(dur);
+    }
+  };
+
+  const handleSeeked = () => {
+    if (!videoRef.current) return;
+    const dur = videoRef.current.duration;
+    if (durationFixRef.current && isFinite(dur) && dur > 0) {
+      durationFixRef.current = false;
+      setVideoDuration(dur);
+      videoRef.current.currentTime = 0;
+      setCurrentTime(0);
+      videoRef.current.pause();
+      setIsPlaying(false);
+      setIsLoaded(true);
+    }
+  };
+
+  const handleSeek = (e) => {
+    if (!videoRef.current) return;
+
+    const duration = (isFinite(videoRef.current.duration) && videoRef.current.duration > 0)
+      ? videoRef.current.duration
+      : videoDuration;
+
+    if (!isFinite(duration) || duration <= 0) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const newTime = pos * duration;
+    
+    if (isFinite(newTime)) {
+      videoRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const togglePlay = () => {
+    if (videoRef.current && isLoaded) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+    }
+  };
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  const formatTime = (time) => {
+    if (!isFinite(time) || time < 0) return "0:00";
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (isRecording || !isOpen || !blob) return null;
 
   const fileSizeMB = (blob.size / (1024 * 1024)).toFixed(2);
+  const effectiveDuration = (isFinite(videoDuration) && videoDuration > 0)
+    ? videoDuration
+    : (videoRef.current && isFinite(videoRef.current.duration) ? videoRef.current.duration : 0);
+  const progress = (isFinite(effectiveDuration) && effectiveDuration > 0 && isFinite(currentTime)) 
+    ? Math.min(100, Math.max(0, (currentTime / effectiveDuration) * 100)) 
+    : 0;
 
   return (
     <div 
@@ -228,25 +372,182 @@ const RecordingPreview = memo(function RecordingPreview({
           </button>
         </div>
 
-        {/* Video Preview */}
+        {/* Video Preview with Custom Controls */}
         <div style={{ padding: "24px", position: "relative" }}>
           <div style={{
             borderRadius: "12px",
             overflow: "hidden",
             background: "#000",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
+            boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            position: "relative",
+            minHeight: "300px"
           }}>
-            <video
-              ref={videoRef}
-              controls
-              style={{
-                width: "100%",
-                display: "block",
-                maxHeight: "400px"
-              }}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-            />
+            {videoUrl ? (
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                preload="auto"
+                playsInline
+                style={{
+                  width: "100%",
+                  display: "block",
+                  maxHeight: "450px",
+                  minHeight: "300px",
+                  cursor: "pointer",
+                  objectFit: "contain",
+                  background: "#000"
+                }}
+                onClick={togglePlay}
+                onTimeUpdate={handleTimeUpdate}
+                onLoadedMetadata={handleLoadedMetadata}
+                onLoadedData={handleLoadedData}
+                onCanPlay={handleCanPlay}
+                onDurationChange={handleDurationChange}
+                onSeeked={handleSeeked}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
+              />
+            ) : (
+              <div style={{
+                minHeight: "300px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#666"
+              }}>
+                Loading video...
+              </div>
+            )}
+            
+            {/* Loading indicator */}
+            {videoUrl && !isLoaded && (
+              <div style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(0,0,0,0.5)"
+              }}>
+                <div style={{ color: "#fff", fontSize: "14px" }}>Loading video...</div>
+              </div>
+            )}
+            
+            {/* Custom Controls Overlay */}
+            <div style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: "linear-gradient(transparent, rgba(0,0,0,0.8))",
+              padding: "20px 16px 12px"
+            }}>
+              {/* Progress Bar */}
+              <div 
+                onClick={handleSeek}
+                style={{
+                  height: "6px",
+                  background: "rgba(255,255,255,0.2)",
+                  borderRadius: "3px",
+                  cursor: isLoaded ? "pointer" : "not-allowed",
+                  marginBottom: "12px",
+                  position: "relative",
+                  opacity: isLoaded ? 1 : 0.5,
+                  pointerEvents: isLoaded ? "auto" : "none"
+                }}
+              >
+                <div style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  height: "100%",
+                  width: `${progress}%`,
+                  background: "linear-gradient(90deg, #8b5cf6, #ec4899)",
+                  borderRadius: "3px",
+                  transition: "width 0.1s linear"
+                }} />
+                <div style={{
+                  position: "absolute",
+                  left: `${progress}%`,
+                  top: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: "14px",
+                  height: "14px",
+                  background: "white",
+                  borderRadius: "50%",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.3)"
+                }} />
+              </div>
+              
+              {/* Controls */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <button
+                    onClick={togglePlay}
+                    style={{
+                      background: "rgba(255,255,255,0.1)",
+                      border: "none",
+                      borderRadius: "50%",
+                      width: "36px",
+                      height: "36px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      color: "white"
+                    }}
+                  >
+                    {isPlaying ? <Pause size={18} /> : <Play size={18} fill="white" />}
+                  </button>
+                  
+                  <button
+                    onClick={toggleMute}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "white",
+                      padding: "4px"
+                    }}
+                  >
+                    {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                  </button>
+                  
+                  <span style={{ fontSize: "13px", color: "white", fontFamily: "var(--font-mono)" }}>
+                    {formatTime(currentTime)} / {formatTime(videoDuration)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Play Button Overlay (when paused) */}
+            {!isPlaying && (
+              <div 
+                onClick={togglePlay}
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: "70px",
+                  height: "70px",
+                  borderRadius: "50%",
+                  background: "rgba(139, 92, 246, 0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: isLoaded ? "pointer" : "not-allowed",
+                  boxShadow: "0 4px 20px rgba(139, 92, 246, 0.5)"
+                }}
+              >
+                <Play size={30} fill="white" color="white" style={{ marginLeft: "4px" }} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -313,9 +614,24 @@ const SettingsDropdown = memo(function SettingsDropdown({
   includeAudio,
   setIncludeAudio,
   includeSystemAudio,
-  setIncludeSystemAudio
+  setIncludeSystemAudio,
+  includeWebcam,
+  setIncludeWebcam,
+  webcamEnabled,
+  toggleWebcam,
+  webcamPosition,
+  setWebcamPosition,
+  webcamStream,
+  webcamPreviewRef
 }) {
   if (!isOpen) return null;
+
+  const webcamPositions = [
+    { id: "bottom-right", label: "↘️" },
+    { id: "bottom-left", label: "↙️" },
+    { id: "top-right", label: "↗️" },
+    { id: "top-left", label: "↖️" }
+  ];
 
   return (
     <div 
@@ -330,7 +646,9 @@ const SettingsDropdown = memo(function SettingsDropdown({
         border: "1px solid rgba(255,255,255,0.1)",
         boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
         overflow: "hidden",
-        animation: "slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)"
+        animation: "slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+        maxHeight: "70vh",
+        overflowY: "auto"
       }}
       onClick={e => e.stopPropagation()}
     >
@@ -397,6 +715,167 @@ const SettingsDropdown = memo(function SettingsDropdown({
         }}>
           💡 "This Tab" lets you record your CodePlay coding session
         </p>
+      </div>
+
+      {/* Webcam / Camera Section */}
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+        <div style={{ fontSize: "13px", fontWeight: "600", color: "#a1a1aa", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <Camera size={14} /> Camera (Picture-in-Picture)
+        </div>
+        
+        <label style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "10px 12px",
+          borderRadius: "8px",
+          background: includeWebcam ? "rgba(139, 92, 246, 0.1)" : "rgba(255,255,255,0.03)",
+          cursor: "pointer",
+          marginBottom: "12px",
+          border: includeWebcam ? "1px solid rgba(139, 92, 246, 0.3)" : "1px solid transparent"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {includeWebcam ? <Camera size={16} color="#a78bfa" /> : <CameraOff size={16} color="#6b7280" />}
+            <span style={{ fontSize: "13px", color: includeWebcam ? "#e4e4e7" : "#a1a1aa" }}>
+              Show Webcam
+            </span>
+          </div>
+          <div 
+            onClick={(e) => { 
+              e.preventDefault(); 
+              setIncludeWebcam(!includeWebcam);
+              if (!includeWebcam && !webcamEnabled) {
+                toggleWebcam();
+              }
+            }}
+            style={{
+              width: "44px",
+              height: "24px",
+              borderRadius: "12px",
+              background: includeWebcam ? "linear-gradient(135deg, #8b5cf6, #ec4899)" : "rgba(255,255,255,0.1)",
+              position: "relative",
+              cursor: "pointer",
+              transition: "background 0.2s"
+            }}
+          >
+            <div style={{
+              position: "absolute",
+              top: "2px",
+              left: includeWebcam ? "22px" : "2px",
+              width: "20px",
+              height: "20px",
+              borderRadius: "50%",
+              background: "white",
+              transition: "left 0.2s",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+            }} />
+          </div>
+        </label>
+
+        {/* Webcam Preview & Position */}
+        {includeWebcam && (
+          <div style={{
+            background: "rgba(0,0,0,0.3)",
+            borderRadius: "12px",
+            padding: "12px",
+            animation: "fadeIn 0.3s ease"
+          }}>
+            {/* Preview */}
+            <div style={{
+              position: "relative",
+              width: "100%",
+              height: "120px",
+              borderRadius: "8px",
+              overflow: "hidden",
+              background: "#000",
+              marginBottom: "12px"
+            }}>
+              {webcamStream ? (
+                <video
+                  ref={webcamPreviewRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    transform: "scaleX(-1)" // Mirror effect
+                  }}
+                />
+              ) : (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: "100%",
+                  color: "#6b7280",
+                  fontSize: "12px"
+                }}>
+                  <CameraOff size={24} style={{ marginRight: "8px" }} />
+                  Camera not available
+                </div>
+              )}
+              
+              {/* Position indicator overlay */}
+              <div style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none"
+              }}>
+                <div style={{
+                  position: "absolute",
+                  width: "40px",
+                  height: "30px",
+                  border: "2px dashed rgba(139, 92, 246, 0.6)",
+                  borderRadius: "4px",
+                  ...(webcamPosition === "bottom-right" && { bottom: "8px", right: "8px" }),
+                  ...(webcamPosition === "bottom-left" && { bottom: "8px", left: "8px" }),
+                  ...(webcamPosition === "top-right" && { top: "8px", right: "8px" }),
+                  ...(webcamPosition === "top-left" && { top: "8px", left: "8px" })
+                }} />
+              </div>
+            </div>
+
+            {/* Position Selector */}
+            <div>
+              <div style={{ 
+                fontSize: "11px", 
+                color: "#6b7280", 
+                marginBottom: "8px",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
+              }}>
+                <Move size={12} /> Position
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {webcamPositions.map(pos => (
+                  <button
+                    key={pos.id}
+                    onClick={() => setWebcamPosition(pos.id)}
+                    style={{
+                      flex: 1,
+                      padding: "8px",
+                      borderRadius: "8px",
+                      border: webcamPosition === pos.id 
+                        ? "1px solid #8b5cf6" 
+                        : "1px solid rgba(255,255,255,0.1)",
+                      background: webcamPosition === pos.id 
+                        ? "rgba(139, 92, 246, 0.2)" 
+                        : "rgba(255,255,255,0.03)",
+                      fontSize: "16px",
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    {pos.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
@@ -523,6 +1002,10 @@ const RecordingPanel = memo(function RecordingPanel({
   isPreviewOpen,
   countdownActive,
   countdown,
+  // Webcam state from parent
+  webcamEnabled,
+  webcamStream,
+  webcamPosition,
   // Recording actions from parent
   startRecording,
   pauseRecording,
@@ -530,13 +1013,25 @@ const RecordingPanel = memo(function RecordingPanel({
   stopRecording,
   downloadRecording,
   discardRecording,
-  setIsPreviewOpen
+  setIsPreviewOpen,
+  // Webcam actions from parent
+  toggleWebcam,
+  setWebcamPosition
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [quality, setQuality] = useState("medium");
   const [captureMode, setCaptureMode] = useState("tab"); // Default to current tab
   const [includeAudio, setIncludeAudio] = useState(true);
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
+  const [includeWebcam, setIncludeWebcam] = useState(false);
+  const webcamPreviewRef = useRef(null);
+
+  // Update webcam preview
+  useEffect(() => {
+    if (webcamPreviewRef.current && webcamStream) {
+      webcamPreviewRef.current.srcObject = webcamStream;
+    }
+  }, [webcamStream]);
 
   const handleStartRecording = () => {
     startRecording({
@@ -544,7 +1039,8 @@ const RecordingPanel = memo(function RecordingPanel({
       includeSystemAudio,
       captureMode,
       quality,
-      showCountdown: true
+      showCountdown: true,
+      includeWebcam
     });
     setSettingsOpen(false);
   };
@@ -696,6 +1192,19 @@ const RecordingPanel = memo(function RecordingPanel({
                     </>
                   )}
                 </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#a1a1aa" }}>
+                  {includeWebcam ? (
+                    <>
+                      <Check size={14} color="#22c55e" />
+                      <span>📷 Camera overlay enabled</span>
+                    </>
+                  ) : (
+                    <>
+                      <CameraOff size={14} color="#6b7280" />
+                      <span>No camera</span>
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -754,6 +1263,14 @@ const RecordingPanel = memo(function RecordingPanel({
               setIncludeAudio={setIncludeAudio}
               includeSystemAudio={includeSystemAudio}
               setIncludeSystemAudio={setIncludeSystemAudio}
+              includeWebcam={includeWebcam}
+              setIncludeWebcam={setIncludeWebcam}
+              webcamEnabled={webcamEnabled}
+              toggleWebcam={toggleWebcam}
+              webcamPosition={webcamPosition}
+              setWebcamPosition={setWebcamPosition}
+              webcamStream={webcamStream}
+              webcamPreviewRef={webcamPreviewRef}
             />
 
             {isRecording ? (

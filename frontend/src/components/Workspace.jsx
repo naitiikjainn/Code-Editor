@@ -212,13 +212,23 @@ export default function Workspace() {
     isPreviewOpen: isRecordingPreviewOpen,
     countdownActive,
     countdown,
+    // Webcam state
+    webcamEnabled,
+    webcamStream,
+    webcamPosition,
+    // Recording actions
     startRecording,
     pauseRecording,
     resumeRecording,
     stopRecording,
     downloadRecording,
     discardRecording,
-    setIsPreviewOpen: setIsRecordingPreviewOpen
+    setIsPreviewOpen: setIsRecordingPreviewOpen,
+    // Webcam actions
+    toggleWebcam,
+    startWebcam,
+    stopWebcam,
+    setWebcamPosition
   } = useScreenRecording();
 
   // --- AUTO LOGOUT ON TOKEN EXPIRY ---
@@ -1855,6 +1865,11 @@ rl.on('line', (line) => {
                           isPreviewOpen={isRecordingPreviewOpen}
                           countdownActive={countdownActive}
                           countdown={countdown}
+                          // Webcam state
+                          webcamEnabled={webcamEnabled}
+                          webcamStream={webcamStream}
+                          webcamPosition={webcamPosition}
+                          // Recording actions
                           startRecording={startRecording}
                           pauseRecording={pauseRecording}
                           resumeRecording={resumeRecording}
@@ -1862,6 +1877,9 @@ rl.on('line', (line) => {
                           downloadRecording={downloadRecording}
                           discardRecording={discardRecording}
                           setIsPreviewOpen={setIsRecordingPreviewOpen}
+                          // Webcam actions
+                          toggleWebcam={toggleWebcam}
+                          setWebcamPosition={setWebcamPosition}
                         />
                     )}
                 </div>
@@ -2029,6 +2047,7 @@ rl.on('line', (line) => {
       <RecordingPreview
         blob={recordedBlob}
         isOpen={isRecordingPreviewOpen}
+                isRecording={isRecording}
         onClose={() => setIsRecordingPreviewOpen(false)}
         onDownload={() => {
           downloadRecording("codeplay-solution");
@@ -2109,6 +2128,10 @@ rl.on('line', (line) => {
           onResume={resumeRecording}
           onStop={stopRecording}
           onExpand={() => setActiveSidebar("recording")}
+          webcamEnabled={webcamEnabled}
+          webcamStream={webcamStream}
+          webcamPosition={webcamPosition}
+                    isPreviewOpen={isRecordingPreviewOpen}
         />
       )}
 

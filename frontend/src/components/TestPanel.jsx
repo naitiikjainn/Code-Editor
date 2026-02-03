@@ -473,10 +473,13 @@ const TestPanel = ({
                 disabled={isRunningTests || testCases.length === 0}
                 style={{ 
                     width: "100%",
-                    background: isRunningTests || testCases.length === 0 
+                    backgroundColor: isRunningTests || testCases.length === 0 
                         ? "#1a1a1a" 
+                        : "transparent",
+                    backgroundImage: isRunningTests || testCases.length === 0
+                        ? "none"
                         : "linear-gradient(135deg, #8b5cf6 0%, #6366f1 50%, #8b5cf6 100%)",
-                    backgroundSize: "200% 100%",
+                    backgroundSize: isRunningTests || testCases.length === 0 ? "auto" : "200% 100%",
                     color: isRunningTests || testCases.length === 0 ? "#444" : "white", 
                     border: isRunningTests || testCases.length === 0 ? "1px solid #222" : "none",
                     padding: "14px", 

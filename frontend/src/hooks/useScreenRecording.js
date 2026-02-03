@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 /**
- * Custom hook for screen/tab recording with audio support
+ * Custom hook for screen/tab recording with audio and webcam support
  * Features:
  * - Screen/Tab/Window capture
  * - Microphone audio overlay
  * - System audio capture (when supported)
+ * - Webcam PiP overlay
  * - Recording timer
  * - Download/Preview functionality
  */
@@ -19,6 +20,11 @@ export function useScreenRecording() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [countdownActive, setCountdownActive] = useState(false);
   const [countdown, setCountdown] = useState(3);
+  
+  // Webcam state
+  const [webcamEnabled, setWebcamEnabled] = useState(false);
+  const [webcamStream, setWebcamStream] = useState(null);
+  const [webcamPosition, setWebcamPosition] = useState("bottom-right"); // bottom-right, bottom-left, top-right, top-left
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -27,16 +33,24 @@ export function useScreenRecording() {
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const canvasRef = useRef(null);
+  const webcamVideoRef = useRef(null);
+  const screenVideoRef = useRef(null);
+  const compositeAnimationRef = useRef(null);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopRecording();
+      stopWebcam();
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (compositeAnimationRef.current) {
+        cancelAnimationFrame(compositeAnimationRef.current);
       }
     };
   }, []);
@@ -77,6 +91,167 @@ export function useScreenRecording() {
     setAudioLevel(0);
   }, []);
 
+  // Start webcam
+  const startWebcam = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 320 },
+          height: { ideal: 240 },
+          facingMode: "user"
+        },
+        audio: false // Audio handled separately
+      });
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = true;
+      });
+      setWebcamStream(stream);
+      setWebcamEnabled(true);
+      return stream;
+    } catch (error) {
+      console.warn("Could not access webcam:", error);
+      setWebcamEnabled(false);
+      return null;
+    }
+  }, []);
+
+  // Stop webcam
+  const stopWebcam = useCallback(() => {
+    if (webcamStream) {
+      webcamStream.getTracks().forEach(track => track.stop());
+      setWebcamStream(null);
+    }
+    setWebcamEnabled(false);
+  }, [webcamStream]);
+
+  // Toggle webcam
+  const toggleWebcam = useCallback(async () => {
+    if (webcamEnabled) {
+      stopWebcam();
+    } else {
+      await startWebcam();
+    }
+  }, [webcamEnabled, startWebcam, stopWebcam]);
+
+  // Composite screen + webcam onto canvas
+  const startCompositing = useCallback((screenStream, webcamStream, canvasWidth, canvasHeight) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    canvasRef.current = canvas;
+    const ctx = canvas.getContext("2d");
+
+    // Create video elements for screen and webcam
+    const screenVideo = document.createElement("video");
+    screenVideo.srcObject = screenStream;
+    screenVideo.muted = true;
+    screenVideo.playsInline = true;
+    screenVideo.autoplay = true;
+    screenVideo.play().catch(() => {});
+    screenVideoRef.current = screenVideo;
+
+    const webcamVideo = document.createElement("video");
+    webcamVideo.srcObject = webcamStream;
+    webcamVideo.muted = true;
+    webcamVideo.playsInline = true;
+    webcamVideo.autoplay = true;
+    webcamVideo.play().catch(() => {});
+    webcamVideoRef.current = webcamVideo;
+
+    // Webcam PiP settings
+    const pipWidth = Math.round(canvasWidth * 0.2); // 20% of screen width
+    const pipHeight = Math.round(pipWidth * 0.75); // 4:3 aspect ratio
+    const margin = 20;
+
+    const getWebcamPosition = (position) => {
+      switch (position) {
+        case "top-left":
+          return { x: margin, y: margin };
+        case "top-right":
+          return { x: canvasWidth - pipWidth - margin, y: margin };
+        case "bottom-left":
+          return { x: margin, y: canvasHeight - pipHeight - margin };
+        case "bottom-right":
+        default:
+          return { x: canvasWidth - pipWidth - margin, y: canvasHeight - pipHeight - margin };
+      }
+    };
+
+    const drawFrame = () => {
+      if (screenVideo.readyState < 2 || webcamVideo.readyState < 2) {
+        compositeAnimationRef.current = requestAnimationFrame(drawFrame);
+        return;
+      }
+      // Draw screen
+      ctx.drawImage(screenVideo, 0, 0, canvasWidth, canvasHeight);
+
+      // Draw webcam PiP with rounded corners
+      if (webcamStream && webcamStream.active && webcamVideo.videoWidth > 0 && webcamVideo.videoHeight > 0) {
+        const pos = getWebcamPosition(webcamPosition);
+        const radius = 12;
+
+        ctx.save();
+        
+        // Create rounded rectangle path
+        ctx.beginPath();
+        ctx.moveTo(pos.x + radius, pos.y);
+        ctx.lineTo(pos.x + pipWidth - radius, pos.y);
+        ctx.quadraticCurveTo(pos.x + pipWidth, pos.y, pos.x + pipWidth, pos.y + radius);
+        ctx.lineTo(pos.x + pipWidth, pos.y + pipHeight - radius);
+        ctx.quadraticCurveTo(pos.x + pipWidth, pos.y + pipHeight, pos.x + pipWidth - radius, pos.y + pipHeight);
+        ctx.lineTo(pos.x + radius, pos.y + pipHeight);
+        ctx.quadraticCurveTo(pos.x, pos.y + pipHeight, pos.x, pos.y + pipHeight - radius);
+        ctx.lineTo(pos.x, pos.y + radius);
+        ctx.quadraticCurveTo(pos.x, pos.y, pos.x + radius, pos.y);
+        ctx.closePath();
+
+        // Add border/glow
+        ctx.strokeStyle = "rgba(139, 92, 246, 0.8)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Clip to rounded rectangle
+        ctx.clip();
+        
+        // Draw webcam video
+        ctx.drawImage(webcamVideo, pos.x, pos.y, pipWidth, pipHeight);
+        
+        ctx.restore();
+      }
+
+      compositeAnimationRef.current = requestAnimationFrame(drawFrame);
+    };
+
+    // Wait for videos to be ready
+    Promise.all([
+      new Promise(resolve => screenVideo.onloadedmetadata = resolve),
+      new Promise(resolve => webcamVideo.onloadedmetadata = resolve)
+    ]).then(() => {
+      screenVideo.play().catch(() => {});
+      webcamVideo.play().catch(() => {});
+      drawFrame();
+    });
+
+    // Return canvas stream
+    return canvas.captureStream(30);
+  }, [webcamPosition]);
+
+  const stopCompositing = useCallback(() => {
+    if (compositeAnimationRef.current) {
+      cancelAnimationFrame(compositeAnimationRef.current);
+      compositeAnimationRef.current = null;
+    }
+    if (screenVideoRef.current) {
+      screenVideoRef.current.srcObject = null;
+      screenVideoRef.current = null;
+    }
+    if (webcamVideoRef.current) {
+      webcamVideoRef.current.srcObject = null;
+      webcamVideoRef.current = null;
+    }
+    canvasRef.current = null;
+  }, []);
+
   // Start countdown before recording
   const startCountdown = useCallback(() => {
     return new Promise((resolve) => {
@@ -104,11 +279,14 @@ export function useScreenRecording() {
       includeSystemAudio = true,
       captureMode = "screen", // "screen" | "window" | "tab"
       quality = "high", // "low" | "medium" | "high"
-      showCountdown = true
+      showCountdown = true,
+      includeWebcam = false
     } = options;
 
     try {
       setRecordingError(null);
+      setIsPreviewOpen(false);
+      setRecordedBlob(null);
       chunksRef.current = [];
 
       // Quality presets
@@ -144,8 +322,33 @@ export function useScreenRecording() {
 
       const displayStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
 
+      const displayTrack = displayStream.getVideoTracks()[0];
+      const displaySettings = displayTrack?.getSettings ? displayTrack.getSettings() : {};
+      const compositeWidth = displaySettings.width || preset.width;
+      const compositeHeight = displaySettings.height || preset.height;
+
+      // Get webcam stream if enabled
+      let activeWebcamStream = webcamStream;
+      if (includeWebcam && !webcamStream) {
+        activeWebcamStream = await startWebcam();
+      }
+
+      // Determine video stream (composite if webcam, otherwise just screen)
+      let videoStream = displayStream;
+      
+      if (includeWebcam && activeWebcamStream) {
+        // Composite screen + webcam
+        const compositeStream = startCompositing(
+          displayStream, 
+          activeWebcamStream, 
+          compositeWidth, 
+          compositeHeight
+        );
+        videoStream = compositeStream;
+      }
+
       // Combine with microphone if requested
-      let combinedStream = displayStream;
+      let combinedStream = videoStream;
 
       if (includeAudio) {
         try {
@@ -181,7 +384,7 @@ export function useScreenRecording() {
 
           // Combine video tracks with mixed audio
           combinedStream = new MediaStream([
-            ...displayStream.getVideoTracks(),
+            ...videoStream.getVideoTracks(),
             ...destination.stream.getAudioTracks()
           ]);
 
@@ -234,6 +437,8 @@ export function useScreenRecording() {
           streamRef.current.getTracks().forEach(track => track.stop());
         }
         stopAudioVisualization();
+        stopCompositing();
+        // Don't stop webcam here - user might want to record again
       };
 
       mediaRecorderRef.current.onerror = (e) => {
@@ -257,7 +462,7 @@ export function useScreenRecording() {
       setRecordingError(error.message || "Failed to start recording");
       setIsRecording(false);
     }
-  }, [startCountdown, startAudioVisualization, stopAudioVisualization]);
+  }, [startCountdown, startAudioVisualization, stopAudioVisualization, webcamStream, startWebcam, startCompositing, stopCompositing, webcamPosition]);
 
   // Pause recording
   const pauseRecording = useCallback(() => {
@@ -294,9 +499,10 @@ export function useScreenRecording() {
     }
 
     stopAudioVisualization();
+    stopCompositing();
     setIsRecording(false);
     setIsPaused(false);
-  }, [stopAudioVisualization]);
+  }, [stopAudioVisualization, stopCompositing]);
 
   // Download recording
   const downloadRecording = useCallback((filename = "codeplay-recording") => {
@@ -344,6 +550,11 @@ export function useScreenRecording() {
     isPreviewOpen,
     countdownActive,
     countdown,
+    
+    // Webcam state
+    webcamEnabled,
+    webcamStream,
+    webcamPosition,
 
     // Actions
     startRecording,
@@ -352,7 +563,13 @@ export function useScreenRecording() {
     stopRecording,
     downloadRecording,
     discardRecording,
-    setIsPreviewOpen
+    setIsPreviewOpen,
+    
+    // Webcam actions
+    toggleWebcam,
+    startWebcam,
+    stopWebcam,
+    setWebcamPosition
   };
 }
 
