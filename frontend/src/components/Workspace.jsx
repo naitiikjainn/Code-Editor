@@ -710,8 +710,13 @@ export default function Workspace() {
             setLogs(prev => [...prev, { type: "info", message: "Running in browser (Web Worker)..." }]);
             data = await executeCode(codeToRun, input);
         } else {
+            const token = localStorage.getItem("codeplay_token");
             const res = await fetch(`${API_URL}/api/code/execute`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
+                method: "POST", 
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
                 body: JSON.stringify({ 
                     language: activeFile.language, 
                     code: codeToRun, 
@@ -763,8 +768,13 @@ export default function Workspace() {
             if (activeFile.language === "javascript") {
                 data = await executeCode(codeToRun, test.input);
             } else {
+            const token = localStorage.getItem("codeplay_token");
                 const res = await fetch(`${API_URL}/api/code/execute`, {
-                    method: "POST", headers: { "Content-Type": "application/json" },
+                    method: "POST", 
+                    headers: { 
+                        "Content-Type": "application/json",
+                        ...(token ? { Authorization: `Bearer ${token}` } : {})
+                    },
                     body: JSON.stringify({ 
                         language: activeFile.language, 
                         code: codeToRun, 
@@ -840,8 +850,13 @@ export default function Workspace() {
         if (activeFile.language === "javascript") {
             data = await executeCode(codeToRun, test.input);
         } else {
+            const token = localStorage.getItem("codeplay_token");
             const res = await fetch(`${API_URL}/api/code/execute`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
+                method: "POST", 
+                headers: { 
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
                 body: JSON.stringify({ 
                     language: activeFile.language, 
                     code: codeToRun, 
