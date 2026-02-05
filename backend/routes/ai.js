@@ -13,8 +13,8 @@ const sanitizePrompt = (prompt, maxLength = 5000) => {
 
 router.post("/assist", async (req, res) => {
   try {
-    const { prompt, code } = req.body;
-    
+    const { prompt, code, problem } = req.body;
+
     // Validate inputs
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: "Prompt is required" });
@@ -25,7 +25,7 @@ router.post("/assist", async (req, res) => {
     }
 
     const sanitizedPrompt = sanitizePrompt(prompt);
-    
+
     // Sanitize code object
     const sanitizedCode = {};
     if (code && typeof code === 'object') {
@@ -36,6 +36,21 @@ router.post("/assist", async (req, res) => {
       }
     }
 
+    // Build problem context section if available
+    let problemSection = "";
+    if (problem && typeof problem === 'object') {
+      problemSection = `
+CURRENT PROBLEM:
+Title: ${problem.title || "Unknown"}
+Provider: ${problem.provider || "Unknown"}
+Difficulty: ${problem.difficulty || "Unknown"}
+${problem.description ? `\nDescription:\n${typeof problem.description === 'string' ? problem.description.slice(0, 5000) : JSON.stringify(problem.description).slice(0, 5000)}` : ""}
+${problem.examples ? `\nExamples:\n${JSON.stringify(problem.examples, null, 2).slice(0, 2000)}` : ""}
+${problem.constraints ? `\nConstraints:\n${typeof problem.constraints === 'string' ? problem.constraints.slice(0, 1000) : JSON.stringify(problem.constraints).slice(0, 1000)}` : ""}
+${problem.tags ? `\nTags: ${Array.isArray(problem.tags) ? problem.tags.map(t => t.name || t).join(", ") : problem.tags}` : ""}
+`;
+    }
+
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
     // Use the reliable flash model
@@ -43,8 +58,8 @@ router.post("/assist", async (req, res) => {
 
     // Construct a generic prompt that works for ANY language
     const fullPrompt = `
-You are an expert coding assistant inside a code editor.
-
+You are an expert coding assistant inside a code editor helping solve competitive programming problems.
+${problemSection}
 CONTEXT:
 User is currently working in: ${Object.keys(sanitizedCode).join(", ").toUpperCase() || "CODE"} mode.
 
@@ -54,7 +69,7 @@ ${JSON.stringify(sanitizedCode, null, 2)}
 USER QUESTION:
 ${sanitizedPrompt}
 
-Provide a concise, helpful answer. If providing code, use strictly formatted markdown blocks.
+Provide a concise, helpful answer. If the question relates to the problem, use your knowledge of the problem to help. If providing code, use strictly formatted markdown blocks.
     `;
 
     const result = await model.generateContent(fullPrompt);

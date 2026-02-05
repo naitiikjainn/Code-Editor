@@ -98,7 +98,9 @@ export default function Workspace() {
   const [consoleOpen, setConsoleOpen] = useState(true);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false); 
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelWidth, setAiPanelWidth] = useState(() => parseInt(localStorage.getItem("aiPanelWidth")) || 420);
+  const [isAiPanelResizing, setIsAiPanelResizing] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [logs, setLogs] = useState([]);
@@ -1386,9 +1388,31 @@ export default function Workspace() {
   async function handleAskAI(userPrompt) {
     if (!activeFile) return "Please select a file first.";
     const codeContext = { [activeFile.language]: activeCode };
+    
+    // Build problem context if a problem is open
+    let problemContext = null;
+    if (rightPanel?.data) {
+      const problem = rightPanel.data;
+      problemContext = {
+        title: problem.title || problem.name || `Problem ${problem.contestId}${problem.index}`,
+        provider: problem.provider || "unknown",
+        difficulty: problem.difficulty || problem.rating || null,
+        description: problem.description || problem.content || null,
+        examples: problem.examples || problem.sampleTests || null,
+        constraints: problem.constraints || null,
+        tags: problem.tags || problem.topicTags || null
+      };
+    }
+    
     try {
         const res = await fetch(`${API_URL}/api/ai/assist`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: userPrompt, code: codeContext })
+            method: "POST", 
+            headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify({ 
+              prompt: userPrompt, 
+              code: codeContext,
+              problem: problemContext 
+            })
         });
         const data = await res.json();
         return data.result || "AI is thinking...";
@@ -1728,6 +1752,48 @@ rl.on('line', (line) => {
                     </button>
                 )}
                 <button onClick={handleCopyLink} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "13px" }}><Share2 size={14} /></button>
+                
+                {/* Gemini AI Button - Official Logo */}
+                <button 
+                  onClick={() => setAiPanelOpen(!aiPanelOpen)}
+                  title="Gemini AI"
+                  style={{ 
+                    width: "36px",
+                    height: "36px",
+                    padding: 0,
+                    display: "flex", 
+                    alignItems: "center", 
+                    justifyContent: "center",
+                    background: aiPanelOpen ? "rgba(66, 133, 244, 0.15)" : "transparent",
+                    border: "none",
+                    borderRadius: "50%",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    position: "relative"
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = "rgba(66, 133, 244, 0.15)"}
+                  onMouseLeave={e => { if(!aiPanelOpen) e.currentTarget.style.background = "transparent"; }}
+                >
+                  {/* Official Google Gemini Logo */}
+                  <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#geminiGradIcon)"/>
+                    <defs>
+                      <linearGradient id="geminiGradIcon" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#1C7DFF"/>
+                        <stop offset="0.52" stopColor="#A87FFE"/>
+                        <stop offset="1" stopColor="#D96570"/>
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  {rightPanel?.data && (
+                    <span style={{ 
+                      position: "absolute", top: "2px", right: "2px",
+                      width: "8px", height: "8px", borderRadius: "50%", 
+                      background: "#4ade80", border: "2px solid #111" 
+                    }} />
+                  )}
+                </button>
+                
                 {!user && <button onClick={() => setAuthModalOpen(true)} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "13px" }}>Login</button>}
             
                 {/* FORCE SEPARATOR */}
@@ -2234,30 +2300,83 @@ rl.on('line', (line) => {
       />
       
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
-      
-      <button 
-        onClick={() => setAiPanelOpen(!aiPanelOpen)}
-        style={{
-            position: "fixed", bottom: "24px", right: "24px", width: "56px", height: "56px", borderRadius: "50%",
-            background: "linear-gradient(135deg, #4285f4, #9b72cb, #d96570)", 
-            border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, transition: "transform 0.2s"
-        }}
-        onMouseEnter={e => e.currentTarget.style.transform = "scale(1.1)"}
-        onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
-      >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2C12.5 7.5 16.5 11.5 22 12C16.5 12.5 12.5 16.5 12 22C11.5 16.5 7.5 12.5 2 12C7.5 11.5 11.5 7.5 12 2Z" fill="white"/>
-        </svg>
-      </button>
 
       {aiPanelOpen && (
         <div style={{
-            position: "fixed", bottom: "90px", right: "24px", width: "350px", height: "500px", zIndex: 99,
-            borderRadius: "12px", overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", border: "1px solid var(--border-subtle)", background: "var(--bg-panel)"
+            position: "fixed", 
+            top: 0, 
+            right: 0, 
+            width: `${aiPanelWidth}px`, 
+            minWidth: "320px",
+            maxWidth: "50vw",
+            height: "100vh", 
+            zIndex: 99,
+            borderLeft: "1px solid var(--border-subtle)", 
+            background: "var(--bg-panel)",
+            boxShadow: "-4px 0 24px rgba(0,0,0,0.3)",
+            animation: isAiPanelResizing ? "none" : "slideInRight 0.25s ease-out",
+            display: "flex",
+            flexDirection: "row"
         }}>
-            <AIPanel open={true} onClose={() => setAiPanelOpen(false)} onAsk={handleAskAI} />
+            {/* Resize Handle */}
+            <div
+              style={{
+                width: "6px",
+                cursor: "ew-resize",
+                background: isAiPanelResizing ? "linear-gradient(135deg, #4285f4, #9b72cb)" : "transparent",
+                transition: "background 0.2s",
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "linear-gradient(135deg, #4285f440, #9b72cb40)"}
+              onMouseLeave={e => { if(!isAiPanelResizing) e.currentTarget.style.background = "transparent"; }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsAiPanelResizing(true);
+                const startX = e.clientX;
+                const startWidth = aiPanelWidth;
+                
+                const onMouseMove = (moveEvent) => {
+                  const delta = startX - moveEvent.clientX;
+                  const newWidth = Math.min(Math.max(startWidth + delta, 320), window.innerWidth * 0.5);
+                  setAiPanelWidth(newWidth);
+                };
+                
+                const onMouseUp = () => {
+                  setIsAiPanelResizing(false);
+                  localStorage.setItem("aiPanelWidth", aiPanelWidth.toString());
+                  document.removeEventListener("mousemove", onMouseMove);
+                  document.removeEventListener("mouseup", onMouseUp);
+                };
+                
+                document.addEventListener("mousemove", onMouseMove);
+                document.addEventListener("mouseup", onMouseUp);
+              }}
+            >
+              <div style={{ width: "2px", height: "40px", borderRadius: "2px", background: "var(--text-muted)", opacity: 0.3 }} />
+            </div>
+            
+            {/* Panel Content */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <AIPanel 
+                open={true} 
+                onClose={() => setAiPanelOpen(false)} 
+                onAsk={handleAskAI}
+                currentProblem={rightPanel?.data ? (rightPanel.data.title || rightPanel.data.name || `Problem ${rightPanel.data.contestId}${rightPanel.data.index}`) : null}
+              />
+            </div>
         </div>
       )}
+      
+      {/* AI Panel slide-in animation */}
+      <style>{`
+        @keyframes slideInRight {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+      `}</style>
     </ErrorBoundary>
   );
 }
