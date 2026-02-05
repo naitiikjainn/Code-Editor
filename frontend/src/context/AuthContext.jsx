@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext, useCallback } from "react";
+import { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
 
 // Default context value to prevent crashes during HMR
 const defaultContextValue = {
@@ -21,49 +21,91 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [needsUsername, setNeedsUsername] = useState(false);
+  
+  // Use ref to track refresh promise and prevent race conditions
+  const refreshPromiseRef = useRef(null);
+
   const isUsernameValid = useCallback((value) => {
     if (!value || typeof value !== "string") return false;
     return /^[a-zA-Z0-9_]{3,20}$/.test(value.trim());
   }, []);
 
-  // Refresh token function
+  // Logout Function - memoized to prevent re-renders and dependency issues
+  const logout = useCallback(async () => {
+    const token = localStorage.getItem("codeplay_token");
+    const refreshToken = localStorage.getItem("codeplay_refresh_token");
+    
+    // Clear state immediately
+    setUser(null);
+    setNeedsUsername(false);
+    localStorage.removeItem("codeplay_user");
+    localStorage.removeItem("codeplay_token");
+    localStorage.removeItem("codeplay_refresh_token");
+    
+    // Notify server to invalidate tokens (fire and forget)
+    if (token || refreshToken) {
+      try {
+        await fetch(`${API_URL}/api/oauth/logout`, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "x-auth-token": token || ""
+          },
+          body: JSON.stringify({ refreshToken })
+        });
+      } catch (e) {
+        // Ignore errors during logout
+      }
+    }
+  }, []);
+
+  // Refresh token function - uses promise ref to prevent concurrent refresh calls
   const refreshAccessToken = useCallback(async () => {
     const refreshToken = localStorage.getItem("codeplay_refresh_token");
-    if (!refreshToken || isRefreshing) return null;
+    if (!refreshToken) return null;
     
-    setIsRefreshing(true);
-    try {
-      const response = await fetch(`${API_URL}/api/oauth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken })
-      });
-      
-      if (!response.ok) {
-        // Refresh token invalid, logout
+    // If a refresh is already in progress, return the existing promise
+    if (refreshPromiseRef.current) {
+      return refreshPromiseRef.current;
+    }
+    
+    // Start the refresh and store the promise
+    refreshPromiseRef.current = (async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/oauth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken })
+        });
+        
+        if (!response.ok) {
+          // Refresh token invalid, logout
+          logout();
+          return null;
+        }
+        
+        const data = await response.json();
+        
+        // Update tokens
+        localStorage.setItem("codeplay_token", data.token);
+        localStorage.setItem("codeplay_refresh_token", data.refreshToken);
+        localStorage.setItem("codeplay_user", JSON.stringify(data.user));
+        setUser(data.user);
+        
+        return data.token;
+      } catch (error) {
+        console.error("Token refresh failed:", error);
         logout();
         return null;
+      } finally {
+        // Clear the promise ref after completion
+        refreshPromiseRef.current = null;
       }
-      
-      const data = await response.json();
-      
-      // Update tokens
-      localStorage.setItem("codeplay_token", data.token);
-      localStorage.setItem("codeplay_refresh_token", data.refreshToken);
-      localStorage.setItem("codeplay_user", JSON.stringify(data.user));
-      setUser(data.user);
-      
-      return data.token;
-    } catch (error) {
-      console.error("Token refresh failed:", error);
-      logout();
-      return null;
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [isRefreshing]);
+    })();
+    
+    return refreshPromiseRef.current;
+  }, [logout]);
 
   // Fetch with automatic token refresh
   const fetchWithAuth = useCallback(async (url, options = {}) => {
@@ -130,7 +172,7 @@ export const AuthProvider = ({ children }) => {
     };
     
     initAuth();
-  }, []);
+  }, [isUsernameValid, logout]);
 
   // Periodic token expiry check (every 5 minutes) - auto logout when expired
   useEffect(() => {
@@ -168,10 +210,10 @@ export const AuthProvider = ({ children }) => {
     checkTokenExpiry();
 
     return () => clearInterval(intervalId);
-  }, [user]);
+  }, [user, logout]);
 
   // Login Function
-  const login = (userData, token, refreshToken = null) => {
+  const login = useCallback((userData, token, refreshToken = null) => {
     setUser(userData);
     setNeedsUsername(!isUsernameValid(userData?.username));
     localStorage.setItem("codeplay_user", JSON.stringify(userData));
@@ -179,35 +221,7 @@ export const AuthProvider = ({ children }) => {
     if (refreshToken) {
       localStorage.setItem("codeplay_refresh_token", refreshToken);
     }
-  };
-
-  // Logout Function
-  const logout = async () => {
-    const token = localStorage.getItem("codeplay_token");
-    const refreshToken = localStorage.getItem("codeplay_refresh_token");
-    
-    // Notify server to invalidate tokens
-    if (token || refreshToken) {
-      try {
-        await fetch(`${API_URL}/api/oauth/logout`, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "x-auth-token": token || ""
-          },
-          body: JSON.stringify({ refreshToken })
-        });
-      } catch (e) {
-        // Ignore errors during logout
-      }
-    }
-    
-    setUser(null);
-    setNeedsUsername(false);
-    localStorage.removeItem("codeplay_user");
-    localStorage.removeItem("codeplay_token");
-    localStorage.removeItem("codeplay_refresh_token");
-  };
+  }, [isUsernameValid]);
 
   // OAuth login helper - call after OAuth callback
   const handleOAuthCallback = (token, refreshToken) => {

@@ -35,8 +35,21 @@ import RecordingIndicator from "./RecordingIndicator";
 import { useScreenRecording } from "../hooks/useScreenRecording";
 import { stringToColor } from "../utils/colors";
 
-// Move socket outside to avoid multiple connections
-const socket = io(API_URL);
+// Socket connection managed per-component lifecycle
+let socketInstance = null;
+const getSocket = () => {
+  if (!socketInstance) {
+    socketInstance = io(API_URL, {
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      transports: ['websocket', 'polling']
+    });
+  }
+  return socketInstance;
+};
+
+const socket = getSocket();
 
 export default function Workspace() {
   const { id } = useParams();

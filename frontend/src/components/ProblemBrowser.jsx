@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, Zap, X, Lock } from "lucide-react";
 import { API_URL } from "../config";
 import { fetchCodeforcesProblem, fetchCSESProblem, fetchLeetCodeProblem } from "../utils/problemFetcher";
+import { VirtualizedList, InfiniteList } from "./VirtualizedList";
 
 // --- MOCK DATA ---
 const CP31_SHEET = {
@@ -894,14 +895,10 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
             </div>
             )}
 
-            {/* --- MAIN CONTENT (LEETCODE INFINITE SCROLL) --- */}
+            {/* --- MAIN CONTENT (LEETCODE VIRTUALIZED) --- */}
             {provider === "leetcode" && (
-            <div 
-                ref={scrollContainerRef}
-                onScroll={handleScroll}
-                style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}
-            >
-                {cfLoading ? (
+            <>
+                {cfLoading && cfProblems.length === 0 ? (
                     <div style={{ height: "160px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", color: "#6b7280", fontSize: "12px" }}>
                         <Loader2 className="animate-spin" size={16}/> Loading LeetCode Problems...
                     </div>
@@ -910,11 +907,11 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                         <Grid size={24} style={{ opacity: 0.2 }}/> No problems found
                     </div>
                 ) : (
-                    <div>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                         {/* Grid Header */}
                         <div style={{ 
                             display: "flex", padding: "8px 16px", background: "rgba(24, 24, 27, 0.95)", borderBottom: "1px solid rgba(255,255,255,0.05)",
-                            fontSize: "10px", fontWeight: "700", color: "#6b7280", textTransform: "uppercase", letterSpacing: "1px", position: "sticky", top: 0, zIndex: 5
+                            fontSize: "10px", fontWeight: "700", color: "#6b7280", textTransform: "uppercase", letterSpacing: "1px", flexShrink: 0
                         }}>
                             <div style={{ width: "50px" }}>ID</div>
                             <div style={{ flex: 1 }}>Problem</div>
@@ -922,67 +919,85 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                             <div style={{ width: "50px", textAlign: "right" }}>Rate</div>
                         </div>
 
-                        {/* Rows */}
-                        {visibleProblems.map((p) => {
-                            const diffColor = getDifficultyColor(p.difficulty);
-                            const isPremium = p.isPremium;
-                            
-                            return (
-                                <div 
-                                    key={p.id || p.titleSlug}
-                                    onClick={() => !isPremium && handleOpen(p)}
-                                    style={{ 
-                                        display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.02)", 
-                                        cursor: isPremium ? "not-allowed" : "pointer", position: "relative",
-                                        transition: "background 0.2s",
-                                        background: isPremium ? "rgba(255,161,22,0.02)" : "transparent",
-                                        opacity: isPremium ? 0.6 : 1
-                                    }}
-                                    onMouseEnter={(e) => { if (!isPremium) e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
-                                    onMouseLeave={(e) => { if (!isPremium) e.currentTarget.style.background = "transparent"; }}
-                                >
-                                    <div style={{ width: "50px", fontSize: "12px", fontFamily: "var(--font-mono)", color: "#71717a" }}>
-                                        <div style={{display: "flex", alignItems: "center", gap: "4px"}}>
-                                            {openingId === (p.id || p.titleSlug) ? <Loader2 className="animate-spin" size={10} /> : null}
-                                            {p.id}
+                        {/* Virtualized Rows */}
+                        <VirtualizedList
+                            items={filteredProblems}
+                            itemHeight={60}
+                            overscan={10}
+                            style={{ flex: 1 }}
+                            getItemKey={(item) => item.id || item.titleSlug}
+                            onEndReached={() => {
+                                if (!cfLoading && cfProblems.length < lcTotal) {
+                                    setLcSkip(prev => {
+                                        if (prev + 100 >= lcTotal) return prev;
+                                        if (prev + 100 > cfProblems.length) return prev;
+                                        return prev + 100;
+                                    });
+                                }
+                            }}
+                            endReachedThreshold={20}
+                            renderItem={(p, index) => {
+                                const diffColor = getDifficultyColor(p.difficulty);
+                                const isPremium = p.isPremium;
+                                
+                                return (
+                                    <div 
+                                        onClick={() => !isPremium && handleOpen(p)}
+                                        style={{ 
+                                            display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.02)", 
+                                            cursor: isPremium ? "not-allowed" : "pointer", position: "relative",
+                                            transition: "background 0.2s",
+                                            background: isPremium ? "rgba(255,161,22,0.02)" : "transparent",
+                                            opacity: isPremium ? 0.6 : 1,
+                                            height: "60px",
+                                            boxSizing: "border-box"
+                                        }}
+                                        onMouseEnter={(e) => { if (!isPremium) e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                                        onMouseLeave={(e) => { if (!isPremium) e.currentTarget.style.background = "transparent"; }}
+                                    >
+                                        <div style={{ width: "50px", fontSize: "12px", fontFamily: "var(--font-mono)", color: "#71717a" }}>
+                                            <div style={{display: "flex", alignItems: "center", gap: "4px"}}>
+                                                {openingId === (p.id || p.titleSlug) ? <Loader2 className="animate-spin" size={10} /> : null}
+                                                {p.id}
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <div style={{ flex: 1, minWidth: 0, paddingRight: "12px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                                            {isPremium && <Lock size={12} color="#ffa116" />}
-                                            <span style={{ fontSize: "13px", fontWeight: "500", color: "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</span>
+                                        
+                                        <div style={{ flex: 1, minWidth: 0, paddingRight: "12px" }}>
+                                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                                                {isPremium && <Lock size={12} color="#ffa116" />}
+                                                <span style={{ fontSize: "13px", fontWeight: "500", color: "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</span>
+                                            </div>
+                                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                                                {p.tags?.slice(0, 2).map((t, idx) => <TagChip key={`${t}-${idx}`} label={t}/>)}
+                                            </div>
                                         </div>
-                                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                                            {p.tags?.slice(0, 2).map((t, idx) => <TagChip key={`${t}-${idx}`} label={t}/>)}
-                                        </div>
-                                    </div>
 
-                                    <div style={{ width: "70px", textAlign: "center" }}>
-                                        <span style={{ 
-                                            fontSize: "10px", fontWeight: "600", color: diffColor,
-                                            padding: "2px 8px", borderRadius: "10px",
-                                            background: diffColor === "#4ade80" ? "rgba(74, 222, 128, 0.1)" : 
-                                                       (diffColor === "#fbbf24" ? "rgba(251, 191, 36, 0.1)" : "rgba(239, 68, 68, 0.1)")
-                                        }}>
-                                            {p.difficulty}
-                                        </span>
-                                    </div>
+                                        <div style={{ width: "70px", textAlign: "center" }}>
+                                            <span style={{ 
+                                                fontSize: "10px", fontWeight: "600", color: diffColor,
+                                                padding: "2px 8px", borderRadius: "10px",
+                                                background: diffColor === "#4ade80" ? "rgba(74, 222, 128, 0.1)" : 
+                                                           (diffColor === "#fbbf24" ? "rgba(251, 191, 36, 0.1)" : "rgba(239, 68, 68, 0.1)")
+                                            }}>
+                                                {p.difficulty}
+                                            </span>
+                                        </div>
 
-                                    <div style={{ width: "50px", textAlign: "right" }}>
-                                        <span style={{ fontSize: "11px", color: "#71717a" }}>{p.acceptanceRate}%</span>
+                                        <div style={{ width: "50px", textAlign: "right" }}>
+                                            <span style={{ fontSize: "11px", color: "#71717a" }}>{p.acceptanceRate}%</span>
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })}
-                        {visibleCount < filteredProblems.length && (
-                             <div style={{ padding: "16px", display: "flex", justifyContent: "center", color: "#666", fontSize: "12px" }}>
+                                );
+                            }}
+                        />
+                        {cfLoading && cfProblems.length > 0 && (
+                             <div style={{ padding: "16px", display: "flex", justifyContent: "center", color: "#666", fontSize: "12px", flexShrink: 0 }}>
                                 <Loader2 className="animate-spin" size={14} style={{marginRight: "8px"}} /> Loading more...
                              </div>
                         )}
                     </div>
                 )}
-            </div>
+            </>
             )}
 
 

@@ -67,6 +67,11 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 6 characters." });
     }
 
+    // Password strength check (must have letter + number, balanced security)
+    if (!/(?=.*[a-zA-Z])(?=.*\d)/.test(password)) {
+      return res.status(400).json({ error: "Password must contain at least one letter and one number." });
+    }
+
     // Validate username format
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
       return res.status(400).json({ error: "Username must be 3-20 characters, alphanumeric and underscores only." });
@@ -390,10 +395,10 @@ router.post("/reset-password", async (req, res) => {
     if (!user) return res.status(400).json({ error: "Invalid or expired token" });
     if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
 
-    // Password strength check
-    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+    // Password strength check (must have letter + number, same as registration)
+    if (!/(?=.*[a-zA-Z])(?=.*\d)/.test(newPassword)) {
       return res.status(400).json({
-        error: "Password must contain uppercase, lowercase, and a number"
+        error: "Password must contain at least one letter and one number."
       });
     }
 

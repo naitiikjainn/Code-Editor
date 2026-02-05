@@ -201,7 +201,8 @@ router.get("/leetcode/list", async (req, res) => {
                     limit: parseInt(limit),
                     filters: Object.keys(filters).length > 0 ? filters : {}
                 }
-            })
+            }),
+            signal: AbortSignal.timeout(15000) // 15 second timeout
         });
 
         const data = await response.json();
@@ -429,7 +430,8 @@ router.get("/gfg/:slug", async (req, res) => {
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.5",
                 "Referer": "https://www.geeksforgeeks.org/"
-            }
+            },
+            signal: AbortSignal.timeout(20000) // 20 second timeout
         });
 
         if (!pageRes.ok) {

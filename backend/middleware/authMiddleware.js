@@ -11,14 +11,14 @@ export default function authMiddleware(req, res, next) {
 
     // Check if not token
     if (!token) {
-        return res.status(401).json({ msg: "No token, authorization denied" });
+        return res.status(401).json({ error: "No token, authorization denied" });
     }
 
     // Verify token
     try {
         if (!process.env.JWT_SECRET) {
             console.error("CRITICAL: JWT_SECRET not set!");
-            return res.status(500).json({ msg: "Server configuration error" });
+            return res.status(500).json({ error: "Server configuration error" });
         }
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded; // Corrected: decoded is the payload, usually { id: ... } 
@@ -31,6 +31,6 @@ export default function authMiddleware(req, res, next) {
         // So req.user = decoded is correct.
         next();
     } catch (err) {
-        res.status(401).json({ msg: "Token is not valid" });
+        res.status(401).json({ error: "Token is not valid" });
     }
 }

@@ -103,6 +103,46 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+// Track last activity for memory cleanup
+const roomLastActivity = new Map(); // roomId -> timestamp
+
+// Record room activity (call this when room has events)
+const recordRoomActivity = (roomId) => {
+  roomLastActivity.set(roomId, Date.now());
+};
+
+// Cleanup stale room data every 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  const maxInactiveTime = 2 * 60 * 60 * 1000; // 2 hours of inactivity
+
+  for (const [roomId, lastActive] of roomLastActivity.entries()) {
+    if (now - lastActive > maxInactiveTime) {
+      // Clean up room data
+      if (global.whiteboardHistory?.has(roomId)) {
+        console.log(`🧹 Cleaning up whiteboard history for inactive room: ${roomId}`);
+        global.whiteboardHistory.delete(roomId);
+      }
+      if (global.roomProblems?.has(roomId)) {
+        console.log(`🧹 Cleaning up problem cache for inactive room: ${roomId}`);
+        global.roomProblems.delete(roomId);
+      }
+      if (pendingRequests.has(roomId)) {
+        pendingRequests.delete(roomId);
+      }
+      if (voiceUsers.has(roomId)) {
+        voiceUsers.delete(roomId);
+      }
+      roomLastActivity.delete(roomId);
+    }
+  }
+
+  // Log memory usage periodically
+  const memUsage = process.memoryUsage();
+  console.log(`📊 Memory: Heap ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB, ` +
+    `Rooms tracked: ${roomLastActivity.size}, WB histories: ${global.whiteboardHistory?.size || 0}`);
+}, 30 * 60 * 1000);
+
 // Helper: Broadcast room state to all users in the room
 const broadcastRoomState = async (io, roomId) => {
   const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
@@ -203,6 +243,7 @@ export default function socketHandler(io) {
         socket.userId = userId;
         socket.isHost = isHost;
         userMap.set(socket.id, { username, isHost, status: "active", userId });
+        recordRoomActivity(roomId); // Track activity for memory cleanup
 
         // Update host.userId/username if this socket is the real host
         if (isHost) {
@@ -457,13 +498,25 @@ export default function socketHandler(io) {
     // --- WHITEBOARD (throttled for high-frequency drawing) ---
     socket.on("draw_line", ({ roomId, type, prev, curr, color, width }) => {
       if (socket.roomId !== roomId) return;
+
+      // Input validation: ensure required fields are present and valid
+      if (!prev || !curr || typeof prev.x !== 'number' || typeof prev.y !== 'number' ||
+        typeof curr.x !== 'number' || typeof curr.y !== 'number') {
+        console.warn(`⚠️ Invalid draw_line data from ${socket.username}`);
+        return;
+      }
+
+      // Sanitize width to prevent extreme values
+      const safeWidth = Math.max(1, Math.min(width || 3, 100));
+
       if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
       const itemType = type || "line"; // Support "line" or "highlighter"
-      global.whiteboardHistory.get(roomId).push({ type: itemType, prev, curr, color, width });
+      global.whiteboardHistory.get(roomId).push({ type: itemType, prev, curr, color, width: safeWidth });
+      recordRoomActivity(roomId);
 
       // Throttle draw events to max 60fps (16ms)
       throttle(`draw:${roomId}:${socket.id}`, () => {
-        socket.to(roomId).emit("draw_line", { type: itemType, prev, curr, color, width });
+        socket.to(roomId).emit("draw_line", { type: itemType, prev, curr, color, width: safeWidth });
       }, 16);
     });
 
@@ -549,10 +602,17 @@ export default function socketHandler(io) {
         return;
       }
 
+      // Input validation: problem should be an object with at least a title
+      if (problem && typeof problem !== 'object') {
+        console.warn(`⚠️ Invalid problem data type from ${socket.username}`);
+        return;
+      }
+
       console.log(
         `📤 Syncing problem to room ${roomId}: ${problem?.title} (Desc: ${problem?.description?.length || 0} chars)`
       );
       global.roomProblems.set(roomId, problem);
+      recordRoomActivity(roomId);
 
       // Debounce DB update to avoid excessive writes
       debounceDbUpdate(`problem:${roomId}`, async () => {
@@ -633,10 +693,6 @@ export default function socketHandler(io) {
       } catch (e) {
         console.error("Error fetching activeFileId:", e);
       }
-    });
-
-    socket.on("wb_cursor", ({ roomId, x, y, username, color }) => {
-      if (socket.roomId === roomId) socket.to(roomId).emit("wb_cursor", { x, y, username, color });
     });
 
     // --- VOICE CHAT ---
