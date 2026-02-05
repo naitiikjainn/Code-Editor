@@ -116,6 +116,9 @@ export default function Workspace() {
   const [activeUsers, setActiveUsers] = useState([]); 
   const [hoveredUser, setHoveredUser] = useState(null);
   const [pendingGuests, setPendingGuests] = useState([]);
+  
+  // Track recent leave events to deduplicate (prevents spam from socket reconnections)
+  const recentLeaveEventsRef = useRef(new Map());
   const [hostUserId, setHostUserId] = useState(null); // Host's user ID for fetching their files
   const [isHost, setIsHost] = useState(false); // Am I the host of this room?
   const [hostOnline, setHostOnline] = useState(true); // Is host currently connected?
@@ -297,18 +300,42 @@ export default function Workspace() {
 	  });
 
 	  socket.on("host_left", ({ username }) => {
+		  // Deduplicate: Skip if we logged this event for this user recently
+		  const eventKey = `host_left:${username}`;
+		  const lastTime = recentLeaveEventsRef.current.get(eventKey);
+		  const now = Date.now();
+		  if (lastTime && now - lastTime < 5000) {
+			  console.log(`[Dedup] Skipping duplicate host_left for ${username}`);
+			  return;
+		  }
+		  recentLeaveEventsRef.current.set(eventKey, now);
+		  
 		  setHostOnline(false);
 		  setIsReadOnly(true);
           setLogs(prev => [...prev, { type: "warning", message: `⚠️ Host ${username} has left. Files are now read-only.` }]);
 	  });
 
 	  socket.on("host_rejoined", ({ username }) => {
+		  // Clear any recent leave events for this user when they rejoin
+		  recentLeaveEventsRef.current.delete(`host_left:${username}`);
+		  recentLeaveEventsRef.current.delete(`user_left:${username}`);
+		  
 		  setHostOnline(true);
 		  setIsReadOnly(false);
           setLogs(prev => [...prev, { type: "success", message: `✅ Host ${username} is back. Editing enabled.` }]);
 	  });
 
 	  socket.on("user_left", ({ username, isHost }) => {
+		  // Deduplicate: Skip if we logged this event for this user recently
+		  const eventKey = `user_left:${username}`;
+		  const lastTime = recentLeaveEventsRef.current.get(eventKey);
+		  const now = Date.now();
+		  if (lastTime && now - lastTime < 5000) {
+			  console.log(`[Dedup] Skipping duplicate user_left for ${username}`);
+			  return;
+		  }
+		  recentLeaveEventsRef.current.set(eventKey, now);
+		  
           setLogs(prev => [...prev, { type: "info", message: `👋 ${username}${isHost ? " (Host)" : ""} has left the room.` }]);
 	  });
 

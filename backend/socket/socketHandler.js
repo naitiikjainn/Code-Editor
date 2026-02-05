@@ -23,22 +23,22 @@ const batchQueues = new Map(); // roomId -> { events: [], timer }
  * @param {number} delay - Minimum delay between calls (ms)
  */
 const throttle = (key, fn, delay = 50) => {
-    const now = Date.now();
-    const state = throttleMap.get(key) || { lastCall: 0, pending: null };
-    
-    if (now - state.lastCall >= delay) {
-        state.lastCall = now;
-        throttleMap.set(key, state);
-        fn();
-    } else if (!state.pending) {
-        state.pending = setTimeout(() => {
-            state.lastCall = Date.now();
-            state.pending = null;
-            throttleMap.set(key, state);
-            fn();
-        }, delay - (now - state.lastCall));
-        throttleMap.set(key, state);
-    }
+  const now = Date.now();
+  const state = throttleMap.get(key) || { lastCall: 0, pending: null };
+
+  if (now - state.lastCall >= delay) {
+    state.lastCall = now;
+    throttleMap.set(key, state);
+    fn();
+  } else if (!state.pending) {
+    state.pending = setTimeout(() => {
+      state.lastCall = Date.now();
+      state.pending = null;
+      throttleMap.set(key, state);
+      fn();
+    }, delay - (now - state.lastCall));
+    throttleMap.set(key, state);
+  }
 };
 
 /**
@@ -50,24 +50,24 @@ const throttle = (key, fn, delay = 50) => {
  * @param {number} delay - Batch window (ms)
  */
 const batchEmit = (roomId, eventType, data, io, delay = 100) => {
-    const key = `${roomId}:${eventType}`;
-    if (!batchQueues.has(key)) {
-        batchQueues.set(key, { events: [], timer: null });
-    }
-    
-    const batch = batchQueues.get(key);
-    batch.events.push(data);
-    
-    if (!batch.timer) {
-        batch.timer = setTimeout(() => {
-            if (batch.events.length > 0) {
-                // Emit batched events
-                io.to(roomId).emit(`${eventType}_batch`, batch.events);
-                batch.events = [];
-            }
-            batch.timer = null;
-        }, delay);
-    }
+  const key = `${roomId}:${eventType}`;
+  if (!batchQueues.has(key)) {
+    batchQueues.set(key, { events: [], timer: null });
+  }
+
+  const batch = batchQueues.get(key);
+  batch.events.push(data);
+
+  if (!batch.timer) {
+    batch.timer = setTimeout(() => {
+      if (batch.events.length > 0) {
+        // Emit batched events
+        io.to(roomId).emit(`${eventType}_batch`, batch.events);
+        batch.events = [];
+      }
+      batch.timer = null;
+    }, delay);
+  }
 };
 
 /**
@@ -75,32 +75,32 @@ const batchEmit = (roomId, eventType, data, io, delay = 100) => {
  */
 const dbDebounce = new Map();
 const debounceDbUpdate = (key, fn, delay = 500) => {
-    if (dbDebounce.has(key)) {
-        clearTimeout(dbDebounce.get(key));
-    }
-    dbDebounce.set(key, setTimeout(() => {
-        dbDebounce.delete(key);
-        fn();
-    }, delay));
+  if (dbDebounce.has(key)) {
+    clearTimeout(dbDebounce.get(key));
+  }
+  dbDebounce.set(key, setTimeout(() => {
+    dbDebounce.delete(key);
+    fn();
+  }, delay));
 };
 
 // Cleanup throttle/batch state periodically
 setInterval(() => {
-    const now = Date.now();
-    const maxAge = 5 * 60 * 1000; // 5 minutes
-    
-    for (const [key, state] of throttleMap.entries()) {
-        if (now - state.lastCall > maxAge) {
-            if (state.pending) clearTimeout(state.pending);
-            throttleMap.delete(key);
-        }
+  const now = Date.now();
+  const maxAge = 5 * 60 * 1000; // 5 minutes
+
+  for (const [key, state] of throttleMap.entries()) {
+    if (now - state.lastCall > maxAge) {
+      if (state.pending) clearTimeout(state.pending);
+      throttleMap.delete(key);
     }
-    
-    for (const [key, batch] of batchQueues.entries()) {
-        if (batch.events.length === 0 && !batch.timer) {
-            batchQueues.delete(key);
-        }
+  }
+
+  for (const [key, batch] of batchQueues.entries()) {
+    if (batch.events.length === 0 && !batch.timer) {
+      batchQueues.delete(key);
     }
+  }
 }, 60 * 1000);
 
 // Helper: Broadcast room state to all users in the room
@@ -455,14 +455,15 @@ export default function socketHandler(io) {
     });
 
     // --- WHITEBOARD (throttled for high-frequency drawing) ---
-    socket.on("draw_line", ({ roomId, prev, curr, color, width }) => {
+    socket.on("draw_line", ({ roomId, type, prev, curr, color, width }) => {
       if (socket.roomId !== roomId) return;
       if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
-      global.whiteboardHistory.get(roomId).push({ type: "line", prev, curr, color, width });
-      
+      const itemType = type || "line"; // Support "line" or "highlighter"
+      global.whiteboardHistory.get(roomId).push({ type: itemType, prev, curr, color, width });
+
       // Throttle draw events to max 60fps (16ms)
       throttle(`draw:${roomId}:${socket.id}`, () => {
-        socket.to(roomId).emit("draw_line", { prev, curr, color, width });
+        socket.to(roomId).emit("draw_line", { type: itemType, prev, curr, color, width });
       }, 16);
     });
 
@@ -478,13 +479,47 @@ export default function socketHandler(io) {
       socket.emit("whiteboard_state", history);
     });
 
-    socket.on("draw_text", ({ roomId, x, y, text, color, fontSize }) => {
+    socket.on("draw_text", ({ roomId, x, y, text, color, fontSize, bold, italic }) => {
       if (socket.roomId !== roomId) return;
       if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
-      global.whiteboardHistory
-        .get(roomId)
-        .push({ type: "text", x, y, text, color, fontSize });
-      socket.to(roomId).emit("draw_text", { x, y, text, color, fontSize });
+      const item = { type: "text", x, y, text, color, fontSize, bold, italic };
+      global.whiteboardHistory.get(roomId).push(item);
+      socket.to(roomId).emit("draw_text", item);
+    });
+
+    // --- SHAPE DRAWING (rectangle, ellipse, line, arrow) ---
+    socket.on("draw_shape", ({ roomId, ...shapeData }) => {
+      if (socket.roomId !== roomId) return;
+      if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
+      global.whiteboardHistory.get(roomId).push(shapeData);
+      socket.to(roomId).emit("draw_shape", shapeData);
+    });
+
+    // --- STICKY NOTES ---
+    socket.on("draw_sticky", ({ roomId, ...stickyData }) => {
+      if (socket.roomId !== roomId) return;
+      if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
+      global.whiteboardHistory.get(roomId).push(stickyData);
+      socket.to(roomId).emit("draw_sticky", stickyData);
+    });
+
+    // --- UNDO/REDO ---
+    socket.on("wb_undo", ({ roomId }) => {
+      if (socket.roomId !== roomId) return;
+      const history = global.whiteboardHistory.get(roomId);
+      if (history && history.length > 0) {
+        history.pop();
+      }
+      socket.to(roomId).emit("wb_undo");
+    });
+
+    socket.on("wb_redo", ({ roomId, item }) => {
+      if (socket.roomId !== roomId) return;
+      if (item) {
+        if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
+        global.whiteboardHistory.get(roomId).push(item);
+        socket.to(roomId).emit("wb_redo", { item });
+      }
     });
 
     socket.on("wb_view", ({ roomId, pan, scale }) => {

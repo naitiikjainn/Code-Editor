@@ -1,756 +1,627 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { X, Eraser, MousePointer2, Type, Hand, Pen, Minus, Plus, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut, Move } from "lucide-react";
+import { X, Eraser, Type, Pen, Maximize2, Minimize2, RotateCcw, ZoomIn, ZoomOut, Move, MousePointer2 } from "lucide-react";
 
 // Helper to determine text color based on background
 const getContrastColor = (hexColor) => {
     if (!hexColor) return '#000000';
-    const r = parseInt(hexColor.substr(1, 2), 16);
-    const g = parseInt(hexColor.substr(3, 2), 16);
-    const b = parseInt(hexColor.substr(5, 2), 16);
+    const hex = hexColor.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
     const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
     return (yiq >= 128) ? '#000000' : '#ffffff';
 };
 
+// Preset colors
+const PRESET_COLORS = ["#ffffff", "#ff6b6b", "#feca57", "#48dbfb", "#1dd1a1", "#5f27cd"];
+
+// Font sizes
+const FONT_SIZES = [14, 18, 24, 32, 48];
+
 // Minimum and maximum sizes
 const MIN_WIDTH = 400;
 const MIN_HEIGHT = 300;
-const DEFAULT_WIDTH = 1000;
-const DEFAULT_HEIGHT = 700;
+const DEFAULT_WIDTH = 900;
+const DEFAULT_HEIGHT = 600;
 
 export default function Whiteboard({ socket, roomId, username, onClose }) {
-  const canvasRef = useRef(null);
-  const containerRef = useRef(null);
-  
-  // -- STATE --
-  const [activeTool, setActiveTool] = useState("pen"); // pen, eraser, text, hand
-  const [color, setColor] = useState("#ffffff");
-  const [lineWidth, setLineWidth] = useState(2);
-  const [history, setHistory] = useState([]); // Array of { type, ... }
-  
-  // Viewport
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [scale, setScale] = useState(1);
-  const [isPanning, setIsPanning] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+    const canvasRef = useRef(null);
+    const containerRef = useRef(null);
+    const textInputRef = useRef(null);
 
-  // Drawing
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [prevPos, setPrevPos] = useState({ x: 0, y: 0 });
+    // -- STATE --
+    const [activeTool, setActiveTool] = useState("pen"); // pen, eraser, text
+    const [color, setColor] = useState("#ffffff");
+    const [penSize, setPenSize] = useState(3);
+    const [eraserSize, setEraserSize] = useState(20);
+    const [fontSize, setFontSize] = useState(18);
+    const [history, setHistory] = useState([]);
 
-  // Text Tool
-  const [textInput, setTextInput] = useState(null);
+    // Viewport
+    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [scale, setScale] = useState(1);
+    const [isPanning, setIsPanning] = useState(false);
+    const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
-  // Window Position & Size
-  const [windowPos, setWindowPos] = useState({ x: 50, y: 50 });
-  const [windowSize, setWindowSize] = useState({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
-  const [isWindowDragging, setIsWindowDragging] = useState(false);
-  const [windowDragOffset, setWindowDragOffset] = useState({ x: 0, y: 0 });
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [preFullscreenState, setPreFullscreenState] = useState(null);
+    // Drawing
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [prevPos, setPrevPos] = useState({ x: 0, y: 0 });
 
-  // Resizing
-  const [isResizing, setIsResizing] = useState(false);
-  const [resizeEdge, setResizeEdge] = useState(null); // 'e', 'w', 's', 'n', 'ne', 'nw', 'se', 'sw'
-  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
+    // Text Tool - inline editing
+    const [activeTextItem, setActiveTextItem] = useState(null);
 
-  // Cursors
-  const [remoteCursors, setRemoteCursors] = useState({});
+    // Window Position & Size
+    const [windowPos, setWindowPos] = useState({ x: 50, y: 50 });
+    const [windowSize, setWindowSize] = useState({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
+    const [isWindowDragging, setIsWindowDragging] = useState(false);
+    const [windowDragOffset, setWindowDragOffset] = useState({ x: 0, y: 0 });
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [preFullscreenState, setPreFullscreenState] = useState(null);
 
-  // Canvas size (updates with window)
-  const canvasWidth = windowSize.width;
-  const canvasHeight = windowSize.height - 90; // Account for header + toolbar
+    // Resizing
+    const [isResizing, setIsResizing] = useState(false);
+    const [resizeEdge, setResizeEdge] = useState(null);
+    const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0, posX: 0, posY: 0 });
 
-  // --- ZOOM HELPERS ---
-  const zoomIn = useCallback(() => {
-    setScale(s => Math.min(s * 1.2, 5));
-  }, []);
+    // Remote cursors
+    const [remoteCursors, setRemoteCursors] = useState({});
 
-  const zoomOut = useCallback(() => {
-    setScale(s => Math.max(s / 1.2, 0.1));
-  }, []);
+    // Canvas size
+    const canvasWidth = windowSize.width;
+    const canvasHeight = windowSize.height - 80;
 
-  const resetView = useCallback(() => {
-    setPan({ x: 0, y: 0 });
-    setScale(1);
-  }, []);
+    // --- ZOOM HELPERS ---
+    const zoomIn = useCallback(() => setScale(s => Math.min(s * 1.2, 5)), []);
+    const zoomOut = useCallback(() => setScale(s => Math.max(s / 1.2, 0.1)), []);
+    const resetView = useCallback(() => { setPan({ x: 0, y: 0 }); setScale(1); }, []);
 
-  // --- FULLSCREEN TOGGLE ---
-  const toggleFullscreen = useCallback(() => {
-    if (isFullscreen) {
-      // Restore previous state
-      if (preFullscreenState) {
-        setWindowPos(preFullscreenState.pos);
-        setWindowSize(preFullscreenState.size);
-      }
-      setIsFullscreen(false);
-    } else {
-      // Save current state and go fullscreen
-      setPreFullscreenState({ pos: windowPos, size: windowSize });
-      setWindowPos({ x: 0, y: 0 });
-      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
-      setIsFullscreen(true);
-    }
-  }, [isFullscreen, windowPos, windowSize, preFullscreenState]);
+    // --- FULLSCREEN TOGGLE ---
+    const toggleFullscreen = useCallback(() => {
+        if (isFullscreen) {
+            if (preFullscreenState) {
+                setWindowPos(preFullscreenState.pos);
+                setWindowSize(preFullscreenState.size);
+            }
+            setIsFullscreen(false);
+        } else {
+            setPreFullscreenState({ pos: windowPos, size: windowSize });
+            setWindowPos({ x: 0, y: 0 });
+            setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+            setIsFullscreen(true);
+        }
+    }, [isFullscreen, windowPos, windowSize, preFullscreenState]);
 
-  // --- RENDERING LOOP ---
-  const redraw = useCallback(() => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
+    // --- RENDERING LOOP ---
+    const redraw = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
 
-      // Clear Screen (Reset transform first)
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw grid pattern for infinite canvas feel
-      ctx.save();
-      ctx.strokeStyle = "#2a2a2a";
-      ctx.lineWidth = 1;
-      const gridSize = 50 * scale;
-      const offsetX = pan.x % gridSize;
-      const offsetY = pan.y % gridSize;
-      
-      for (let x = offsetX; x < canvas.width; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-        ctx.stroke();
-      }
-      for (let y = offsetY; y < canvas.height; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
-      }
-      ctx.restore();
+        // Apply viewport transform
+        ctx.save();
+        ctx.translate(pan.x, pan.y);
+        ctx.scale(scale, scale);
 
-      // Apply Viewport Transform
-      ctx.translate(pan.x, pan.y);
-      ctx.scale(scale, scale);
+        // Draw all history items
+        history.forEach((item) => {
+            if (item.type === "line" || !item.type) {
+                ctx.beginPath();
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.moveTo(item.prev.x, item.prev.y);
+                ctx.lineTo(item.curr.x, item.curr.y);
+                ctx.strokeStyle = item.color;
+                ctx.lineWidth = item.width;
+                ctx.stroke();
+            } else if (item.type === "erase") {
+                ctx.beginPath();
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.moveTo(item.prev.x, item.prev.y);
+                ctx.lineTo(item.curr.x, item.curr.y);
+                ctx.strokeStyle = "#1a1a1a";
+                ctx.lineWidth = item.width;
+                ctx.globalCompositeOperation = "destination-out";
+                ctx.stroke();
+                ctx.globalCompositeOperation = "source-over";
+            } else if (item.type === "text") {
+                ctx.font = `${item.fontSize || 18}px 'Inter', 'Segoe UI', sans-serif`;
+                ctx.fillStyle = item.color;
+                const lines = (item.text || "").split('\n');
+                lines.forEach((line, i) => {
+                    ctx.fillText(line, item.x, item.y + (i * (item.fontSize || 18) * 1.3));
+                });
+            }
+        });
 
-      // Draw All History
-      history.forEach(item => {
-          if (item.type === "line" || !item.type) { 
-               ctx.beginPath();
-               ctx.lineCap = "round";
-               ctx.lineJoin = "round";
-               ctx.moveTo(item.prev.x, item.prev.y);
-               ctx.lineTo(item.curr.x, item.curr.y);
-               ctx.strokeStyle = item.color;
-               ctx.lineWidth = item.width;
-               ctx.stroke();
-          } else if (item.type === "text") {
-               ctx.font = `${item.fontSize || 16}px 'JetBrains Mono', monospace`;
-               ctx.fillStyle = item.color;
-               ctx.fillText(item.text, item.x, item.y);
-          }
-      });
-  }, [history, pan, scale]);
+        ctx.restore();
+    }, [history, pan, scale]);
 
-  // Redraw whenever history or view changes
-  useEffect(() => {
-      redraw();
-  }, [redraw, canvasWidth, canvasHeight]);
+    // Redraw on changes
+    useEffect(() => { redraw(); }, [redraw, canvasWidth, canvasHeight]);
 
-  // --- WHEEL EVENT (non-passive to allow preventDefault) ---
-  useEffect(() => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+    // --- WHEEL EVENT ---
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
-      const handleWheel = (e) => {
-          e.preventDefault();
-          
-          if (e.ctrlKey || e.metaKey) {
-              // Zoom with Ctrl/Cmd + Scroll
-              const delta = e.deltaY > 0 ? 0.9 : 1.1;
-              const newScale = Math.min(Math.max(scale * delta, 0.1), 5);
-              
-              // Zoom toward mouse position
-              const rect = canvas.getBoundingClientRect();
-              const mouseX = e.clientX - rect.left;
-              const mouseY = e.clientY - rect.top;
-              
-              const scaleDiff = newScale - scale;
-              const newPanX = pan.x - (mouseX - pan.x) * (scaleDiff / scale);
-              const newPanY = pan.y - (mouseY - pan.y) * (scaleDiff / scale);
-              
-              setPan({ x: newPanX, y: newPanY });
-              setScale(newScale);
-              
-              if (socket && roomId) {
-                  socket.emit("wb_view", { roomId, pan: { x: newPanX, y: newPanY }, scale: newScale });
-              }
-          } else if (e.shiftKey) {
-              // Horizontal scroll with Shift
-              const newPan = { x: pan.x - e.deltaY, y: pan.y };
-              setPan(newPan);
-              if (socket && roomId) {
-                  socket.emit("wb_view", { roomId, pan: newPan, scale });
-              }
-          } else {
-              // Normal pan
-              const newPan = { x: pan.x - e.deltaX, y: pan.y - e.deltaY };
-              setPan(newPan);
-              if (socket && roomId) {
-                  socket.emit("wb_view", { roomId, pan: newPan, scale });
-              }
-          }
-      };
+        const handleWheel = (e) => {
+            e.preventDefault();
+            if (e.ctrlKey || e.metaKey) {
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                const newScale = Math.min(Math.max(scale * delta, 0.1), 5);
+                setPan(p => ({
+                    x: p.x - (e.clientX - canvas.getBoundingClientRect().left - p.x) * ((newScale - scale) / scale),
+                    y: p.y - (e.clientY - canvas.getBoundingClientRect().top - p.y) * ((newScale - scale) / scale)
+                }));
+                setScale(newScale);
+            } else {
+                setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+            }
+        };
 
-      canvas.addEventListener("wheel", handleWheel, { passive: false });
-      return () => canvas.removeEventListener("wheel", handleWheel);
-  }, [scale, pan, socket, roomId]);
+        canvas.addEventListener("wheel", handleWheel, { passive: false });
+        return () => canvas.removeEventListener("wheel", handleWheel);
+    }, [scale]);
 
-  // --- SOCKET LISTENERS ---
-  useEffect(() => {
-      if (!socket) return;
+    // --- SOCKET LISTENERS ---
+    useEffect(() => {
+        if (!socket) return;
 
-      const handleRemoteDrawLine = (data) => {
-          setHistory(prev => [...prev, { type: "line", ...data }]);
-      };
-      
-      const handleRemoteDrawText = (data) => {
-          setHistory(prev => [...prev, { type: "text", ...data }]);
-      };
+        const handleRemoteItem = (data) => setHistory(prev => [...prev, data]);
+        const handleClear = () => setHistory([]);
+        const handleStateSync = (serverHistory) => setHistory(serverHistory.map(item => ({ ...item, type: item.type || "line" })));
+        const handleCursor = ({ x, y, username: rUser, color: rColor }) => {
+            setRemoteCursors(prev => ({ ...prev, [rUser]: { x, y, color: rColor } }));
+        };
 
-      const handleClear = () => {
-          setHistory([]);
-      };
+        socket.on("draw_line", handleRemoteItem);
+        socket.on("draw_text", handleRemoteItem);
+        socket.on("clear_board", handleClear);
+        socket.on("whiteboard_state", handleStateSync);
+        socket.on("wb_cursor", handleCursor);
 
-      const handleStateSync = (serverHistory) => {
-          const normalized = serverHistory.map(item => ({
-              ...item,
-              type: item.type || "line" 
-          }));
-          setHistory(normalized);
-      };
+        socket.emit("request_whiteboard_state", { roomId });
 
-      const handleCursor = ({ x, y, username: rUser, color: rColor }) => {
-        setRemoteCursors(prev => ({
-            ...prev,
-            [rUser]: { x, y, color: rColor }
-        }));
-      };
+        return () => {
+            socket.off("draw_line", handleRemoteItem);
+            socket.off("draw_text", handleRemoteItem);
+            socket.off("clear_board", handleClear);
+            socket.off("whiteboard_state", handleStateSync);
+            socket.off("wb_cursor", handleCursor);
+        };
+    }, [socket, roomId]);
 
-      const handleRemoteView = ({ pan: rPan, scale: rScale }) => {
-          if (rPan) setPan(rPan);
-          if (rScale) setScale(rScale);
-      };
+    // --- WORLD POSITION ---
+    const getWorldPos = useCallback((e) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return { x: 0, y: 0 };
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left - pan.x) / scale,
+            y: (e.clientY - rect.top - pan.y) / scale
+        };
+    }, [pan, scale]);
 
-      socket.on("draw_line", handleRemoteDrawLine);
-      socket.on("draw_text", handleRemoteDrawText);
-      socket.on("clear_board", handleClear);
-      socket.on("whiteboard_state", handleStateSync);
-      socket.on("wb_cursor", handleCursor);
-      socket.on("wb_view", handleRemoteView);
+    // --- Commit text ---
+    const commitTextItem = useCallback(() => {
+        if (activeTextItem && activeTextItem.text && activeTextItem.text.trim()) {
+            const newItem = {
+                type: "text",
+                x: activeTextItem.x,
+                y: activeTextItem.y,
+                text: activeTextItem.text,
+                color: activeTextItem.color,
+                fontSize: activeTextItem.fontSize
+            };
+            setHistory(prev => [...prev, newItem]);
+            socket?.emit("draw_text", { roomId, ...newItem });
+        }
+        setActiveTextItem(null);
+    }, [activeTextItem, socket, roomId]);
 
-      socket.emit("request_whiteboard_state", { roomId });
+    // --- MOUSE HANDLERS ---
+    const onMouseDown = useCallback((e) => {
+        const wPos = getWorldPos(e);
 
-      return () => {
-          socket.off("draw_line", handleRemoteDrawLine);
-          socket.off("draw_text", handleRemoteDrawText);
-          socket.off("clear_board", handleClear);
-          socket.off("whiteboard_state", handleStateSync);
-          socket.off("wb_cursor", handleCursor);
-          socket.off("wb_view", handleRemoteView);
-      };
-  }, [socket, roomId]);
+        // Commit any active text first
+        if (activeTextItem) {
+            commitTextItem();
+        }
 
-  // --- MOUSE HANDLERS ---
-  const getWorldPos = (e) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return { x: 0, y: 0 };
-      const rect = canvas.getBoundingClientRect();
-      const screenX = e.clientX - rect.left;
-      const screenY = e.clientY - rect.top;
-      
-      return {
-          x: (screenX - pan.x) / scale,
-          y: (screenY - pan.y) / scale
-      };
-  };
+        // Middle mouse for panning
+        if (e.button === 1) {
+            setIsPanning(true);
+            setPanStart({ x: e.clientX, y: e.clientY });
+            return;
+        }
 
-  const onMouseDown = (e) => {
-      if (activeTool === "hand" || e.button === 1) { 
-          setIsPanning(true);
-          setDragStart({ x: e.clientX, y: e.clientY });
-          return;
-      }
-
-      if (activeTool === "text") {
-          const rect = canvasRef.current.getBoundingClientRect();
-          const wPos = getWorldPos(e);
-          setTextInput({ 
-              x: e.clientX - rect.left, 
-              y: e.clientY - rect.top,
-              worldX: wPos.x,
-              worldY: wPos.y 
+        // Text tool
+        if (activeTool === "text") {
+            setActiveTextItem({
+                x: wPos.x,
+                y: wPos.y,
+                text: "",
+                fontSize,
+                color,
+                isNew: true
             });
-          return;
-      }
+            return;
+        }
 
-      setIsDrawing(true);
-      setPrevPos(getWorldPos(e));
-  };
+        // Pen/Eraser
+        setIsDrawing(true);
+        setPrevPos(wPos);
+    }, [activeTool, getWorldPos, fontSize, color, activeTextItem, commitTextItem]);
 
-  const onMouseMove = (e) => {
-      const wPos = getWorldPos(e);
-      if (socket && roomId && username) {
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-            socket.emit("wb_cursor", { roomId, x: e.clientX - rect.left, y: e.clientY - rect.top, username, color });
-          }
-      }
+    const onMouseMove = useCallback((e) => {
+        const wPos = getWorldPos(e);
 
-      if (isPanning) {
-          const dx = e.clientX - dragStart.x;
-          const dy = e.clientY - dragStart.y;
-          const newPan = { x: pan.x + dx, y: pan.y + dy };
-          
-          setPan(newPan);
-          setDragStart({ x: e.clientX, y: e.clientY });
+        // Emit cursor
+        if (socket && roomId && username) {
+            const rect = canvasRef.current?.getBoundingClientRect();
+            if (rect) {
+                socket.emit("wb_cursor", { roomId, x: e.clientX - rect.left, y: e.clientY - rect.top, username, color });
+            }
+        }
 
-          if (socket && roomId) {
-              socket.emit("wb_view", { roomId, pan: newPan, scale });
-          }
-          return;
-      }
+        // Panning
+        if (isPanning) {
+            setPan(p => ({ x: p.x + e.clientX - panStart.x, y: p.y + e.clientY - panStart.y }));
+            setPanStart({ x: e.clientX, y: e.clientY });
+            return;
+        }
 
-      if (!isDrawing) return;
-      if (activeTool === "text") return;
+        if (!isDrawing || activeTool === "text") return;
 
-      const currPos = wPos;
-      
-      const drawColor = activeTool === "eraser" ? "#1a1a1a" : color; 
-      const drawWidth = activeTool === "eraser" ? 20 : lineWidth;
+        const itemType = activeTool === "eraser" ? "erase" : "line";
+        const drawColor = activeTool === "eraser" ? "#1a1a1a" : color;
+        const drawWidth = activeTool === "eraser" ? eraserSize : penSize;
 
-      const newItem = { type: "line", prev: prevPos, curr: currPos, color: drawColor, width: drawWidth };
-      setHistory(prev => [...prev, newItem]);
+        const newItem = { type: itemType, prev: prevPos, curr: wPos, color: drawColor, width: drawWidth };
+        setHistory(prev => [...prev, newItem]);
+        socket?.emit("draw_line", { roomId, ...newItem });
+        setPrevPos(wPos);
+    }, [activeTool, getWorldPos, isPanning, panStart, isDrawing, prevPos, color, penSize, eraserSize, socket, roomId, username]);
 
-      if (socket) {
-          socket.emit("draw_line", { roomId, ...newItem });
-      }
+    const onMouseUp = useCallback(() => {
+        setIsDrawing(false);
+        setIsPanning(false);
+    }, []);
 
-      setPrevPos(currPos);
-  };
+    // --- WINDOW DRAG ---
+    const handleWindowMouseDown = (e) => {
+        if (isFullscreen) return;
+        setIsWindowDragging(true);
+        setWindowDragOffset({ x: e.clientX - windowPos.x, y: e.clientY - windowPos.y });
+    };
 
-  const onMouseUp = () => {
-      setIsDrawing(false);
-      setIsPanning(false);
-  };
+    // --- RESIZE ---
+    const handleResizeMouseDown = (edge) => (e) => {
+        if (isFullscreen) return;
+        e.stopPropagation();
+        setIsResizing(true);
+        setResizeEdge(edge);
+        setResizeStart({ x: e.clientX, y: e.clientY, width: windowSize.width, height: windowSize.height, posX: windowPos.x, posY: windowPos.y });
+    };
 
-  const handleTextSubmit = (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-          const text = e.target.value;
-          if (text.trim()) {
-              const newItem = { 
-                  type: "text", 
-                  x: textInput.worldX, 
-                  y: textInput.worldY, 
-                  text, 
-                  color: color, 
-                  fontSize: 16 
-              };
-              setHistory(prev => [...prev, newItem]);
-              socket.emit("draw_text", { roomId, ...newItem });
-          }
-          setTextInput(null);
-      }
-      if (e.key === "Escape") {
-          setTextInput(null);
-      }
-  };
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (isWindowDragging && !isFullscreen) {
+                setWindowPos({ x: Math.max(0, e.clientX - windowDragOffset.x), y: Math.max(0, e.clientY - windowDragOffset.y) });
+            }
+            if (isResizing && resizeEdge) {
+                const dx = e.clientX - resizeStart.x;
+                const dy = e.clientY - resizeStart.y;
+                let newWidth = resizeStart.width, newHeight = resizeStart.height;
+                let newX = resizeStart.posX, newY = resizeStart.posY;
 
-  // --- WINDOW DRAG ---
-  const handleWindowMouseDown = (e) => {
-      if (isFullscreen) return;
-      setIsWindowDragging(true);
-      setWindowDragOffset({ x: e.clientX - windowPos.x, y: e.clientY - windowPos.y });
-  };
+                if (resizeEdge.includes('e')) newWidth = Math.max(MIN_WIDTH, resizeStart.width + dx);
+                if (resizeEdge.includes('w')) {
+                    const proposed = resizeStart.width - dx;
+                    if (proposed >= MIN_WIDTH) { newWidth = proposed; newX = resizeStart.posX + dx; }
+                }
+                if (resizeEdge.includes('s')) newHeight = Math.max(MIN_HEIGHT, resizeStart.height + dy);
+                if (resizeEdge.includes('n')) {
+                    const proposed = resizeStart.height - dy;
+                    if (proposed >= MIN_HEIGHT) { newHeight = proposed; newY = resizeStart.posY + dy; }
+                }
+                setWindowSize({ width: newWidth, height: newHeight });
+                setWindowPos({ x: newX, y: newY });
+            }
+        };
 
-  // --- RESIZE HANDLERS ---
-  const handleResizeMouseDown = (edge) => (e) => {
-      if (isFullscreen) return;
-      e.stopPropagation();
-      setIsResizing(true);
-      setResizeEdge(edge);
-      setResizeStart({
-          x: e.clientX,
-          y: e.clientY,
-          width: windowSize.width,
-          height: windowSize.height,
-          posX: windowPos.x,
-          posY: windowPos.y
-      });
-  };
+        const handleMouseUp = () => {
+            setIsWindowDragging(false);
+            setIsResizing(false);
+            setResizeEdge(null);
+        };
 
-  useEffect(() => {
-      const handleMouseMove = (e) => {
-          if (isWindowDragging && !isFullscreen) {
-              setWindowPos({ 
-                  x: Math.max(0, e.clientX - windowDragOffset.x), 
-                  y: Math.max(0, e.clientY - windowDragOffset.y) 
-              });
-          }
-          
-          if (isResizing && resizeEdge) {
-              const dx = e.clientX - resizeStart.x;
-              const dy = e.clientY - resizeStart.y;
-              
-              let newWidth = resizeStart.width;
-              let newHeight = resizeStart.height;
-              let newX = resizeStart.posX;
-              let newY = resizeStart.posY;
-              
-              if (resizeEdge.includes('e')) {
-                  newWidth = Math.max(MIN_WIDTH, resizeStart.width + dx);
-              }
-              if (resizeEdge.includes('w')) {
-                  const proposedWidth = resizeStart.width - dx;
-                  if (proposedWidth >= MIN_WIDTH) {
-                      newWidth = proposedWidth;
-                      newX = resizeStart.posX + dx;
-                  }
-              }
-              if (resizeEdge.includes('s')) {
-                  newHeight = Math.max(MIN_HEIGHT, resizeStart.height + dy);
-              }
-              if (resizeEdge.includes('n')) {
-                  const proposedHeight = resizeStart.height - dy;
-                  if (proposedHeight >= MIN_HEIGHT) {
-                      newHeight = proposedHeight;
-                      newY = resizeStart.posY + dy;
-                  }
-              }
-              
-              setWindowSize({ width: newWidth, height: newHeight });
-              setWindowPos({ x: newX, y: newY });
-          }
-      };
-      
-      const handleMouseUp = () => {
-          setIsWindowDragging(false);
-          setIsResizing(false);
-          setResizeEdge(null);
-      };
-      
-      if (isWindowDragging || isResizing) {
-          window.addEventListener("mousemove", handleMouseMove);
-          window.addEventListener("mouseup", handleMouseUp);
-      }
-      
-      return () => {
-          window.removeEventListener("mousemove", handleMouseMove);
-          window.removeEventListener("mouseup", handleMouseUp);
-      };
-  }, [isWindowDragging, isResizing, resizeEdge, windowDragOffset, resizeStart, isFullscreen]);
+        if (isWindowDragging || isResizing) {
+            window.addEventListener("mousemove", handleMouseMove);
+            window.addEventListener("mouseup", handleMouseUp);
+        }
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, [isWindowDragging, isResizing, resizeEdge, windowDragOffset, resizeStart, isFullscreen]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-      const handleKeyDown = (e) => {
-          if (e.key === "Escape" && isFullscreen) {
-              toggleFullscreen();
-          }
-          if (e.key === "+" && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              zoomIn();
-          }
-          if (e.key === "-" && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              zoomOut();
-          }
-          if (e.key === "0" && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              resetView();
-          }
-      };
-      
-      window.addEventListener("keydown", handleKeyDown);
-      return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isFullscreen, toggleFullscreen, zoomIn, zoomOut, resetView]);
+    // Focus text input
+    useEffect(() => {
+        if (activeTextItem && textInputRef.current) {
+            textInputRef.current.focus();
+        }
+    }, [activeTextItem]);
 
-  const resizeHandleStyle = (cursor) => ({
-      position: "absolute",
-      background: "transparent",
-      zIndex: 5001,
-      ...(cursor === "ew-resize" && { width: "8px", height: "100%", top: 0, cursor }),
-      ...(cursor === "ns-resize" && { height: "8px", width: "100%", left: 0, cursor }),
-      ...(cursor === "nwse-resize" || cursor === "nesw-resize" ? { width: "12px", height: "12px", cursor } : {}),
-  });
+    const resizeHandleStyle = (cursor) => ({
+        position: "absolute", background: "transparent", zIndex: 5001,
+        ...(cursor === "ew-resize" && { width: "8px", height: "100%", top: 0, cursor }),
+        ...(cursor === "ns-resize" && { height: "8px", width: "100%", left: 0, cursor }),
+        ...(["nwse-resize", "nesw-resize"].includes(cursor) && { width: "12px", height: "12px", cursor }),
+    });
 
-  return (
-    <div 
-      ref={containerRef}
-      style={{
-        position: "fixed", 
-        left: windowPos.x, 
-        top: windowPos.y,
-        width: windowSize.width, 
-        height: windowSize.height,
-        background: "#1a1a1a", 
-        borderRadius: isFullscreen ? 0 : "12px", 
-        border: isFullscreen ? "none" : "1px solid #333",
-        boxShadow: isFullscreen ? "none" : "0 20px 60px rgba(0,0,0,0.6)", 
-        zIndex: 5000,
-        display: "flex", 
-        flexDirection: "column",
-        overflow: "hidden"
-      }}
-    >
-      {/* RESIZE HANDLES (only when not fullscreen) */}
-      {!isFullscreen && (
-          <>
-              {/* Edges */}
-              <div style={{ ...resizeHandleStyle("ew-resize"), right: 0 }} onMouseDown={handleResizeMouseDown('e')} />
-              <div style={{ ...resizeHandleStyle("ew-resize"), left: 0 }} onMouseDown={handleResizeMouseDown('w')} />
-              <div style={{ ...resizeHandleStyle("ns-resize"), bottom: 0 }} onMouseDown={handleResizeMouseDown('s')} />
-              <div style={{ ...resizeHandleStyle("ns-resize"), top: 0 }} onMouseDown={handleResizeMouseDown('n')} />
-              {/* Corners */}
-              <div style={{ ...resizeHandleStyle("nwse-resize"), bottom: 0, right: 0 }} onMouseDown={handleResizeMouseDown('se')} />
-              <div style={{ ...resizeHandleStyle("nesw-resize"), bottom: 0, left: 0 }} onMouseDown={handleResizeMouseDown('sw')} />
-              <div style={{ ...resizeHandleStyle("nesw-resize"), top: 0, right: 0 }} onMouseDown={handleResizeMouseDown('ne')} />
-              <div style={{ ...resizeHandleStyle("nwse-resize"), top: 0, left: 0 }} onMouseDown={handleResizeMouseDown('nw')} />
-          </>
-      )}
+    const getCursor = () => {
+        if (isPanning) return "grabbing";
+        if (activeTool === "text") return "text";
+        return "crosshair";
+    };
 
-      {/* HEADER */}
-      <div 
-        onMouseDown={handleWindowMouseDown}
-        style={{
-          padding: "10px 12px", 
-          background: "#252525", 
-          borderBottom: "1px solid #333",
-          display: "flex", 
-          justifyContent: "space-between", 
-          alignItems: "center",
-          cursor: isFullscreen ? "default" : "grab", 
-          userSelect: "none",
-          minHeight: "40px"
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", fontWeight: "600", color: "#ddd" }}>
-           <Move size={16} style={{ opacity: 0.6 }} /> 
-           <span>Infinite Whiteboard</span>
-           <span style={{ fontSize: "11px", color: "#666", fontWeight: "normal" }}>
-               {Math.round(scale * 100)}%
-           </span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <button 
-                onClick={toggleFullscreen} 
-                style={{ background: "none", border: "none", color: "#888", cursor: "pointer", padding: "4px", display: "flex" }}
-                title={isFullscreen ? "Exit Fullscreen (Esc)" : "Fullscreen"}
-            >
-                {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
-            <button 
-                onClick={onClose} 
-                style={{ background: "none", border: "none", color: "#888", cursor: "pointer", padding: "4px", display: "flex" }}
-                title="Close"
-            >
-                <X size={18} />
-            </button>
-        </div>
-      </div>
+    const getScreenPos = (worldX, worldY) => ({
+        x: worldX * scale + pan.x,
+        y: worldY * scale + pan.y
+    });
 
-      {/* TOOLBAR */}
-      <div style={{ 
-          padding: "8px 12px", 
-          display: "flex", 
-          gap: "6px", 
-          alignItems: "center", 
-          background: "#1e1e1e", 
-          borderBottom: "1px solid #333",
-          flexWrap: "wrap"
-      }}>
-          {/* TOOLS */}
-          <ToolBtn active={activeTool === "pen"} onClick={() => setActiveTool("pen")} icon={<Pen size={15} />} title="Pen (Draw)" />
-          <ToolBtn active={activeTool === "text"} onClick={() => setActiveTool("text")} icon={<Type size={15} />} title="Text" />
-          <ToolBtn active={activeTool === "eraser"} onClick={() => setActiveTool("eraser")} icon={<Eraser size={15} />} title="Eraser" />
-          <ToolBtn active={activeTool === "hand"} onClick={() => setActiveTool("hand")} icon={<Hand size={15} />} title="Pan (Space + Drag)" />
-
-          <Divider />
-
-          {/* ATTRIBUTES */}
-          <input 
-              type="color" 
-              value={color} 
-              onChange={(e) => setColor(e.target.value)} 
-              style={{ width: "28px", height: "28px", border: "none", background: "none", padding: 0, cursor: "pointer", borderRadius: "4px" }} 
-              title="Color"
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <span style={{ fontSize: "11px", color: "#666" }}>Size:</span>
-              <input 
-                  type="range" 
-                  min="1" 
-                  max="30" 
-                  value={lineWidth} 
-                  onChange={(e) => setLineWidth(parseInt(e.target.value))} 
-                  style={{ width: "80px", cursor: "pointer" }} 
-              />
-              <span style={{ fontSize: "11px", color: "#888", width: "20px" }}>{lineWidth}</span>
-          </div>
-
-          <Divider />
-          
-          {/* ZOOM CONTROLS */}
-          <ToolBtn onClick={zoomOut} icon={<ZoomOut size={15} />} title="Zoom Out (Ctrl -)" />
-          <div style={{ 
-              background: "#2a2a2a", 
-              padding: "4px 10px", 
-              borderRadius: "4px", 
-              fontSize: "12px", 
-              color: "#aaa",
-              minWidth: "50px",
-              textAlign: "center",
-              cursor: "pointer"
-          }} onClick={resetView} title="Reset View (Ctrl 0)">
-              {Math.round(scale * 100)}%
-          </div>
-          <ToolBtn onClick={zoomIn} icon={<ZoomIn size={15} />} title="Zoom In (Ctrl +)" />
-          <ToolBtn onClick={resetView} icon={<RotateCcw size={15} />} title="Reset View" />
-
-          <div style={{ flex: 1 }} />
-          
-          {/* ACTIONS */}
-          <ToolBtn 
-              onClick={() => { setHistory([]); socket?.emit("clear_board", { roomId }); }} 
-              icon={<X size={15} color="#ef5350" />} 
-              title="Clear All" 
-              danger
-          />
-      </div>
-
-      {/* CANVAS AREA */}
-      <div style={{ flex: 1, position: "relative", background: "#1a1a1a", overflow: "hidden" }}>
-        <canvas
-            ref={canvasRef}
-            width={canvasWidth}
-            height={canvasHeight > 0 ? canvasHeight : 400}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
-            style={{ 
-                display: "block", 
-                cursor: isPanning ? "grabbing" : (activeTool === "hand" ? "grab" : (activeTool === "text" ? "text" : "crosshair")),
-                touchAction: "none"
+    return (
+        <div
+            ref={containerRef}
+            style={{
+                position: "fixed", left: windowPos.x, top: windowPos.y,
+                width: windowSize.width, height: windowSize.height,
+                background: "#1a1a1a", borderRadius: isFullscreen ? 0 : "12px",
+                border: isFullscreen ? "none" : "1px solid #333",
+                boxShadow: isFullscreen ? "none" : "0 20px 60px rgba(0,0,0,0.6)",
+                zIndex: 5000, display: "flex", flexDirection: "column", overflow: "hidden"
             }}
-        />
+        >
+            {/* RESIZE HANDLES */}
+            {!isFullscreen && (
+                <>
+                    <div style={{ ...resizeHandleStyle("ew-resize"), right: 0 }} onMouseDown={handleResizeMouseDown('e')} />
+                    <div style={{ ...resizeHandleStyle("ew-resize"), left: 0 }} onMouseDown={handleResizeMouseDown('w')} />
+                    <div style={{ ...resizeHandleStyle("ns-resize"), bottom: 0 }} onMouseDown={handleResizeMouseDown('s')} />
+                    <div style={{ ...resizeHandleStyle("ns-resize"), top: 0 }} onMouseDown={handleResizeMouseDown('n')} />
+                    <div style={{ ...resizeHandleStyle("nwse-resize"), bottom: 0, right: 0 }} onMouseDown={handleResizeMouseDown('se')} />
+                    <div style={{ ...resizeHandleStyle("nesw-resize"), bottom: 0, left: 0 }} onMouseDown={handleResizeMouseDown('sw')} />
+                    <div style={{ ...resizeHandleStyle("nesw-resize"), top: 0, right: 0 }} onMouseDown={handleResizeMouseDown('ne')} />
+                    <div style={{ ...resizeHandleStyle("nwse-resize"), top: 0, left: 0 }} onMouseDown={handleResizeMouseDown('nw')} />
+                </>
+            )}
 
-        {/* Text Input Overlay */}
-        {textInput && (
-            <input 
-                autoFocus
-                placeholder="Type & Enter..."
-                onKeyDown={handleTextSubmit}
+            {/* HEADER */}
+            <div
+                onMouseDown={handleWindowMouseDown}
                 style={{
-                    position: "absolute", 
-                    left: textInput.x, 
-                    top: textInput.y,
-                    background: "rgba(0,0,0,0.9)", 
-                    color: color,
-                    border: "1px solid var(--accent-primary)", 
-                    borderRadius: "4px", 
-                    padding: "6px 10px",
-                    outline: "none", 
-                    minWidth: "200px", 
-                    zIndex: 6000,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: "14px"
+                    padding: "10px 12px", background: "#252525", borderBottom: "1px solid #333",
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    cursor: isFullscreen ? "default" : "grab", userSelect: "none"
                 }}
-            />
-        )}
-
-        {/* Cursors Overlay */}
-        {Object.entries(remoteCursors).map(([rUser, pos]) => (
-            <div key={rUser} style={{ 
-                position: "absolute", 
-                left: pos.x, 
-                top: pos.y, 
-                pointerEvents: "none", 
-                transform: "translate(-50%, -50%)", 
-                zIndex: 4000,
-                transition: "left 0.05s, top 0.05s"
-            }}>
-                <MousePointer2 size={18} fill={pos.color} color={pos.color} />
-                <span style={{ 
-                    position: "absolute", 
-                    left: 14, 
-                    top: 14, 
-                    background: pos.color, 
-                    color: getContrastColor(pos.color), 
-                    padding: "2px 8px", 
-                    borderRadius: "4px", 
-                    fontSize: "11px", 
-                    whiteSpace: "nowrap", 
-                    fontWeight: "600",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
-                }}>
-                    {rUser}
-                </span>
+            >
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", fontWeight: "600", color: "#ddd" }}>
+                    <Move size={16} style={{ opacity: 0.6 }} />
+                    <span>Whiteboard</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <button onClick={toggleFullscreen} style={headerBtnStyle} title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+                        {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
+                    <button onClick={onClose} style={headerBtnStyle} title="Close">
+                        <X size={18} />
+                    </button>
+                </div>
             </div>
-        ))}
 
-        {/* Help Overlay */}
-        <div style={{ 
-            position: "absolute", 
-            bottom: "12px", 
-            left: "12px", 
-            fontSize: "11px", 
-            color: "#555", 
-            pointerEvents: "none",
-            display: "flex",
-            gap: "16px"
-        }}>
-            <span>Scroll: Pan</span>
-            <span>Shift+Scroll: Horizontal</span>
-            <span>Ctrl+Scroll: Zoom</span>
-        </div>
+            {/* TOOLBAR - Simple */}
+            <div style={{ padding: "8px 12px", display: "flex", gap: "8px", alignItems: "center", background: "#1e1e1e", borderBottom: "1px solid #333", flexWrap: "wrap" }}>
+                {/* TOOLS */}
+                <ToolBtn active={activeTool === "pen"} onClick={() => setActiveTool("pen")} icon={<Pen size={16} />} title="Pen" />
+                <ToolBtn active={activeTool === "text"} onClick={() => setActiveTool("text")} icon={<Type size={16} />} title="Text" />
+                <ToolBtn active={activeTool === "eraser"} onClick={() => setActiveTool("eraser")} icon={<Eraser size={16} />} title="Eraser" />
 
-        {/* Position Info */}
-        <div style={{ 
-            position: "absolute", 
-            bottom: "12px", 
-            right: "12px", 
-            fontSize: "11px", 
-            color: "#555", 
-            pointerEvents: "none",
-            background: "rgba(0,0,0,0.5)",
-            padding: "4px 8px",
-            borderRadius: "4px"
-        }}>
-            Pan: {Math.round(pan.x)}, {Math.round(pan.y)} | Zoom: {Math.round(scale * 100)}%
+                <Divider />
+
+                {/* COLOR */}
+                <input
+                    type="color"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    style={{ width: "28px", height: "28px", border: "none", background: "none", cursor: "pointer", borderRadius: "4px" }}
+                    title="Color"
+                />
+                {PRESET_COLORS.map(c => (
+                    <button
+                        key={c}
+                        onClick={() => setColor(c)}
+                        style={{
+                            width: "20px", height: "20px", borderRadius: "4px",
+                            background: c, border: color === c ? "2px solid #00d4ff" : "1px solid #444",
+                            cursor: "pointer"
+                        }}
+                    />
+                ))}
+
+                <Divider />
+
+                {/* PEN SIZE */}
+                {activeTool === "pen" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontSize: "12px", color: "#888" }}>Size:</span>
+                        <input
+                            type="range"
+                            min="1"
+                            max="20"
+                            value={penSize}
+                            onChange={(e) => setPenSize(parseInt(e.target.value))}
+                            style={{ width: "80px", cursor: "pointer" }}
+                        />
+                        <span style={{ fontSize: "12px", color: "#aaa", width: "20px" }}>{penSize}</span>
+                    </div>
+                )}
+
+                {/* ERASER SIZE */}
+                {activeTool === "eraser" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontSize: "12px", color: "#888" }}>Size:</span>
+                        <input
+                            type="range"
+                            min="5"
+                            max="100"
+                            value={eraserSize}
+                            onChange={(e) => setEraserSize(parseInt(e.target.value))}
+                            style={{ width: "100px", cursor: "pointer" }}
+                        />
+                        <span style={{ fontSize: "12px", color: "#aaa", width: "24px" }}>{eraserSize}</span>
+                    </div>
+                )}
+
+                {/* FONT SIZE */}
+                {activeTool === "text" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontSize: "12px", color: "#888" }}>Font:</span>
+                        <select
+                            value={fontSize}
+                            onChange={(e) => setFontSize(parseInt(e.target.value))}
+                            style={{ background: "#2a2a2a", color: "#ddd", border: "1px solid #444", borderRadius: "4px", padding: "4px 8px" }}
+                        >
+                            {FONT_SIZES.map(s => <option key={s} value={s}>{s}px</option>)}
+                        </select>
+                    </div>
+                )}
+
+                <div style={{ flex: 1 }} />
+
+                {/* ZOOM */}
+                <button onClick={zoomOut} style={smallBtnStyle} title="Zoom Out"><ZoomOut size={14} /></button>
+                <span style={{ fontSize: "12px", color: "#888", cursor: "pointer" }} onClick={resetView}>{Math.round(scale * 100)}%</span>
+                <button onClick={zoomIn} style={smallBtnStyle} title="Zoom In"><ZoomIn size={14} /></button>
+                <button onClick={resetView} style={smallBtnStyle} title="Reset"><RotateCcw size={14} /></button>
+
+                <Divider />
+
+                {/* CLEAR */}
+                <button
+                    onClick={() => { setHistory([]); socket?.emit("clear_board", { roomId }); }}
+                    style={{ ...smallBtnStyle, color: "#ef5350" }}
+                    title="Clear All"
+                >
+                    <X size={14} />
+                </button>
+            </div>
+
+            {/* CANVAS */}
+            <div style={{ flex: 1, position: "relative", background: "#1a1a1a", overflow: "hidden" }}>
+                <canvas
+                    ref={canvasRef}
+                    width={canvasWidth}
+                    height={canvasHeight > 0 ? canvasHeight : 400}
+                    onMouseDown={onMouseDown}
+                    onMouseMove={onMouseMove}
+                    onMouseUp={onMouseUp}
+                    onMouseLeave={onMouseUp}
+                    style={{ display: "block", cursor: getCursor(), touchAction: "none" }}
+                />
+
+                {/* INLINE TEXT INPUT */}
+                {activeTextItem && (() => {
+                    const screenPos = getScreenPos(activeTextItem.x, activeTextItem.y);
+                    return (
+                        <div
+                            style={{
+                                position: "absolute",
+                                left: screenPos.x,
+                                top: screenPos.y,
+                                zIndex: 6000
+                            }}
+                        >
+                            <textarea
+                                ref={textInputRef}
+                                value={activeTextItem.text}
+                                onChange={(e) => setActiveTextItem(prev => ({ ...prev, text: e.target.value }))}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey) {
+                                        e.preventDefault();
+                                        commitTextItem();
+                                    }
+                                    if (e.key === "Escape") {
+                                        setActiveTextItem(null);
+                                    }
+                                }}
+                                placeholder="Type and press Enter..."
+                                autoFocus
+                                style={{
+                                    minWidth: "200px",
+                                    minHeight: "40px",
+                                    background: "rgba(30, 30, 30, 0.95)",
+                                    border: "2px solid #00d4ff",
+                                    borderRadius: "6px",
+                                    outline: "none",
+                                    color: activeTextItem.color,
+                                    fontSize: `${activeTextItem.fontSize}px`,
+                                    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+                                    resize: "both",
+                                    padding: "8px",
+                                    boxShadow: "0 4px 20px rgba(0,0,0,0.5)"
+                                }}
+                            />
+                            <div style={{ fontSize: "10px", color: "#666", marginTop: "4px" }}>
+                                Enter to add • Shift+Enter for newline • Esc to cancel
+                            </div>
+                        </div>
+                    );
+                })()}
+
+                {/* Remote Cursors */}
+                {Object.entries(remoteCursors).map(([rUser, pos]) => (
+                    <div key={rUser} style={{
+                        position: "absolute", left: pos.x, top: pos.y, pointerEvents: "none",
+                        transform: "translate(-50%, -50%)", zIndex: 4000
+                    }}>
+                        <MousePointer2 size={16} fill={pos.color} color={pos.color} />
+                        <span style={{
+                            position: "absolute", left: 12, top: 12, background: pos.color,
+                            color: getContrastColor(pos.color), padding: "2px 6px", borderRadius: "4px",
+                            fontSize: "10px", whiteSpace: "nowrap", fontWeight: "600"
+                        }}>
+                            {rUser}
+                        </span>
+                    </div>
+                ))}
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 }
 
-const ToolBtn = ({ active, onClick, icon, title, danger }) => (
-    <button 
-        onClick={onClick} 
+// --- STYLES ---
+const headerBtnStyle = { background: "none", border: "none", color: "#888", cursor: "pointer", padding: "4px", display: "flex" };
+const smallBtnStyle = { background: "rgba(255,255,255,0.05)", border: "none", color: "#888", cursor: "pointer", padding: "6px", borderRadius: "4px", display: "flex" };
+
+const ToolBtn = ({ active, onClick, icon, title }) => (
+    <button
+        onClick={onClick}
         title={title}
         style={{
-            background: active ? "var(--accent-primary)" : (danger ? "rgba(239, 83, 80, 0.1)" : "rgba(255,255,255,0.05)"),
-            color: active ? "white" : (danger ? "#ef5350" : "var(--text-muted)"),
-            border: "1px solid", 
-            borderColor: active ? "var(--accent-primary)" : (danger ? "rgba(239, 83, 80, 0.3)" : "transparent"),
-            borderRadius: "6px", 
-            padding: "6px 8px", 
-            cursor: "pointer", 
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            transition: "all 0.15s"
+            background: active ? "#00d4ff" : "rgba(255,255,255,0.08)",
+            color: active ? "#000" : "#aaa",
+            border: "none",
+            borderRadius: "6px", padding: "8px 12px", cursor: "pointer",
+            display: "flex", alignItems: "center", gap: "6px"
         }}
     >
         {icon}
     </button>
 );
 
-const Divider = () => (
-    <div style={{ width: "1px", height: "24px", background: "#333", margin: "0 4px" }} />
-);
+const Divider = () => <div style={{ width: "1px", height: "24px", background: "#333", margin: "0 4px" }} />;
