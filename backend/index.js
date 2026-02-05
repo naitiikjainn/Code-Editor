@@ -16,6 +16,7 @@ import leetRoutes from "./routes/leettools.js";
 import submissionRoutes from "./routes/submissionRoutes.js";
 import profileRoutes from "./routes/profile.js";
 import livekitRoutes from "./routes/livekit.js";
+import friendsRoutes from "./routes/friends.js";
 import socketHandler from "./socket/socketHandler.js";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
@@ -37,21 +38,21 @@ dotenv.config();
 
 // Global error handlers to prevent crashes
 process.on('uncaughtException', (err) => {
-    console.error('❌ Uncaught Exception:', err.message);
-    console.error(err.stack);
+  console.error('❌ Uncaught Exception:', err.message);
+  console.error(err.stack);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 // Security: Validate required environment variables
 const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET'];
 const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
 if (missingEnvVars.length > 0) {
-    console.error(`❌ CRITICAL: Missing required environment variables: ${missingEnvVars.join(', ')}`);
-    console.error('   Please set these in your .env file before running the server.');
-    process.exit(1);
+  console.error(`❌ CRITICAL: Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  console.error('   Please set these in your .env file before running the server.');
+  process.exit(1);
 }
 
 connectDB();
@@ -66,13 +67,13 @@ app.use(requestTiming());
 
 // Performance: Compress responses with Brotli/Gzip
 app.use(compression({
-    level: 6, // Balance between speed and compression
-    threshold: 1024, // Only compress responses > 1KB
-    filter: (req, res) => {
-        // Don't compress if client doesn't accept it
-        if (req.headers['x-no-compression']) return false;
-        return compression.filter(req, res);
-    }
+  level: 6, // Balance between speed and compression
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    // Don't compress if client doesn't accept it
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
 }));
 
 // Security: Limit JSON body size to prevent DoS
@@ -81,15 +82,15 @@ app.use(express.json({ limit: '1mb' }));
 // ROOM CLEANUP JOB
 // Check for inactive rooms every 10 minutes
 setInterval(async () => {
-    try {
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-        const result = await Room.deleteMany({ lastActiveAt: { $lt: oneHourAgo } });
-        if (result.deletedCount > 0) {
-            console.log(`🧹 Cleanup: Deleted ${result.deletedCount} inactive rooms.`);
-        }
-    } catch (err) {
-        console.error("❌ Room Cleanup Error:", err);
+  try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const result = await Room.deleteMany({ lastActiveAt: { $lt: oneHourAgo } });
+    if (result.deletedCount > 0) {
+      console.log(`🧹 Cleanup: Deleted ${result.deletedCount} inactive rooms.`);
     }
+  } catch (err) {
+    console.error("❌ Room Cleanup Error:", err);
+  }
 }, 10 * 60 * 1000);
 
 app.use(cors({
@@ -124,21 +125,21 @@ const wss = new WebSocketServer({ noServer: true });
 
 wss.on('connection', (ws, req) => {
   console.log("✅ Yjs Connected:", req.url);
-  
+
   ws.on('error', (err) => {
     console.error("❌ Yjs WebSocket Error:", err.message);
   });
-  
+
   ws.on('close', (code, reason) => {
     console.log(`📤 Yjs Disconnected: ${req.url} (code: ${code})`);
   });
-  
+
   setupWSConnection(ws, req);
 });
 
 server.on('upgrade', (request, socket, head) => {
   const url = request.url;
-  
+
   // Handle Yjs connections (room collaboration)
   if (url.startsWith('/codeplay-')) {
     console.log(`➡️ Routing to Yjs: ${url}`);
@@ -147,12 +148,12 @@ server.on('upgrade', (request, socket, head) => {
     });
     return;
   }
-  
+
   // Let Socket.IO handle its own upgrades
   if (url.startsWith('/socket.io/')) {
     return;
   }
-  
+
   // Log unknown WebSocket upgrade requests
   console.warn(`⚠️ Unknown WebSocket upgrade request: ${url}`);
 });
@@ -167,10 +168,10 @@ app.use("/api/ai", rateLimiters.ai);
 
 // Debug logging middleware
 app.use((req, res, next) => {
-    if (req.path.includes('editorial')) {
-        console.log(`[DEBUG] ${new Date().toISOString()} - ${req.method} ${req.path}`);
-    }
-    next();
+  if (req.path.includes('editorial')) {
+    console.log(`[DEBUG] ${new Date().toISOString()} - ${req.method} ${req.path}`);
+  }
+  next();
 });
 
 app.use("/api/auth", authRoutes);
@@ -185,30 +186,31 @@ app.use("/api/leettools", leetRoutes);
 app.use("/api/submissions", submissionRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/livekit", livekitRoutes);
+app.use("/api/friends", friendsRoutes);
 
 // --- MONITORING ENDPOINTS ---
 // Health check endpoint
 app.get("/api/health", (req, res) => {
-    res.json({ status: "healthy", timestamp: new Date().toISOString() });
+  res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
 // Performance metrics endpoint
 app.get("/api/metrics", (req, res) => {
-    res.json({
-        performance: getMetrics(),
-        circuitBreakers: getAllCircuitStates(),
-        timestamp: new Date().toISOString()
-    });
+  res.json({
+    performance: getMetrics(),
+    circuitBreakers: getAllCircuitStates(),
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Reset circuit breaker endpoint
 app.post("/api/circuits/:name/reset", (req, res) => {
-    const { name } = req.params;
-    if (resetCircuit(name)) {
-        res.json({ success: true, message: `Circuit ${name} reset` });
-    } else {
-        res.status(404).json({ error: `Circuit ${name} not found` });
-    }
+  const { name } = req.params;
+  if (resetCircuit(name)) {
+    res.json({ success: true, message: `Circuit ${name} reset` });
+  } else {
+    res.status(404).json({ error: `Circuit ${name} not found` });
+  }
 });
 
 app.get("/api/proxy/codechef/:handle", async (req, res) => {
