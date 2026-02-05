@@ -10,7 +10,18 @@ if (!global.roomProblems) global.roomProblems = new Map();
 const voiceUsers = new Map(); // roomId -> Set<{ id, username }>
 
 // --- PENDING ENTRY REQUESTS (persists across host refresh) ---
-const pendingRequests = new Map(); // roomId -> Map<socketId, { username, socketId }>
+const pendingRequests = new Map(); // roomId -> Map<socketId, { username, socketId, timestamp }>
+const MAX_PENDING_PER_ROOM = 20; // Limit pending requests per room
+
+// --- PARTICIPANT GRACE PERIOD (prevents re-approval on refresh) ---
+const disconnectedParticipants = new Map(); // roomId -> Map<username, { userId, disconnectTime }>
+const PARTICIPANT_GRACE_PERIOD = 5 * 60 * 1000; // 5 minutes grace period
+
+// --- WHITEBOARD LIMITS ---
+const MAX_WHITEBOARD_ITEMS = 5000; // Max items per room whiteboard
+
+// --- WAITING GUESTS (for host offline scenario) ---
+const waitingGuests = new Map(); // roomId -> Set<socketId>
 
 // --- THROTTLING / BATCHING UTILITIES ---
 const throttleMap = new Map(); // key -> { lastCall, pending }
@@ -84,6 +95,18 @@ const debounceDbUpdate = (key, fn, delay = 500) => {
   }, delay));
 };
 
+/**
+ * Safe Set removal (avoids modifying Set during iteration)
+ */
+const safeSetRemove = (set, predicate) => {
+  const toRemove = [];
+  for (const item of set) {
+    if (predicate(item)) toRemove.push(item);
+  }
+  toRemove.forEach(item => set.delete(item));
+  return toRemove.length;
+};
+
 // Cleanup throttle/batch state periodically
 setInterval(() => {
   const now = Date.now();
@@ -99,6 +122,39 @@ setInterval(() => {
   for (const [key, batch] of batchQueues.entries()) {
     if (batch.events.length === 0 && !batch.timer) {
       batchQueues.delete(key);
+    }
+  }
+
+  // Clean up expired grace period entries
+  for (const [roomId, participants] of disconnectedParticipants.entries()) {
+    for (const [username, data] of participants.entries()) {
+      if (now - data.disconnectTime > PARTICIPANT_GRACE_PERIOD) {
+        participants.delete(username);
+        console.log(`⏰ Grace period expired for ${username} in room ${roomId}`);
+      }
+    }
+    if (participants.size === 0) {
+      disconnectedParticipants.delete(roomId);
+    }
+  }
+
+  // Clean up stale pending requests (older than 30 minutes)
+  for (const [roomId, requests] of pendingRequests.entries()) {
+    for (const [socketId, data] of requests.entries()) {
+      if (data.timestamp && now - data.timestamp > 30 * 60 * 1000) {
+        requests.delete(socketId);
+      }
+    }
+    if (requests.size === 0) {
+      pendingRequests.delete(roomId);
+    }
+  }
+
+  // Clean up orphan userMap entries (sockets without rooms)
+  for (const [socketId, userData] of userMap.entries()) {
+    if (userData.orphanedAt && now - userData.orphanedAt > 5 * 60 * 1000) {
+      userMap.delete(socketId);
+      console.log(`🧹 Cleaned orphan userMap entry: ${socketId}`);
     }
   }
 }, 60 * 1000);
@@ -132,6 +188,12 @@ setInterval(() => {
       }
       if (voiceUsers.has(roomId)) {
         voiceUsers.delete(roomId);
+      }
+      if (disconnectedParticipants.has(roomId)) {
+        disconnectedParticipants.delete(roomId);
+      }
+      if (waitingGuests.has(roomId)) {
+        waitingGuests.delete(roomId);
       }
       roomLastActivity.delete(roomId);
     }
@@ -291,42 +353,124 @@ export default function socketHandler(io) {
           console.log(`📤 Sending problem to new joiner: ${room.activeProblem.title}`);
           socket.emit("sync_problem", room.activeProblem);
         }
+
+        // If host rejoined, notify waiting guests
+        if (isHost && waitingGuests.has(roomId)) {
+          const waiting = waitingGuests.get(roomId);
+          if (waiting.size > 0) {
+            console.log(`👑 Host online, notifying ${waiting.size} waiting guest(s)`);
+            for (const waitingSocketId of waiting) {
+              const waitingSocket = io.sockets.sockets.get(waitingSocketId);
+              if (waitingSocket) {
+                waitingSocket.emit("status_update", {
+                  status: "host_online",
+                  message: "Host is now online! Requesting access..."
+                });
+                // Auto-create entry request
+                if (!pendingRequests.has(roomId)) pendingRequests.set(roomId, new Map());
+                const roomRequests = pendingRequests.get(roomId);
+                if (roomRequests.size < MAX_PENDING_PER_ROOM) {
+                  roomRequests.set(waitingSocketId, {
+                    username: waitingSocket.username,
+                    socketId: waitingSocketId,
+                    timestamp: Date.now()
+                  });
+                  socket.emit("request_entry", { username: waitingSocket.username, socketId: waitingSocketId });
+                }
+              }
+            }
+            waitingGuests.delete(roomId);
+          }
+        }
       } else {
-        // New guest - needs host approval
-        console.log(`👤 New Guest ${username} asking to join ${roomId}`);
+        // Check if user is within grace period (recently disconnected)
+        const roomGrace = disconnectedParticipants.get(roomId);
+        const graceEntry = roomGrace?.get(username);
+        const withinGracePeriod = graceEntry && (Date.now() - graceEntry.disconnectTime < PARTICIPANT_GRACE_PERIOD);
 
-        const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-        const hostSocketId = clients.find((clientId) => {
-          const user = userMap.get(clientId);
-          return user && user.isHost;
-        });
+        if (withinGracePeriod) {
+          // User is reconnecting within grace period - auto-approve
+          console.log(`🔄 ${username} reconnecting within grace period`);
 
-        if (hostSocketId) {
-          // Host is online - request permission
-          userMap.set(socket.id, { username, isHost: false, status: "pending", userId });
+          socket.join(roomId);
           socket.roomId = roomId;
           socket.username = username;
           socket.userId = userId;
+          socket.isHost = false;
+          userMap.set(socket.id, { username, isHost: false, status: "active", userId });
+          recordRoomActivity(roomId);
 
-          // Store pending request for persistence across host refresh
-          if (!pendingRequests.has(roomId)) pendingRequests.set(roomId, new Map());
-          pendingRequests.get(roomId).set(socket.id, { username, socketId: socket.id });
+          // Remove from grace period tracking
+          roomGrace.delete(username);
+          if (roomGrace.size === 0) disconnectedParticipants.delete(roomId);
 
-          io.to(hostSocketId).emit("request_entry", { username, socketId: socket.id });
-          socket.emit("status_update", {
-            status: "waiting",
-            message: "Waiting for host approval...",
+          // Re-add to participants
+          await Room.updateOne(
+            { roomId },
+            { $addToSet: { participants: { username } } }
+          );
+
+          socket.emit("access_granted", {
+            isHost: false,
+            hostUserId: room.host.userId?.toString() || null
           });
+
+          await broadcastRoomState(io, roomId);
+
+          if (room.activeProblem) {
+            socket.emit("sync_problem", room.activeProblem);
+          }
         } else {
-          // Host is offline - cannot join
-          socket.emit("status_update", {
-            status: "host_offline",
-            message: "Host is offline. Please wait for host to join.",
+          // New guest - needs host approval
+          console.log(`👤 New Guest ${username} asking to join ${roomId}`);
+
+          const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+          const hostSocketId = clients.find((clientId) => {
+            const user = userMap.get(clientId);
+            return user && user.isHost;
           });
-          socket.join(`${roomId}_waiting`);
-          socket.roomId = roomId;
-          socket.username = username;
-          socket.userId = userId;
+
+          if (hostSocketId) {
+            // Host is online - request permission
+            userMap.set(socket.id, { username, isHost: false, status: "pending", userId });
+            socket.roomId = roomId;
+            socket.username = username;
+            socket.userId = userId;
+
+            // Store pending request with limit check
+            if (!pendingRequests.has(roomId)) pendingRequests.set(roomId, new Map());
+            const roomRequests = pendingRequests.get(roomId);
+
+            if (roomRequests.size >= MAX_PENDING_PER_ROOM) {
+              socket.emit("status_update", {
+                status: "error",
+                message: "Too many pending requests. Please try again later.",
+              });
+              return;
+            }
+
+            roomRequests.set(socket.id, { username, socketId: socket.id, timestamp: Date.now() });
+
+            io.to(hostSocketId).emit("request_entry", { username, socketId: socket.id });
+            socket.emit("status_update", {
+              status: "waiting",
+              message: "Waiting for host approval...",
+            });
+          } else {
+            // Host is offline - add to waiting list
+            socket.emit("status_update", {
+              status: "host_offline",
+              message: "Host is offline. You'll be notified when they join.",
+            });
+            socket.join(`${roomId}_waiting`);
+            socket.roomId = roomId;
+            socket.username = username;
+            socket.userId = userId;
+
+            // Track waiting guests for notification when host joins
+            if (!waitingGuests.has(roomId)) waitingGuests.set(roomId, new Set());
+            waitingGuests.get(roomId).add(socket.id);
+          }
         }
       }
     });
@@ -416,6 +560,7 @@ export default function socketHandler(io) {
     socket.on("leave_room", async () => {
       const roomId = socket.roomId;
       const username = socket.username;
+      const userId = socket.userId;
       const isHost = socket.isHost;
 
       if (!roomId) return;
@@ -426,29 +571,33 @@ export default function socketHandler(io) {
       socket.leave(roomId);
       socket.leave(`${roomId}_waiting`);
 
-      // Clean up voice
+      // Clean up voice using safe iteration
       if (voiceUsers.has(roomId)) {
         const roomUsers = voiceUsers.get(roomId);
-        for (const u of roomUsers) {
-          if (u.id === socket.id) {
-            roomUsers.delete(u);
-            socket.to(roomId).emit("voice-peer-left", { peerId: socket.id });
-          }
+        const removed = safeSetRemove(roomUsers, u => u.id === socket.id);
+        if (removed > 0) {
+          socket.to(roomId).emit("voice-peer-left", { peerId: socket.id });
         }
         if (roomUsers.size === 0) voiceUsers.delete(roomId);
+      }
+
+      // Remove from waiting guests if applicable
+      if (waitingGuests.has(roomId)) {
+        waitingGuests.get(roomId).delete(socket.id);
       }
 
       // Notify others
       socket.to(roomId).emit("user_left", { username, isHost });
 
-      // Remove user from participants so they need approval again
+      // For explicit leave, remove immediately (no grace period)
+      // Grace period is only for accidental disconnects
       if (!isHost && username) {
         try {
           await Room.updateOne(
             { roomId },
             { $pull: { participants: { username: username } } }
           );
-          console.log(`🗑️ Removed ${username} from participants - will need approval to rejoin`);
+          console.log(`🗑️ Removed ${username} from participants - explicit leave`);
         } catch (e) {
           console.error("Error removing participant:", e);
         }
@@ -510,8 +659,18 @@ export default function socketHandler(io) {
       const safeWidth = Math.max(1, Math.min(width || 3, 100));
 
       if (!global.whiteboardHistory.has(roomId)) global.whiteboardHistory.set(roomId, []);
+      const history = global.whiteboardHistory.get(roomId);
+
+      // Enforce whiteboard size limit
+      if (history.length >= MAX_WHITEBOARD_ITEMS) {
+        // Remove oldest 10% of items when limit reached
+        const removeCount = Math.floor(MAX_WHITEBOARD_ITEMS * 0.1);
+        history.splice(0, removeCount);
+        console.log(`📋 Whiteboard limit reached for ${roomId}, removed ${removeCount} oldest items`);
+      }
+
       const itemType = type || "line"; // Support "line" or "highlighter"
-      global.whiteboardHistory.get(roomId).push({ type: itemType, prev, curr, color, width: safeWidth });
+      history.push({ type: itemType, prev, curr, color, width: safeWidth });
       recordRoomActivity(roomId);
 
       // Throttle draw events to max 60fps (16ms)
@@ -701,10 +860,8 @@ export default function socketHandler(io) {
 
       const roomVoiceUsers = voiceUsers.get(roomId);
 
-      // Remove existing entry for this socket if any
-      for (const u of roomVoiceUsers) {
-        if (u.id === socket.id) roomVoiceUsers.delete(u);
-      }
+      // Remove existing entry for this socket if any (using safe iteration)
+      safeSetRemove(roomVoiceUsers, u => u.id === socket.id);
 
       const userData = { id: socket.id, username: socket.username || "Guest" };
       roomVoiceUsers.add(userData);
@@ -720,11 +877,9 @@ export default function socketHandler(io) {
     socket.on("voice-leave", ({ roomId }) => {
       if (voiceUsers.has(roomId)) {
         const roomUsers = voiceUsers.get(roomId);
-        for (const u of roomUsers) {
-          if (u.id === socket.id) {
-            roomUsers.delete(u);
-            socket.to(roomId).emit("voice-peer-left", { peerId: socket.id });
-          }
+        const removed = safeSetRemove(roomUsers, u => u.id === socket.id);
+        if (removed > 0) {
+          socket.to(roomId).emit("voice-peer-left", { peerId: socket.id });
         }
         if (roomUsers.size === 0) voiceUsers.delete(roomId);
       }
@@ -742,6 +897,7 @@ export default function socketHandler(io) {
     socket.on("disconnect", async () => {
       const roomId = socket.roomId;
       const username = socket.username;
+      const userId = socket.userId;
       const isHost = socket.isHost;
 
       if (roomId && username) {
@@ -749,26 +905,40 @@ export default function socketHandler(io) {
 
         socket.to(roomId).emit("user_left", { username, isHost });
 
-        // Clean up voice
+        // Clean up voice using safe iteration
         if (voiceUsers.has(roomId)) {
           const roomUsers = voiceUsers.get(roomId);
-          for (const u of roomUsers) {
-            if (u.id === socket.id) {
-              roomUsers.delete(u);
-              socket.to(roomId).emit("voice-peer-left", { peerId: socket.id });
-            }
+          const removed = safeSetRemove(roomUsers, u => u.id === socket.id);
+          if (removed > 0) {
+            socket.to(roomId).emit("voice-peer-left", { peerId: socket.id });
           }
           if (roomUsers.size === 0) voiceUsers.delete(roomId);
         }
 
-        // Remove user from participants so they need approval again
-        if (!isHost) {
+        // Clean up waiting guests tracking
+        if (waitingGuests.has(roomId)) {
+          waitingGuests.get(roomId).delete(socket.id);
+        }
+
+        // For accidental disconnect, add to grace period instead of immediate removal
+        // This allows users to reconnect within 5 minutes without needing re-approval
+        if (!isHost && username) {
+          // Add to grace period tracking
+          if (!disconnectedParticipants.has(roomId)) {
+            disconnectedParticipants.set(roomId, new Map());
+          }
+          disconnectedParticipants.get(roomId).set(username, {
+            userId: userId,
+            disconnectTime: Date.now()
+          });
+          console.log(`⏱️ ${username} added to grace period (5 min to reconnect)`);
+
+          // Note: We still remove from DB, but grace period will auto-approve on reconnect
           try {
             await Room.updateOne(
               { roomId },
               { $pull: { participants: { username: username } } }
             );
-            console.log(`🗑️ Removed ${username} from participants on disconnect`);
           } catch (e) {
             console.error("Error removing participant on disconnect:", e);
           }
