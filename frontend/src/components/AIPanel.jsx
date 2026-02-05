@@ -1,8 +1,47 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 
 // Session key for chat history
 const CHAT_HISTORY_KEY = "gemini_chat_history";
+
+// Moved OUTSIDE component to prevent re-creation each render
+const CodeBlock = ({ node, inline, className, children, ...props }) => {
+  const match = /language-(\w+)/.exec(className || "");
+  const codeString = String(children).replace(/\n$/, "");
+
+  if (!inline && match) {
+    return (
+      <div style={{ position: "relative", margin: "10px 0", borderRadius: "12px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ 
+          display: "flex", justifyContent: "space-between", alignItems: "center", 
+          padding: "8px 14px", background: "rgba(255,255,255,0.03)", fontSize: "12px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)", color: "var(--text-muted)"
+        }}>
+          <span style={{ fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>{match[1]}</span>
+          <button 
+            onClick={() => navigator.clipboard.writeText(codeString)}
+            style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", padding: "4px 10px", borderRadius: "6px", transition: "all 0.2s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "#fff"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            Copy
+          </button>
+        </div>
+        <div style={{ margin: 0, padding: "14px 16px", background: "rgba(0,0,0,0.3)", color: "#d4d4d8", overflowX: "auto", fontSize: "13px", fontFamily: "var(--font-mono)" }}>
+          <pre style={{ margin: 0 }}>{codeString}</pre>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <code className={className} style={{ background: "rgba(255,255,255,0.08)", padding: "2px 6px", borderRadius: "4px", color: "#e8b4b8", fontSize: "0.9em" }} {...props}>
+      {children}
+    </code>
+  );
+};
+
+let messageIdCounter = 0;
 
 export default function AIPanel({ open, onClose, onAsk, currentProblem }) {
   const [prompt, setPrompt] = useState("");
@@ -36,57 +75,27 @@ export default function AIPanel({ open, onClose, onAsk, currentProblem }) {
   async function handleAsk() {
     if (!prompt.trim()) return;
     
-    const userMessage = { role: "user", content: prompt, timestamp: Date.now() };
+    const userMessage = { id: ++messageIdCounter, role: "user", content: prompt, timestamp: Date.now() };
     setMessages(prev => [...prev, userMessage]);
     setPrompt("");
     setLoading(true);
     
-    const result = await onAsk(prompt);
-    
-    const aiMessage = { role: "assistant", content: result, timestamp: Date.now() };
-    setMessages(prev => [...prev, aiMessage]);
-    setLoading(false);
+    try {
+      const result = await onAsk(prompt);
+      const aiMessage = { id: ++messageIdCounter, role: "assistant", content: result, timestamp: Date.now() };
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (err) {
+      const errorMessage = { id: ++messageIdCounter, role: "assistant", content: `⚠️ Error: ${err.message || "Something went wrong. Please try again."}`, timestamp: Date.now() };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function clearHistory() {
     setMessages([]);
     sessionStorage.removeItem(CHAT_HISTORY_KEY);
   }
-
-  // Custom renderer for Code Blocks to add Copy Button & Highlighting
-  const CodeBlock = ({ node, inline, className, children, ...props }) => {
-    const match = /language-(\w+)/.exec(className || "");
-    const codeString = String(children).replace(/\n$/, "");
-
-    if (!inline && match) {
-      return (
-        <div style={{ position: "relative", margin: "10px 0", borderRadius: "8px", overflow: "hidden" }}>
-          <div style={{ 
-            display: "flex", justifyContent: "space-between", alignItems: "center", 
-            padding: "6px 12px", background: "#2d2d2d", color: "#ccc", fontSize: "12px",
-            borderBottom: "1px solid #444"
-          }}>
-            <span>{match[1].toUpperCase()}</span>
-            <button 
-              onClick={() => navigator.clipboard.writeText(codeString)}
-              style={{ background: "transparent", border: "none", color: "white", cursor: "pointer", fontSize: "12px" }}
-            >
-              📋 Copy
-            </button>
-          </div>
-          <div style={{ margin: 0, padding: "12px", background: "#1e1e1e", color: "#d4d4d8", overflowX: "auto", fontSize: "13px", fontFamily: "Consolas, monospace" }}>
-             <pre style={{ margin: 0 }}>{codeString}</pre>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <code className={className} style={{ background: "#3a3a3a", padding: "2px 6px", borderRadius: "4px", color: "#e8b4b8" }} {...props}>
-        {children}
-      </code>
-    );
-  };
 
   if (!open) return null;
 
@@ -194,8 +203,8 @@ export default function AIPanel({ open, onClose, onAsk, currentProblem }) {
           </div>
         ) : (
           <>
-            {messages.map((msg, idx) => (
-              <div key={idx} style={{
+            {messages.map((msg) => (
+              <div key={msg.id || msg.timestamp} style={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: msg.role === "user" ? "flex-end" : "flex-start"

@@ -49,8 +49,11 @@ router.get("/search", authMiddleware, async (req, res) => {
             return res.status(400).json({ msg: "Search query too short" });
         }
 
+        // Escape regex special characters to prevent ReDoS attacks
+        const escapedQuery = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
         const users = await User.find({
-            username: { $regex: q, $options: "i" },
+            username: { $regex: escapedQuery, $options: "i" },
             _id: { $ne: req.user.id } // Exclude self
         })
             .select("username avatar platforms createdAt")

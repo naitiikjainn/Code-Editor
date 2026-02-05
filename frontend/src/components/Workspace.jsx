@@ -525,27 +525,10 @@ export default function Workspace() {
   }, [user, accessStatus, hostUserId]);
 
   useEffect(() => {
-    // Don't autosave if read-only mode (guest when host is offline)
-	if (isReadOnly) return;
-	if (activeFile && activeFile.type !== "preview" && debouncedCode !== activeFile.content) {
-        // 1. Save to Local Storage (Backup) - Debounced
-        // This prevents freezing the main thread on every keystroke
+    // Backup content to localStorage (debounced, prevents freezing main thread)
+    if (!isReadOnly && activeFile && activeFile.type !== "preview" && debouncedCode !== activeFile.content) {
         localStorage.setItem(`file_content_${activeFile._id}`, debouncedCode);
-
-        // 2. Save to Server
-        const token = localStorage.getItem("codeplay_token");
-		fetch(`${API_URL}/api/files/${activeFile._id}`, {
-			method: "PUT",
-			headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-			body: JSON.stringify({ content: debouncedCode, hostId: hostUserId || undefined })
-		}).then(() => {
-			console.log("Saved:", activeFile.name);
-			setFiles(prev => prev.map(f => f._id === activeFile._id ? { ...f, content: debouncedCode } : f));
-		}).catch(err => console.error("Autosave failed", err));
-	}
+    }
   }, [debouncedCode]);
 
   // --- RESIZE HANDLER ---
@@ -655,10 +638,17 @@ export default function Workspace() {
       
 	  try {
           const token = localStorage.getItem("codeplay_token");
-		  await fetch(`${API_URL}/api/files/${fileId}`, {
+		  const res = await fetch(`${API_URL}/api/files/${fileId}${hostUserId ? `?hostId=${hostUserId}` : ''}`, {
               method: "DELETE",
               headers: { "Authorization": `Bearer ${token}` }
           });
+          
+          if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              console.error("Delete failed:", data.error || res.statusText);
+              return; // Don't remove from UI if server delete failed
+          }
+          
 		  setFiles(prev => prev.filter(f => f._id !== fileId));
 		  setActiveFile(prev => prev?._id === fileId ? null : prev);
 		  if (activeFile?._id === fileId) {
@@ -668,11 +658,9 @@ export default function Workspace() {
 		  if (id) {
               console.log(`[DEBUG] 📤 Emitting sync_file_deleted for ID: ${fileId}`);
               socket.emit("sync_file_deleted", { roomId: id, fileId });
-          } else {
-              console.log(`[DEBUG] ⚠️ No roomId (id is null), cannot emit sync_file_deleted`);
           }
 	  } catch (err) { console.error(err); }
-  }, [deleteConfirm.fileId, activeFile, id]);
+  }, [deleteConfirm.fileId, activeFile, id, hostUserId]);
 
   // --- EXECUTION & TESTS ---
   // --- EXECUTION & TESTS ---
@@ -1262,9 +1250,13 @@ export default function Workspace() {
         };
         const leetcodeLang = leetcodeLangMap[activeFile?.language] || "cpp";
 
+        const authToken = localStorage.getItem("codeplay_token");
         const res = await fetch(`${API_URL}/api/leettools/submit`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+                "Content-Type": "application/json",
+                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+            },
             body: JSON.stringify({
                 slug: problem.titleSlug,
                 questionId: problem.questionId,
@@ -1693,16 +1685,16 @@ rl.on('line', (line) => {
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-dark)", color: "var(--text-main)" }}>
         
         {/* HEADER */}
-        <div style={{ height: "50px", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", background: "#111", borderBottom: "1px solid var(--border-subtle)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                 <div onClick={() => navigate("/")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}>
-                    <Code2 size={20} color="#8b5cf6" />
-                    <span style={{ fontWeight: "700", fontSize: "16px" }}>CodePlay</span>
+        <div style={{ height: "48px", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", background: "rgba(17,17,17,0.85)", backdropFilter: "blur(20px) saturate(180%)", borderBottom: "1px solid rgba(255,255,255,0.06)", WebkitAppRegion: "drag" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", WebkitAppRegion: "no-drag" }}>
+                 <div onClick={() => navigate("/")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", transition: "opacity 0.2s" }} onMouseEnter={e => e.currentTarget.style.opacity = "0.7"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                    <Code2 size={18} color="var(--accent-primary)" />
+                    <span style={{ fontWeight: "600", fontSize: "15px", letterSpacing: "-0.01em" }}>CodePlay</span>
                 </div>
                 {activeFile && activeFile.type !== "preview" && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", background: "#f3f3f310", padding: "4px 8px", borderRadius: "12px", border: "1px solid #ffffff20" }}>
-                        <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: activeFile.language === "html" ? "#e34c26" : (activeFile.language === "javascript" ? "#f1e05a" : "#3572A5") }}></span>
-                        <span style={{ color: "#eee", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>{activeFile.language}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", background: "rgba(255,255,255,0.04)", padding: "4px 10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: activeFile.language === "html" ? "#e34c26" : activeFile.language === "css" ? "#563d7c" : (activeFile.language === "javascript" ? "#f1e05a" : activeFile.language === "python" ? "#3572A5" : activeFile.language === "java" ? "#b07219" : activeFile.language === "cpp" ? "#f34b7d" : "var(--accent-primary)") }}></span>
+                        <span style={{ color: "var(--text-muted)", fontWeight: "500", textTransform: "uppercase", letterSpacing: "0.5px" }}>{activeFile.language}</span>
                     </div>
                 )}
             </div>
@@ -1718,23 +1710,26 @@ rl.on('line', (line) => {
                             onMouseEnter={() => setHoveredUser(u.username)}
                             onMouseLeave={() => setHoveredUser(null)}
                             style={{ 
-                                width: "32px", height: "32px", borderRadius: "50%", 
+                                width: "28px", height: "28px", borderRadius: "50%", 
                                 background: stringToColor(u.username || "User"), 
                                 color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", 
-                                fontSize: "14px", fontWeight: "bold", 
-                                border: "2px solid #111", 
-                                marginLeft: "-10px", 
+                                fontSize: "12px", fontWeight: "600", 
+                                border: "2px solid rgba(17,17,17,0.9)", 
+                                marginLeft: i === 0 ? 0 : "-8px", 
                                 cursor: "pointer",
                                 position: "relative",
-                                zIndex: 10 + i
+                                zIndex: 10 + i,
+                                transition: "transform 0.15s ease"
                             }}
+                            onMouseEnterCapture={e => e.currentTarget.style.transform = "scale(1.15)"}
+                            onMouseLeaveCapture={e => e.currentTarget.style.transform = "scale(1)"}
                         >
                             {(u.username || "U")[0].toUpperCase()}
                             {hoveredUser === u.username && (
                                 <div style={{
                                     position: "absolute",
-                                    top: "40px", left: "50%", transform: "translateX(-50%)",
-                                    background: "#333", color: "white", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", whiteSpace: "nowrap", zIndex: 1000, pointerEvents: "none", boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
+                                    top: "36px", left: "50%", transform: "translateX(-50%)",
+                                    background: "rgba(28,28,30,0.95)", color: "white", padding: "5px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: "500", whiteSpace: "nowrap", zIndex: 1000, pointerEvents: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(12px)"
                                 }}>
                                     {u.username}
                                 </div>
@@ -2167,40 +2162,50 @@ rl.on('line', (line) => {
       />
 
       {(accessStatus === "waiting" || accessStatus === "loading" || accessStatus === "login_required" || accessStatus === "denied") && (
-          <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.9)", backdropFilter: "blur(10px)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white" }}>
-              <div className="animate-pulse" style={{ fontSize: "64px", marginBottom: "20px", color: accessStatus === "denied" ? "#ef5350" : "white" }}>
-                  {accessStatus === "login_required" ? "🔑" : (accessStatus === "denied" ? <ShieldAlert size={64} /> : (accessStatus === "loading" ? "⏳" : "🔒"))}
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(24px) saturate(180%)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white" }}>
+              <div style={{ 
+                width: "72px", height: "72px", borderRadius: "20px", 
+                background: accessStatus === "denied" ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.04)", 
+                display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "24px",
+                border: `1px solid ${accessStatus === "denied" ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.06)"}`,
+                animation: accessStatus === "loading" ? "pulse 2s ease-in-out infinite" : "none"
+              }}>
+                  {accessStatus === "login_required" ? <span style={{ fontSize: "32px" }}>🔑</span> : 
+                   (accessStatus === "denied" ? <ShieldAlert size={32} color="#ef5350" /> : 
+                   (accessStatus === "loading" ? <span style={{ fontSize: "32px" }}>⏳</span> : <span style={{ fontSize: "32px" }}>🔒</span>))}
               </div>
-              <h2 style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "10px", color: accessStatus === "denied" ? "#ef5350" : "white" }}>
+              <h2 style={{ fontSize: "22px", fontWeight: "600", marginBottom: "8px", letterSpacing: "-0.02em", color: accessStatus === "denied" ? "#ef5350" : "white" }}>
                   {accessStatus === "login_required" ? "Authentication Required" : 
                    (accessStatus === "denied" ? "Access Denied" : 
                    (accessStatus === "loading" ? "Connecting..." : "Waiting for Host"))}
               </h2>
-              <p style={{ color: "var(--text-muted)", fontSize: "16px", marginBottom: "20px" }}>{waitMessage}</p>
+              <p style={{ color: "var(--text-muted)", fontSize: "15px", marginBottom: "28px", maxWidth: "400px", textAlign: "center", lineHeight: "1.5" }}>{waitMessage}</p>
               
               {accessStatus === "login_required" && (
-                  <button onClick={() => setAuthModalOpen(true)} className="btn-primary" style={{ padding: "10px 24px", fontSize: "16px" }}>Sign In to Join</button>
+                  <button onClick={() => setAuthModalOpen(true)} className="btn-primary" style={{ padding: "12px 28px", fontSize: "15px", borderRadius: "12px" }}>Sign In to Join</button>
               )}
               {accessStatus === "denied" && (
-                  <button onClick={() => navigate("/")} className="btn-secondary" style={{ padding: "10px 24px", fontSize: "16px", borderColor: "#ef5350", color: "#ef5350" }}>Return to Dashboard</button>
+                  <button onClick={() => navigate("/")} className="btn-secondary" style={{ padding: "12px 28px", fontSize: "15px", borderRadius: "12px", borderColor: "#ef5350", color: "#ef5350" }}>Return to Dashboard</button>
               )}
           </div>
       )}
 
       {pendingGuests.length > 0 && (
-          <div style={{ position: "fixed", top: "70px", right: "20px", width: "320px", zIndex: 2000 }}>
+          <div style={{ position: "fixed", top: "60px", right: "16px", width: "300px", zIndex: 2000 }}>
               {pendingGuests.map((guest, i) => (
-                  <div key={guest.socketId} className="glass-panel" style={{ padding: "16px", marginBottom: "10px", borderRadius: "8px", background: "rgba(20, 20, 30, 0.95)", border: "1px solid var(--accent-primary)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", animation: "slideIn 0.3s" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
-                          <span style={{ fontSize: "20px" }}>👋</span>
+                  <div key={guest.socketId} style={{ padding: "16px", marginBottom: "8px", borderRadius: "14px", background: "rgba(28,28,30,0.95)", border: "1px solid rgba(124,92,252,0.25)", boxShadow: "0 8px 32px rgba(0,0,0,0.4)", backdropFilter: "blur(20px)", animation: "slideUp 0.3s ease-out" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+                          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: stringToColor(guest.username), display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "14px", fontWeight: "600" }}>
+                              {guest.username[0]?.toUpperCase()}
+                          </div>
                           <div>
-                              <div style={{ fontWeight: "bold", color: "white" }}>{guest.username}</div>
-                              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>wants to join the room.</div>
+                              <div style={{ fontWeight: "600", color: "white", fontSize: "14px" }}>{guest.username}</div>
+                              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>wants to join</div>
                           </div>
                       </div>
-                      <div style={{ display: "flex", gap: "10px" }}>
-                          <button onClick={() => handleGrant(guest.socketId)} className="btn-primary" style={{ flex: 1, padding: "8px", fontSize: "12px" }}>Accept</button>
-                          <button onClick={() => handleDeny(guest.socketId)} className="btn-secondary" style={{ flex: 1, padding: "8px", fontSize: "12px", color: "#ef5350", borderColor: "#ef5350" }}>Deny</button>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                          <button onClick={() => handleGrant(guest.socketId)} className="btn-primary" style={{ flex: 1, padding: "8px", fontSize: "13px", borderRadius: "10px" }}>Accept</button>
+                          <button onClick={() => handleDeny(guest.socketId)} className="btn-secondary" style={{ flex: 1, padding: "8px", fontSize: "13px", borderRadius: "10px", color: "#ef5350", borderColor: "rgba(239,68,68,0.3)" }}>Deny</button>
                       </div>
                   </div>
               ))}
@@ -2247,40 +2252,41 @@ rl.on('line', (line) => {
       {/* LANGUAGE SELECTION MODAL */}
       {languageModalOpen && (
         <div style={{
-            position: "fixed", top: 0, left: 0, width: "100%", height: "100%", 
-            background: "rgba(0,0,0,0.7)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center"
+            position: "fixed", inset: 0, 
+            background: "rgba(0,0,0,0.65)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center",
+            backdropFilter: "blur(8px)", animation: "fadeInScale 0.25s ease-out"
         }}>
-            <div className="glass-panel" style={{ 
-                width: "400px", background: "#1e1e2e", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.1)", 
-                padding: "24px", display: "flex", flexDirection: "column", gap: "16px",
-                boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
+            <div style={{ 
+                width: "400px", maxWidth: "90%", background: "rgba(28,28,30,0.95)", borderRadius: "18px", border: "1px solid rgba(255,255,255,0.08)", 
+                padding: "28px", display: "flex", flexDirection: "column", gap: "18px",
+                boxShadow: "0 24px 48px rgba(0,0,0,0.5)", backdropFilter: "blur(40px)"
             }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h3 style={{ fontSize: "18px", fontWeight: "bold", color: "white" }}>Choose Language</h3>
-                    <button onClick={() => setLanguageModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#666" }}><X size={20}/></button>
+                    <h3 style={{ fontSize: "17px", fontWeight: "600", color: "white", letterSpacing: "-0.02em" }}>Choose Language</h3>
+                    <button onClick={() => setLanguageModalOpen(false)} style={{ background: "rgba(255,255,255,0.06)", border: "none", cursor: "pointer", color: "var(--text-muted)", width: "28px", height: "28px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"} onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}><X size={16}/></button>
                 </div>
-                <p style={{ color: "#a1a1aa", fontSize: "14px" }}>Select the language you want to code in for <strong>{selectedProblemForCode?.title}</strong>.</p>
+                <p style={{ color: "var(--text-muted)", fontSize: "14px", lineHeight: "1.5", margin: 0 }}>Select the language for <strong style={{ color: "#fff" }}>{selectedProblemForCode?.title}</strong></p>
                 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                     {[
-                        { id: "cpp", name: "C++", color: "#3b82f6" },
-                        { id: "java", name: "Java", color: "#ea580c" },
-                        { id: "python", name: "Python", color: "#eab308" },
-                        { id: "javascript", name: "JavaScript", color: "#facc15" }
+                        { id: "cpp", name: "C++", color: "#f34b7d" },
+                        { id: "java", name: "Java", color: "#b07219" },
+                        { id: "python", name: "Python", color: "#3572A5" },
+                        { id: "javascript", name: "JavaScript", color: "#f1e05a" }
                     ].map(lang => (
                         <button
                             key={lang.id}
                             onClick={() => confirmCodeNow(lang.id)}
                             style={{
-                                padding: "16px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.05)",
-                                background: "rgba(255,255,255,0.02)", color: "white", cursor: "pointer",
+                                padding: "14px 16px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.06)",
+                                background: "rgba(255,255,255,0.03)", color: "white", cursor: "pointer",
                                 display: "flex", alignItems: "center", gap: "10px", fontSize: "14px", fontWeight: "500",
-                                transition: "all 0.2s"
+                                transition: "all 0.2s ease"
                             }}
-                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.borderColor = lang.color; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.borderColor = `${lang.color}60`; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; e.currentTarget.style.transform = "translateY(0)"; }}
                         >
-                            <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: lang.color }}></span>
+                            <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: lang.color, flexShrink: 0 }}></span>
                             {lang.name}
                         </button>
                     ))}

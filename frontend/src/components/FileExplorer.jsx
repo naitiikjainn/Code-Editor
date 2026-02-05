@@ -1,16 +1,29 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { FileCode, File, FolderOpen, Trash2, Plus, FilePlus } from "lucide-react";
 import { API_URL } from "../config";
 
 const FileExplorer = ({ files, onSelect, onDelete, onCreate, activeFileId }) => {
     const [isCreating, setIsCreating] = useState(false);
     const [newFileName, setNewFileName] = useState("");
+    const isSubmittingRef = useRef(false);
 
     const handleCreate = async () => {
-        if (!newFileName.trim()) return setIsCreating(false);
-        await onCreate(newFileName);
-        setNewFileName("");
-        setIsCreating(false);
+        if (isSubmittingRef.current) return; // Guard against double-fire
+        if (!newFileName.trim()) { setIsCreating(false); return; }
+        isSubmittingRef.current = true;
+        try {
+          await onCreate(newFileName);
+        } finally {
+          setNewFileName("");
+          setIsCreating(false);
+          isSubmittingRef.current = false;
+        }
+    };
+
+    const handleDelete = (fileId, fileName) => {
+        if (window.confirm(`Delete "${fileName}"? This cannot be undone.`)) {
+            onDelete(fileId);
+        }
     };
 
     return (
@@ -21,8 +34,8 @@ const FileExplorer = ({ files, onSelect, onDelete, onCreate, activeFileId }) => 
                     onClick={() => setIsCreating(true)} 
                     title="New File"
                     style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", transition: "color 0.2s" }}
-                    onMouseEnter={(e) => e.target.style.color = "white"}
-                    onMouseLeave={(e) => e.target.style.color = "var(--text-muted)"}
+                    onMouseEnter={(e) => e.currentTarget.style.color = "white"}
+                    onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
                 >
                     <Plus size={16} />
                 </button>
@@ -66,7 +79,7 @@ const FileExplorer = ({ files, onSelect, onDelete, onCreate, activeFileId }) => 
                        </div>
                        
                        <button 
-                          onClick={(e) => { e.stopPropagation(); onDelete(file._id); }}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(file._id, file.name); }}
                           className="delete-btn"
                           title="Delete"
                           style={{

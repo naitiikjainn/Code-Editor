@@ -24,7 +24,7 @@ const sanitizeHandle = (handle) => {
 // @access  Private
 router.get("/me", authMiddleware, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id).select("-password");
+        const user = await User.findById(req.user.id).select("-password -refreshTokens");
         if (!user) return res.status(404).json({ msg: "User not found" });
         res.json(user);
     } catch (err) {
@@ -61,6 +61,7 @@ router.put("/", authMiddleware, async (req, res) => {
             if (platforms.leetcode !== undefined) user.platforms.leetcode = sanitizeHandle(platforms.leetcode);
             if (platforms.codechef !== undefined) user.platforms.codechef = sanitizeHandle(platforms.codechef);
             if (platforms.github !== undefined) user.platforms.github = sanitizeHandle(platforms.github);
+            if (platforms.cses !== undefined) user.platforms.cses = sanitizeHandle(platforms.cses);
         }
 
         await user.save();
@@ -82,7 +83,7 @@ router.get("/:username", async (req, res) => {
             return res.status(400).json({ msg: "Invalid username" });
         }
         
-        const user = await User.findOne({ username }).select("-password");
+        const user = await User.findOne({ username }).select("-password -refreshTokens");
         if (!user) return res.status(404).json({ msg: "Profile not found" });
         res.json(user);
     } catch (err) {

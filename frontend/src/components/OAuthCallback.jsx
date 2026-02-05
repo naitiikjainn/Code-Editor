@@ -32,15 +32,26 @@ export default function OAuthCallback() {
       setStatus("success");
       setMessage("Login successful! Redirecting...");
       
-      // Save tokens and fetch user data
-      handleOAuthCallback(token, refreshToken);
+      // Save tokens, fetch user data, then redirect when ready
+      const processOAuth = async () => {
+        try {
+          await handleOAuthCallback(token, refreshToken);
+        } catch (err) {
+          console.error("OAuth processing failed:", err);
+          setStatus("error");
+          setMessage("Login succeeded but failed to load user data. Please try again.");
+          return;
+        }
+        
+        // Small delay for visual feedback, then redirect
+        setTimeout(() => {
+          const returnTo = localStorage.getItem("codeplay_return_to") || "/";
+          localStorage.removeItem("codeplay_return_to");
+          navigate(returnTo, { replace: true });
+        }, 500);
+      };
       
-      // Redirect after short delay
-      setTimeout(() => {
-        const returnTo = localStorage.getItem("codeplay_return_to") || "/";
-        localStorage.removeItem("codeplay_return_to");
-        navigate(returnTo, { replace: true });
-      }, 1500);
+      processOAuth();
     } else {
       setStatus("error");
       setMessage("Invalid callback. Missing authentication data.");

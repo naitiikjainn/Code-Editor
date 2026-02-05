@@ -22,6 +22,15 @@ export default function AuthModal({ isOpen, onClose }) {
   const [oauthLoading, setOauthLoading] = useState(null); // 'google' | 'github' | null
   const [successMsg, setSuccessMsg] = useState("");
 
+  // Reset form state when modal closes
+  const handleClose = () => {
+    setFormData({ username: "", email: "", password: "", identifier: "", token: "" });
+    setError("");
+    setSuccessMsg("");
+    setView("login");
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   // OAuth Login Handlers
@@ -85,8 +94,7 @@ export default function AuthModal({ isOpen, onClose }) {
       } else if (view === "forgot") {
         setView("reset");
         if (data.devLink) {
-            setSuccessMsg(`Dev Mode: Token auto-filled. Check terminal for link.`);
-            console.log("RESET LINK:", data.devLink);
+            setSuccessMsg(`Dev Mode: Token auto-filled.`);
         } else {
             setSuccessMsg(data.message);
         }
@@ -103,25 +111,25 @@ export default function AuthModal({ isOpen, onClose }) {
   };
 
   return (
-    <div className="animate-fade-in" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10001 }}>
-      <div className="glass-panel" style={{ width: "360px", padding: "32px", borderRadius: "16px", position: "relative", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10001, animation: "fadeInScale 0.25s ease-out" }}>
+      <div style={{ width: "380px", maxWidth: "90%", padding: "32px", borderRadius: "20px", position: "relative", background: "rgba(28,28,30,0.92)", backdropFilter: "blur(40px) saturate(180%)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 24px 48px rgba(0,0,0,0.45)" }}>
         
-        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-            <X size={20} />
+        <button onClick={handleClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.06)", border: "none", color: "var(--text-muted)", cursor: "pointer", width: "28px", height: "28px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"} onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}>
+            <X size={16} />
         </button>
 
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
-            <h2 style={{ margin: 0, fontSize: "24px", color: "white" }}>
+        <div style={{ textAlign: "center", marginBottom: "28px" }}>
+            <h2 style={{ margin: 0, fontSize: "22px", color: "white", fontWeight: "600", letterSpacing: "-0.02em" }}>
                 {view === "login" && "Welcome Back"}
                 {view === "register" && "Create Account"}
                 {view === "forgot" && "Reset Password"}
                 {view === "reset" && "New Password"}
             </h2>
-            <p style={{ margin: "8px 0 0 0", color: "var(--text-muted)", fontSize: "14px" }}>
-                {view === "login" && "Enter your details to access your workspace."}
-                {view === "register" && "Join thousands of developers coding together."}
-                {view === "forgot" && "Enter your email to receive a reset token."}
-                {view === "reset" && "Enter the token and your new password."}
+            <p style={{ margin: "8px 0 0 0", color: "var(--text-muted)", fontSize: "14px", lineHeight: "1.5" }}>
+                {view === "login" && "Enter your details to continue."}
+                {view === "register" && "Join thousands of developers."}
+                {view === "forgot" && "Enter your email for a reset token."}
+                {view === "reset" && "Set your new password below."}
             </p>
         </div>
         
@@ -229,7 +237,7 @@ export default function AuthModal({ isOpen, onClose }) {
               <div style={{ flex: 1, height: "1px", background: "var(--border-subtle)" }} />
             </div>
 
-            <div style={{ display: "flex", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "10px" }}>
               {/* Google Button */}
               <button
                 type="button"
@@ -242,9 +250,9 @@ export default function AuthModal({ isOpen, onClose }) {
                   justifyContent: "center",
                   gap: "10px",
                   padding: "12px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-subtle)",
-                  background: "var(--bg-surface)",
+                  borderRadius: "12px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.04)",
                   color: "white",
                   fontSize: "14px",
                   fontWeight: "500",
@@ -252,8 +260,8 @@ export default function AuthModal({ isOpen, onClose }) {
                   opacity: oauthLoading && oauthLoading !== "google" ? 0.5 : 1,
                   transition: "all 0.2s"
                 }}
-                onMouseEnter={(e) => !oauthLoading && (e.target.style.background = "rgba(255,255,255,0.08)")}
-                onMouseLeave={(e) => e.target.style.background = "var(--bg-surface)"}
+                onMouseEnter={(e) => !oauthLoading && (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
               >
                 {oauthLoading === "google" ? (
                   <div className="spinner" style={{ width: 18, height: 18 }} />
@@ -275,9 +283,9 @@ export default function AuthModal({ isOpen, onClose }) {
                   justifyContent: "center",
                   gap: "10px",
                   padding: "12px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-subtle)",
-                  background: "var(--bg-surface)",
+                  borderRadius: "12px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.04)",
                   color: "white",
                   fontSize: "14px",
                   fontWeight: "500",
@@ -285,8 +293,8 @@ export default function AuthModal({ isOpen, onClose }) {
                   opacity: oauthLoading && oauthLoading !== "github" ? 0.5 : 1,
                   transition: "all 0.2s"
                 }}
-                onMouseEnter={(e) => !oauthLoading && (e.target.style.background = "rgba(255,255,255,0.08)")}
-                onMouseLeave={(e) => e.target.style.background = "var(--bg-surface)"}
+                onMouseEnter={(e) => !oauthLoading && (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
               >
                 {oauthLoading === "github" ? (
                   <div className="spinner" style={{ width: 18, height: 18 }} />
@@ -319,8 +327,9 @@ export default function AuthModal({ isOpen, onClose }) {
 }
 
 const inputStyle = {
-    width: "100%", padding: "10px 10px 10px 40px", borderRadius: "8px", 
-    border: "1px solid var(--border-subtle)", background: "var(--bg-surface)", 
+    width: "100%", padding: "12px 12px 12px 40px", borderRadius: "12px", 
+    border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", 
     color: "white", outline: "none", fontSize: "14px", boxSizing: "border-box",
-    transition: "border-color 0.2s"
+    transition: "border-color 0.2s, background 0.2s",
+    fontFamily: "var(--font-main)"
 };

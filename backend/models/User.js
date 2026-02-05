@@ -124,7 +124,7 @@ UserSchema.index({ createdAt: -1 });
 UserSchema.index({ "platforms.codeforces": 1 }, { sparse: true });
 UserSchema.index({ "platforms.leetcode": 1 }, { sparse: true });
 UserSchema.index({ friends: 1 });
-UserSchema.index({ lockUntil: 1 }, { sparse: true, expireAfterSeconds: 0 }); // Auto-cleanup
+UserSchema.index({ lockUntil: 1 }, { sparse: true }); // For querying locked accounts (NO TTL - expireAfterSeconds was deleting entire user docs!)
 // OAuth lookup indexes (used in oauth.js callbacks)
 UserSchema.index({ "oauth.googleId": 1 }, { sparse: true });
 UserSchema.index({ "oauth.githubId": 1 }, { sparse: true });

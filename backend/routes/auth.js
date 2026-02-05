@@ -5,6 +5,7 @@ import crypto from "crypto";
 import nodemailer from "nodemailer";
 import User from "../models/User.js";
 import authMiddleware from "../middleware/authMiddleware.js";
+import { generateAccessToken, generateRefreshToken } from "../utils/tokenHelpers.js";
 
 const router = express.Router();
 
@@ -37,23 +38,18 @@ const recordAttempt = (identifier) => {
   loginAttempts.set(identifier, attempts.slice(-MAX_ATTEMPTS));
 };
 
-// Helper: Generate Access Token (1 month expiry)
-const generateAccessToken = (user) => {
-  return jwt.sign(
-    { id: user._id, username: user.username },
-    process.env.JWT_SECRET,
-    { expiresIn: "30d" } // 30 days = 1 month
-  );
-};
-
-// Helper: Generate Refresh Token
-const generateRefreshToken = async (user, req) => {
-  const userAgent = req.headers["user-agent"] || "unknown";
-  const ip = req.ip || req.connection?.remoteAddress || "unknown";
-  const refreshToken = user.generateRefreshToken(userAgent, ip);
-  await user.save();
-  return refreshToken;
-};
+// Periodic cleanup for in-memory rate limiter (prevent memory leak)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, attempts] of loginAttempts.entries()) {
+    const recent = attempts.filter(t => now - t < RATE_LIMIT_WINDOW);
+    if (recent.length === 0) {
+      loginAttempts.delete(key);
+    } else {
+      loginAttempts.set(key, recent);
+    }
+  }
+}, 5 * 60 * 1000); // Clean up every 5 minutes
 
 // 1. REGISTER USER
 router.post("/register", async (req, res) => {
@@ -197,20 +193,9 @@ router.post("/login", async (req, res) => {
 });
 
 // 3. GET CURRENT USER (Protected)
-router.get("/me", async (req, res) => {
-  // Support both token header formats
-  let token = req.header("Authorization")?.replace("Bearer ", "");
-  if (!token) {
-    token = req.header("x-auth-token");
-  }
-  if (!token) return res.status(401).json({ error: "No token, authorization denied" });
-
+router.get("/me", authMiddleware, async (req, res) => {
   try {
-    if (!process.env.JWT_SECRET) {
-      return res.status(500).json({ error: "Server configuration error" });
-    }
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select("-password -refreshTokens -resetPasswordToken -resetPasswordExpires");
+    const user = await User.findById(req.user.id).select("-password -refreshTokens -resetPasswordToken -resetPasswordExpires");
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });

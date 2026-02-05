@@ -30,6 +30,7 @@ import { rateLimiters } from "./middleware/rateLimiter.js";
 import { cacheMiddleware } from "./middleware/cache.js";
 import { getAllCircuitStates, resetCircuit } from "./middleware/circuitBreaker.js";
 import { errorHandler, notFoundHandler, asyncHandler } from "./middleware/errorHandler.js";
+import authMiddleware from "./middleware/authMiddleware.js";
 
 const require = createRequire(import.meta.url);
 const { setupWSConnection } = require('y-websocket/bin/utils');
@@ -80,18 +81,20 @@ app.use(compression({
 app.use(express.json({ limit: '1mb' }));
 
 // ROOM CLEANUP JOB
-// Check for inactive rooms every 10 minutes
+// The Room model has a 24h TTL index on lastActiveAt.
+// This supplementary cleanup removes rooms idle for >24h that TTL may have missed,
+// running every 30 minutes instead of conflicting with the TTL.
 setInterval(async () => {
   try {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const result = await Room.deleteMany({ lastActiveAt: { $lt: oneHourAgo } });
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const result = await Room.deleteMany({ lastActiveAt: { $lt: twentyFourHoursAgo } });
     if (result.deletedCount > 0) {
-      console.log(`🧹 Cleanup: Deleted ${result.deletedCount} inactive rooms.`);
+      console.log(`🧹 Cleanup: Deleted ${result.deletedCount} expired rooms.`);
     }
   } catch (err) {
     console.error("❌ Room Cleanup Error:", err);
   }
-}, 10 * 60 * 1000);
+}, 30 * 60 * 1000);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -102,7 +105,7 @@ app.use(cors({
     const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
     return callback(new Error(msg), false);
   },
-  methods: ["GET", "POST", "DELETE", "PUT", "OPTIONS"],
+  methods: ["GET", "POST", "DELETE", "PUT", "PATCH", "OPTIONS"],
   credentials: true
 }));
 
@@ -166,6 +169,13 @@ app.use("/api/auth/forgot-password", rateLimiters.auth);
 // Apply AI rate limiter
 app.use("/api/ai", rateLimiters.ai);
 
+// Require authentication for expensive/sensitive endpoints
+app.use("/api/code", authMiddleware);
+app.use("/api/livekit", authMiddleware);
+app.use("/api/leettools", authMiddleware);
+// Apply expensive operation rate limiting to code execution
+app.use("/api/code", rateLimiters.expensive);
+
 // Debug logging middleware
 app.use((req, res, next) => {
   if (req.path.includes('editorial')) {
@@ -194,8 +204,8 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
-// Performance metrics endpoint
-app.get("/api/metrics", (req, res) => {
+// Performance metrics endpoint (admin only)
+app.get("/api/metrics", authMiddleware, (req, res) => {
   res.json({
     performance: getMetrics(),
     circuitBreakers: getAllCircuitStates(),
@@ -203,8 +213,8 @@ app.get("/api/metrics", (req, res) => {
   });
 });
 
-// Reset circuit breaker endpoint
-app.post("/api/circuits/:name/reset", (req, res) => {
+// Reset circuit breaker endpoint (admin only)
+app.post("/api/circuits/:name/reset", authMiddleware, (req, res) => {
   const { name } = req.params;
   if (resetCircuit(name)) {
     res.json({ success: true, message: `Circuit ${name} reset` });

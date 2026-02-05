@@ -65,8 +65,9 @@ export const rateLimiter = (options = {}) => {
                     });
                 }
                 
-                // Add current request
-                await redis.zadd(key, now, `${now}-${Math.random()}`);
+                // Add current request with a deterministic member for potential removal
+                const requestMember = `${now}-${req.ip || 'unknown'}-${req.path}`;
+                await redis.zadd(key, now, requestMember);
                 await redis.expire(key, Math.ceil(windowMs / 1000));
                 
                 res.set("X-RateLimit-Limit", maxRequests);
@@ -101,11 +102,12 @@ export const rateLimiter = (options = {}) => {
 
             // If skipSuccessfulRequests, remove the request on successful response
             if (skipSuccessfulRequests) {
+                const requestMember = `${now}-${req.ip || 'unknown'}-${req.path}`;
                 const originalEnd = res.end.bind(res);
                 res.end = function(...args) {
                     if (res.statusCode < 400) {
-                        // Remove the request we just added
-                        redis.zrem(key, `${now}-${Math.random()}`).catch(() => {});
+                        // Remove the request we just added (same deterministic key)
+                        redis.zrem(key, requestMember).catch(() => {});
                     }
                     return originalEnd.apply(this, args);
                 };

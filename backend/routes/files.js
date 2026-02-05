@@ -119,14 +119,22 @@ router.put("/:id", authMiddleware, async (req, res) => {
     }
 });
 
-// DELETE file
+// DELETE file (supports collaboration via hostId query param)
 router.delete("/:id", authMiddleware, async (req, res) => {
     try {
         if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ error: "Invalid file ID" });
         }
 
-        const file = await File.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+        const { hostId } = req.query;
+        let targetUserId = req.user.id;
+        
+        // In collaboration mode, allow deleting host's files
+        if (hostId && isValidObjectId(hostId)) {
+            targetUserId = hostId;
+        }
+
+        const file = await File.findOneAndDelete({ _id: req.params.id, userId: targetUserId });
         if (!file) {
             return res.status(404).json({ error: "File not found or access denied" });
         }
@@ -134,6 +142,129 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to delete file" });
+    }
+});
+
+// PATCH rename file
+router.patch("/:id/rename", authMiddleware, async (req, res) => {
+    try {
+        if (!isValidObjectId(req.params.id)) {
+            return res.status(400).json({ error: "Invalid file ID" });
+        }
+
+        const { name, hostId } = req.body;
+        if (!name || typeof name !== 'string' || !name.trim()) {
+            return res.status(400).json({ error: "New file name is required" });
+        }
+
+        const sanitizedName = sanitizeString(name, 255);
+        let targetUserId = req.user.id;
+
+        // In collaboration mode, allow renaming host's files
+        if (hostId && isValidObjectId(hostId)) {
+            targetUserId = hostId;
+        }
+
+        const file = await File.findOneAndUpdate(
+            { _id: req.params.id, userId: targetUserId },
+            { name: sanitizedName, updatedAt: Date.now() },
+            { new: true }
+        );
+
+        if (!file) {
+            return res.status(404).json({ error: "File not found or access denied" });
+        }
+
+        res.json(file);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to rename file" });
+    }
+});
+
+// PATCH move file to different folder
+router.patch("/:id/move", authMiddleware, async (req, res) => {
+    try {
+        if (!isValidObjectId(req.params.id)) {
+            return res.status(400).json({ error: "Invalid file ID" });
+        }
+
+        const { folder, hostId } = req.body;
+        if (typeof folder !== 'string') {
+            return res.status(400).json({ error: "Target folder path is required" });
+        }
+
+        const sanitizedFolder = sanitizeString(folder, 255) || "/";
+        let targetUserId = req.user.id;
+
+        if (hostId && isValidObjectId(hostId)) {
+            targetUserId = hostId;
+        }
+
+        const file = await File.findOneAndUpdate(
+            { _id: req.params.id, userId: targetUserId },
+            { folder: sanitizedFolder, updatedAt: Date.now() },
+            { new: true }
+        );
+
+        if (!file) {
+            return res.status(404).json({ error: "File not found or access denied" });
+        }
+
+        res.json(file);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to move file" });
+    }
+});
+
+// PATCH rename/move an entire folder (batch update all files in that folder)
+router.patch("/folder/rename", authMiddleware, async (req, res) => {
+    try {
+        const { oldPath, newPath, hostId } = req.body;
+        
+        if (!oldPath || typeof oldPath !== 'string') {
+            return res.status(400).json({ error: "Old folder path is required" });
+        }
+        if (!newPath || typeof newPath !== 'string') {
+            return res.status(400).json({ error: "New folder path is required" });
+        }
+
+        const sanitizedOldPath = sanitizeString(oldPath, 255);
+        const sanitizedNewPath = sanitizeString(newPath, 255);
+        let targetUserId = req.user.id;
+
+        if (hostId && isValidObjectId(hostId)) {
+            targetUserId = hostId;
+        }
+
+        // Update all files that are in the old folder or subfolders
+        const result = await File.updateMany(
+            { 
+                userId: targetUserId,
+                $or: [
+                    { folder: sanitizedOldPath },
+                    { folder: { $regex: `^${sanitizedOldPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/` } }
+                ]
+            },
+            [{
+                $set: {
+                    folder: {
+                        $replaceOne: {
+                            input: "$folder",
+                            find: sanitizedOldPath,
+                            replacement: sanitizedNewPath
+                        }
+                    },
+                    updatedAt: new Date()
+                }
+            }]
+        );
+
+        res.json({ message: "Folder renamed", modifiedCount: result.modifiedCount });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to rename folder" });
     }
 });
 

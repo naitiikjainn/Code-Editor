@@ -21,7 +21,13 @@ const fileSchema = new mongoose.Schema({
     language: {
         type: String,
         required: true,
-        enum: ["web", "html", "css", "javascript", "cpp", "java", "python"],
+        enum: [
+            "web", "html", "css", "javascript", "typescript",
+            "cpp", "c", "java", "python", "rust", "go", "ruby",
+            "csharp", "php", "swift", "kotlin", "scala",
+            "sql", "json", "yaml", "xml", "markdown",
+            "bash", "shell", "plaintext"
+        ],
         default: "javascript"
     },
     folder: {

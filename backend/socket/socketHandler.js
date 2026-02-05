@@ -262,17 +262,24 @@ export default function socketHandler(io) {
 
     // --- JOIN ROOM ---
     socket.on("join_room", async ({ roomId, username, userId }) => {
-      let room = await Room.findOneAndUpdate(
-        { roomId },
-        {
-          $setOnInsert: {
-            roomId,
-            host: { username, userId: userId || null },
-            hostOnline: true
-          }
-        },
-        { upsert: true, new: true }
-      );
+      // First, try to find the existing room
+      let room = await Room.findOne({ roomId });
+
+      if (!room) {
+        // Room doesn't exist — only allow creation if the user has a userId (authenticated)
+        if (!userId) {
+          console.warn(`⚠️ Guest ${username} tried to join non-existent room ${roomId}`);
+          socket.emit("room_error", { message: "Room not found. Only authenticated users can create rooms." });
+          return;
+        }
+        // Create a new room with this user as host
+        room = await Room.create({
+          roomId,
+          host: { username, userId },
+          hostOnline: true
+        });
+        console.log(`🆕 New Room Created by ${username} (userId: ${userId})`);
+      }
 
       // If host.userId missing, try to resolve from username
       if (room?.host && !room.host.userId && room.host.username) {
@@ -282,10 +289,6 @@ export default function socketHandler(io) {
           await room.save();
           console.log(`💾 Resolved host userId for ${room.host.username}: ${hostUser._id}`);
         }
-      }
-
-      if (room?.isNew) {
-        console.log(`🆕 New Room Created by ${username} (userId: ${userId || 'N/A'})`);
       }
 
       const hostUserId = room?.host?.userId?.toString() || null;

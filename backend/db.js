@@ -44,6 +44,22 @@ const connectDB = async () => {
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     console.log(`   Pool Size: ${options.maxPoolSize} connections`);
 
+    // ONE-TIME MIGRATION: Drop the dangerous TTL index on lockUntil that was auto-deleting user documents
+    try {
+      const usersCollection = mongoose.connection.collection('users');
+      const indexes = await usersCollection.indexes();
+      const ttlIndex = indexes.find(idx => idx.key?.lockUntil && idx.expireAfterSeconds !== undefined);
+      if (ttlIndex) {
+        await usersCollection.dropIndex(ttlIndex.name);
+        console.log(`🔧 Migration: Dropped dangerous TTL index "${ttlIndex.name}" on users.lockUntil`);
+      }
+    } catch (migrationErr) {
+      // Ignore if index doesn't exist or already dropped
+      if (migrationErr.code !== 27) { // 27 = IndexNotFound
+        console.warn('⚠️ Migration warning (lockUntil TTL index):', migrationErr.message);
+      }
+    }
+
     // Monitor connection events
     mongoose.connection.on('error', (err) => {
       console.error('❌ MongoDB Connection Error:', err.message);

@@ -266,30 +266,31 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
     return (
         <div style={{ 
             height: '100%', 
-            background: '#0a0a0b', 
+            background: 'var(--bg-dark)', 
             display: 'flex', 
             flexDirection: 'column',
-            fontFamily: "'Inter', -apple-system, sans-serif"
+            fontFamily: 'var(--font-main)'
         }}>
             {/* Header */}
             <div style={{ 
-                padding: '20px', 
-                borderBottom: '1px solid rgba(255,255,255,0.05)',
-                background: 'linear-gradient(180deg, rgba(139, 92, 246, 0.08) 0%, transparent 100%)'
+                padding: '20px 18px 18px', 
+                borderBottom: '1px solid var(--border-subtle)'
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px' }}>
                     <div style={{ 
-                        width: '40px', height: '40px', borderRadius: '12px',
-                        background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        width: '42px', height: '42px', borderRadius: '12px',
+                        background: 'rgba(124, 92, 252, 0.12)',
+                        border: '1px solid rgba(124, 92, 252, 0.2)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0
                     }}>
-                        <BookOpen size={20} color="#fff" />
+                        <BookOpen size={20} color="var(--accent-primary)" strokeWidth={1.8} />
                     </div>
                     <div>
-                        <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#fff' }}>
+                        <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
                             Striver's A2Z DSA Sheet
                         </h2>
-                        <div style={{ fontSize: '12px', color: '#71717a' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                             Master DSA from basics to advanced
                         </div>
                     </div>
@@ -299,45 +300,46 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                 <div style={{ 
                     display: 'grid', 
                     gridTemplateColumns: 'repeat(4, 1fr)', 
-                    gap: '12px', 
+                    gap: '8px', 
                     marginBottom: '16px' 
                 }}>
-                    <StatBox icon={<Target size={14} />} value={stats.total} label="Total" color="#3b82f6" />
-                    <StatBox icon={<CheckCircle size={14} />} value={stats.solved} label="Solved" color="#22c55e" />
-                    <StatBox icon={<Flame size={14} />} value={`${stats.progress}%`} label="Progress" color="#f59e0b" />
-                    <StatBox icon={<Trophy size={14} />} value={stats.hard} label="Hard" color="#ef4444" />
+                    <StatBox icon={<Target size={13} strokeWidth={1.8} />} value={stats.total} label="Total" color="var(--accent-secondary)" />
+                    <StatBox icon={<CheckCircle size={13} strokeWidth={1.8} />} value={stats.solved} label="Solved" color="var(--accent-success)" />
+                    <StatBox icon={<Flame size={13} strokeWidth={1.8} />} value={`${stats.progress}%`} label="Progress" color="var(--accent-warning)" />
+                    <StatBox icon={<Trophy size={13} strokeWidth={1.8} />} value={stats.hard} label="Hard" color="var(--accent-danger)" />
                 </div>
 
                 {/* Progress Bar */}
                 <div style={{ 
-                    height: '6px', 
-                    background: 'rgba(255,255,255,0.05)', 
-                    borderRadius: '3px', 
+                    height: '3px', 
+                    background: 'rgba(255,255,255,0.04)', 
+                    borderRadius: '2px', 
                     overflow: 'hidden',
                     marginBottom: '16px'
                 }}>
                     <div style={{ 
                         height: '100%', 
                         width: `${stats.progress}%`, 
-                        background: 'linear-gradient(90deg, #8b5cf6, #ec4899)',
-                        borderRadius: '3px',
-                        transition: 'width 0.3s ease'
+                        background: 'var(--accent-primary)',
+                        borderRadius: '2px',
+                        transition: 'width 0.4s var(--ease-smooth)'
                     }} />
                 </div>
 
                 {/* Search & Filter */}
-                <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
                     <div style={{ 
                         flex: 1, 
                         display: 'flex', 
                         alignItems: 'center', 
                         gap: '8px',
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid var(--border-subtle)',
                         borderRadius: '10px',
-                        padding: '0 12px'
+                        padding: '0 12px',
+                        transition: 'border-color 0.2s var(--ease-smooth)'
                     }}>
-                        <Search size={16} color="#52525b" />
+                        <Search size={15} color="var(--text-dim)" strokeWidth={1.8} />
                         <input
                             type="text"
                             placeholder="Search problems..."
@@ -348,16 +350,17 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                                 background: 'none',
                                 border: 'none',
                                 outline: 'none',
-                                color: '#e4e4e7',
+                                color: 'var(--text-main)',
                                 fontSize: '13px',
-                                padding: '10px 0'
+                                padding: '9px 0',
+                                fontFamily: 'var(--font-main)'
                             }}
                         />
                         {searchQuery && (
                             <X 
                                 size={14} 
-                                color="#52525b" 
-                                style={{ cursor: 'pointer' }}
+                                color="var(--text-dim)" 
+                                style={{ cursor: 'pointer', borderRadius: '4px', padding: '1px' }}
                                 onClick={() => setSearchQuery('')}
                             />
                         )}
@@ -366,14 +369,16 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                         value={difficultyFilter}
                         onChange={(e) => setDifficultyFilter(e.target.value)}
                         style={{
-                            background: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(255,255,255,0.08)',
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1px solid var(--border-subtle)',
                             borderRadius: '10px',
-                            padding: '0 16px',
-                            color: '#e4e4e7',
+                            padding: '0 14px',
+                            color: 'var(--text-main)',
                             fontSize: '13px',
                             outline: 'none',
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            fontFamily: 'var(--font-main)',
+                            transition: 'border-color 0.2s var(--ease-smooth)'
                         }}
                     >
                         <option value="all">All Levels</option>
@@ -399,63 +404,75 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '12px',
-                                    padding: '14px 16px',
-                                    background: isExpanded ? 'rgba(139, 92, 246, 0.1)' : 'rgba(255,255,255,0.02)',
-                                    border: `1px solid ${isExpanded ? 'rgba(139, 92, 246, 0.3)' : 'rgba(255,255,255,0.05)'}`,
+                                    gap: '10px',
+                                    padding: '12px 14px',
+                                    background: isExpanded ? 'rgba(124, 92, 252, 0.06)' : 'rgba(255,255,255,0.015)',
+                                    border: `1px solid ${isExpanded ? 'rgba(124, 92, 252, 0.15)' : 'var(--border-subtle)'}`,
                                     borderRadius: '12px',
                                     cursor: 'pointer',
-                                    transition: 'all 0.2s ease'
+                                    transition: 'all 0.2s var(--ease-smooth)'
                                 }}
+                                onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                                onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'rgba(255,255,255,0.015)'; }}
                             >
                                 {isExpanded ? 
-                                    <ChevronDown size={18} color="#8b5cf6" /> : 
-                                    <ChevronRight size={18} color="#52525b" />
+                                    <ChevronDown size={16} color="var(--accent-primary)" strokeWidth={2} /> : 
+                                    <ChevronRight size={16} color="var(--text-dim)" strokeWidth={2} />
                                 }
                                 
                                 <div style={{ 
-                                    width: '28px', height: '28px', borderRadius: '8px',
-                                    background: `rgba(139, 92, 246, ${0.1 + (topicIndex * 0.03)})`,
+                                    width: '26px', height: '26px', borderRadius: '8px',
+                                    background: isExpanded ? 'rgba(124, 92, 252, 0.15)' : 'rgba(255,255,255,0.04)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: '12px', fontWeight: '600', color: '#8b5cf6'
+                                    fontSize: '11px', fontWeight: '600', 
+                                    color: isExpanded ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                    transition: 'all 0.2s var(--ease-smooth)',
+                                    flexShrink: 0
                                 }}>
                                     {topicIndex + 1}
                                 </div>
 
-                                <div style={{ flex: 1 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ 
-                                        fontSize: '14px', 
-                                        fontWeight: '600', 
-                                        color: isExpanded ? '#fff' : '#e4e4e7' 
+                                        fontSize: '13px', 
+                                        fontWeight: '550', 
+                                        color: isExpanded ? 'var(--text-main)' : '#d1d1d6',
+                                        letterSpacing: '-0.01em',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis'
                                     }}>
                                         {topic.topic}
                                     </div>
-                                    <div style={{ fontSize: '11px', color: '#52525b', marginTop: '2px' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '1px' }}>
                                         {topicSolved}/{topic.problems.length} completed
                                     </div>
                                 </div>
 
                                 {/* Mini Progress */}
                                 <div style={{ 
-                                    width: '60px', height: '4px', 
-                                    background: 'rgba(255,255,255,0.1)', 
+                                    width: '48px', height: '3px', 
+                                    background: 'rgba(255,255,255,0.06)', 
                                     borderRadius: '2px',
-                                    overflow: 'hidden'
+                                    overflow: 'hidden',
+                                    flexShrink: 0
                                 }}>
                                     <div style={{ 
                                         height: '100%', 
                                         width: `${topicProgress}%`, 
-                                        background: topicProgress === 100 ? '#22c55e' : '#8b5cf6',
-                                        transition: 'width 0.3s'
+                                        background: topicProgress === 100 ? 'var(--accent-success)' : 'var(--accent-primary)',
+                                        borderRadius: '2px',
+                                        transition: 'width 0.4s var(--ease-smooth)'
                                     }} />
                                 </div>
 
                                 <span style={{ 
-                                    fontSize: '12px', 
+                                    fontSize: '11px', 
                                     fontWeight: '500',
-                                    color: topicProgress === 100 ? '#22c55e' : '#71717a',
-                                    minWidth: '35px',
-                                    textAlign: 'right'
+                                    color: topicProgress === 100 ? 'var(--accent-success)' : 'var(--text-muted)',
+                                    minWidth: '32px',
+                                    textAlign: 'right',
+                                    fontVariantNumeric: 'tabular-nums'
                                 }}>
                                     {topicProgress}%
                                 </span>
@@ -465,9 +482,9 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                             {isExpanded && (
                                 <div style={{ 
                                     marginTop: '4px',
-                                    marginLeft: '20px',
-                                    borderLeft: '2px solid rgba(139, 92, 246, 0.2)',
-                                    paddingLeft: '16px'
+                                    marginLeft: '18px',
+                                    borderLeft: '1.5px solid rgba(124, 92, 252, 0.12)',
+                                    paddingLeft: '14px'
                                 }}>
                                     {topic.problems.map((problem, idx) => {
                                         const isSolved = solvedProblems.has(problem.id);
@@ -480,83 +497,91 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '12px',
-                                                    padding: '12px 14px',
-                                                    background: isSolved ? 'rgba(34, 197, 94, 0.05)' : 'rgba(255,255,255,0.01)',
-                                                    border: '1px solid rgba(255,255,255,0.03)',
+                                                    gap: '10px',
+                                                    padding: '10px 12px',
+                                                    background: isSolved ? 'rgba(48, 209, 88, 0.04)' : 'transparent',
                                                     borderRadius: '10px',
-                                                    marginBottom: '4px',
+                                                    marginBottom: '2px',
                                                     cursor: isLoading ? 'wait' : 'pointer',
-                                                    transition: 'all 0.2s',
-                                                    opacity: isLoading ? 0.7 : 1
+                                                    transition: 'background 0.15s var(--ease-smooth)',
+                                                    opacity: isLoading ? 0.6 : 1
                                                 }}
-                                                onMouseEnter={e => !isLoading && (e.currentTarget.style.background = 'rgba(139, 92, 246, 0.08)')}
-                                                onMouseLeave={e => e.currentTarget.style.background = isSolved ? 'rgba(34, 197, 94, 0.05)' : 'rgba(255,255,255,0.01)'}
+                                                onMouseEnter={e => !isLoading && (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
+                                                onMouseLeave={e => e.currentTarget.style.background = isSolved ? 'rgba(48, 209, 88, 0.04)' : 'transparent'}
                                             >
                                                 {/* Solved Checkbox */}
                                                 <div 
                                                     onClick={(e) => toggleSolved(problem.id, e)}
-                                                    style={{ cursor: 'pointer' }}
+                                                    style={{ cursor: 'pointer', flexShrink: 0, display: 'flex' }}
                                                 >
                                                     {isSolved ? 
-                                                        <CheckCircle size={18} color="#22c55e" /> : 
-                                                        <Circle size={18} color="#3f3f46" />
+                                                        <CheckCircle size={16} color="var(--accent-success)" strokeWidth={2} /> : 
+                                                        <Circle size={16} color="var(--text-dim)" strokeWidth={1.5} />
                                                     }
                                                 </div>
 
                                                 {/* Problem Number */}
                                                 <span style={{ 
                                                     fontSize: '11px', 
-                                                    color: '#52525b',
-                                                    minWidth: '24px'
+                                                    color: 'var(--text-dim)',
+                                                    minWidth: '22px',
+                                                    fontVariantNumeric: 'tabular-nums'
                                                 }}>
                                                     {idx + 1}.
                                                 </span>
 
                                                 {/* Problem Title */}
-                                                <div style={{ flex: 1 }}>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ 
                                                         fontSize: '13px', 
-                                                        fontWeight: '500', 
-                                                        color: isSolved ? '#22c55e' : '#e4e4e7',
+                                                        fontWeight: '450', 
+                                                        color: isSolved ? 'var(--accent-success)' : 'var(--text-main)',
                                                         textDecoration: isSolved ? 'line-through' : 'none',
-                                                        opacity: isSolved ? 0.8 : 1,
+                                                        opacity: isSolved ? 0.7 : 1,
                                                         display: 'flex',
                                                         alignItems: 'center',
-                                                        gap: '8px'
+                                                        gap: '8px',
+                                                        letterSpacing: '-0.01em',
+                                                        whiteSpace: 'nowrap',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis'
                                                     }}>
-                                                        {problem.title}
-                                                        {isLoading && <Loader2 size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />}
+                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{problem.title}</span>
+                                                        {isLoading && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
                                                     </div>
                                                 </div>
 
                                                 {/* Difficulty Badge */}
                                                 <span style={{
-                                                    padding: '3px 8px',
-                                                    borderRadius: '6px',
+                                                    padding: '2px 7px',
+                                                    borderRadius: '5px',
                                                     fontSize: '10px',
-                                                    fontWeight: '600',
-                                                    background: `${getDifficultyColor(problem.difficulty)}15`,
-                                                    color: getDifficultyColor(problem.difficulty)
+                                                    fontWeight: '550',
+                                                    background: `${getDifficultyColor(problem.difficulty)}10`,
+                                                    color: getDifficultyColor(problem.difficulty),
+                                                    letterSpacing: '0.02em',
+                                                    flexShrink: 0
                                                 }}>
                                                     {problem.difficulty}
                                                 </span>
 
                                                 {/* Platform Badge */}
                                                 <span style={{
-                                                    padding: '3px 8px',
-                                                    borderRadius: '6px',
+                                                    padding: '2px 7px',
+                                                    borderRadius: '5px',
                                                     fontSize: '10px',
                                                     fontWeight: '500',
-                                                    background: `${getPlatformColor(problem.provider || problem.platform)}15`,
+                                                    background: `${getPlatformColor(problem.provider || problem.platform)}10`,
                                                     color: getPlatformColor(problem.provider || problem.platform),
-                                                    textTransform: 'uppercase'
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.03em',
+                                                    flexShrink: 0
                                                 }}>
                                                     {getPlatformLabel(problem.provider || problem.platform)}
                                                 </span>
 
                                                 {/* Action Buttons */}
-                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                                     {problem.videoLink && (
                                                         <a
                                                             href={problem.videoLink}
@@ -564,16 +589,19 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                                                             rel="noopener noreferrer"
                                                             onClick={(e) => e.stopPropagation()}
                                                             style={{
-                                                                width: '28px', height: '28px',
-                                                                borderRadius: '6px',
-                                                                background: 'rgba(239, 68, 68, 0.1)',
+                                                                width: '26px', height: '26px',
+                                                                borderRadius: '7px',
+                                                                background: 'rgba(255, 69, 58, 0.08)',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
-                                                                justifyContent: 'center'
+                                                                justifyContent: 'center',
+                                                                transition: 'background 0.15s'
                                                             }}
                                                             title="Watch Video Solution"
+                                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 69, 58, 0.16)'}
+                                                            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 69, 58, 0.08)'}
                                                         >
-                                                            <Youtube size={14} color="#ef4444" />
+                                                            <Youtube size={13} color="var(--accent-danger)" strokeWidth={1.8} />
                                                         </a>
                                                     )}
                                                     <a
@@ -582,16 +610,19 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
                                                         rel="noopener noreferrer"
                                                         onClick={(e) => e.stopPropagation()}
                                                         style={{
-                                                            width: '28px', height: '28px',
-                                                            borderRadius: '6px',
-                                                            background: 'rgba(59, 130, 246, 0.1)',
+                                                            width: '26px', height: '26px',
+                                                            borderRadius: '7px',
+                                                            background: 'rgba(255,255,255,0.04)',
                                                             display: 'flex',
                                                             alignItems: 'center',
-                                                            justifyContent: 'center'
+                                                            justifyContent: 'center',
+                                                            transition: 'background 0.15s'
                                                         }}
                                                         title="Open on Platform"
+                                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                                                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
                                                     >
-                                                        <ExternalLink size={14} color="#3b82f6" />
+                                                        <ExternalLink size={13} color="var(--text-muted)" strokeWidth={1.8} />
                                                     </a>
                                                 </div>
                                             </div>
@@ -618,17 +649,18 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
 // Stat Box Component
 const StatBox = ({ icon, value, label, color }) => (
     <div style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.05)',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid var(--border-subtle)',
         borderRadius: '10px',
-        padding: '12px',
-        textAlign: 'center'
+        padding: '10px 8px',
+        textAlign: 'center',
+        transition: 'background 0.15s var(--ease-smooth)'
     }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '4px' }}>
-            <span style={{ color }}>{icon}</span>
-            <span style={{ fontSize: '18px', fontWeight: '700', color: '#fff' }}>{value}</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', marginBottom: '3px' }}>
+            <span style={{ color, display: 'flex', opacity: 0.85 }}>{icon}</span>
+            <span style={{ fontSize: '17px', fontWeight: '600', color: 'var(--text-main)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</span>
         </div>
-        <div style={{ fontSize: '10px', color: '#52525b', textTransform: 'uppercase' }}>{label}</div>
+        <div style={{ fontSize: '9px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '500' }}>{label}</div>
     </div>
 );
 

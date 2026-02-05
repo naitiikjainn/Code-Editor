@@ -13,20 +13,21 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: "rgba(0,0,0,0.7)",
-                backdropFilter: "blur(4px)",
-                animation: "fadeIn 0.15s ease-out"
+                background: "rgba(0,0,0,0.65)",
+                backdropFilter: "blur(8px)",
+                animation: "fadeInScale 0.25s ease-out"
             }}
             onClick={onCancel}
         >
             <div 
                 style={{
-                    background: "linear-gradient(145deg, #1a1a1f, #0d0d10)",
-                    borderRadius: "16px",
+                    background: "rgba(28,28,30,0.92)",
+                    backdropFilter: "blur(40px) saturate(180%)",
+                    borderRadius: "18px",
                     padding: "24px",
                     width: "min(400px, 90vw)",
-                    boxShadow: "0 25px 50px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)",
-                    animation: "scaleIn 0.2s ease-out"
+                    boxShadow: "0 24px 48px rgba(0,0,0,0.45)",
+                    border: "1px solid rgba(255,255,255,0.08)"
                 }}
                 onClick={(e) => e.stopPropagation()}
             >
@@ -66,17 +67,17 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText
                     <button
                         onClick={onCancel}
                         style={{
-                            background: "transparent",
+                            background: "rgba(255,255,255,0.06)",
                             border: "none",
-                            color: "#6b7280",
+                            color: "var(--text-muted)",
                             cursor: "pointer",
-                            padding: "4px",
-                            borderRadius: "6px",
+                            padding: "6px",
+                            borderRadius: "8px",
                             display: "flex",
-                            transition: "all 0.15s"
+                            transition: "all 0.2s"
                         }}
-                        onMouseEnter={(e) => e.target.style.color = "#fff"}
-                        onMouseLeave={(e) => e.target.style.color = "#6b7280"}
+                        onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
                     >
                         <X size={20} />
                     </button>
@@ -88,22 +89,20 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText
                         onClick={onCancel}
                         style={{
                             padding: "10px 20px",
-                            borderRadius: "10px",
-                            border: "1px solid #374151",
-                            background: "transparent",
+                            borderRadius: "12px",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: "rgba(255,255,255,0.04)",
                             color: "#d1d5db",
                             fontSize: "14px",
                             fontWeight: "500",
                             cursor: "pointer",
-                            transition: "all 0.15s"
+                            transition: "all 0.2s"
                         }}
                         onMouseEnter={(e) => {
-                            e.target.style.background = "#374151";
-                            e.target.style.borderColor = "#4b5563";
+                            e.currentTarget.style.background = "rgba(255,255,255,0.08)";
                         }}
                         onMouseLeave={(e) => {
-                            e.target.style.background = "transparent";
-                            e.target.style.borderColor = "#374151";
+                            e.currentTarget.style.background = "rgba(255,255,255,0.04)";
                         }}
                     >
                         {cancelText}
@@ -112,38 +111,23 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText
                         onClick={onConfirm}
                         style={{
                             padding: "10px 20px",
-                            borderRadius: "10px",
+                            borderRadius: "12px",
                             border: "none",
-                            background: danger 
-                                ? "linear-gradient(135deg, #dc2626, #b91c1c)" 
-                                : "linear-gradient(135deg, #3b82f6, #2563eb)",
-                            color: "#fff",
+                            background: danger ? "#ef4444" : "#fff",
+                            color: danger ? "#fff" : "#000",
                             fontSize: "14px",
                             fontWeight: "600",
                             cursor: "pointer",
-                            transition: "all 0.15s",
-                            boxShadow: danger 
-                                ? "0 4px 14px rgba(220, 38, 38, 0.4)" 
-                                : "0 4px 14px rgba(59, 130, 246, 0.4)"
+                            transition: "all 0.2s"
                         }}
-                        onMouseEnter={(e) => e.target.style.transform = "translateY(-1px)"}
-                        onMouseLeave={(e) => e.target.style.transform = "translateY(0)"}
+                        onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.opacity = "0.9"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.opacity = "1"; }}
                     >
                         {confirmText}
                     </button>
                 </div>
             </div>
 
-            <style>{`
-                @keyframes fadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-                @keyframes scaleIn {
-                    from { opacity: 0; transform: scale(0.95); }
-                    to { opacity: 1; transform: scale(1); }
-                }
-            `}</style>
         </div>
     );
 };

@@ -2,35 +2,47 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User.js";
+import redis from "../config/redis.js";
+import { generateAccessToken, generateRefreshToken } from "../utils/tokenHelpers.js";
 
 const router = express.Router();
 
-// Helper: Generate Access Token (1 month expiry)
-const generateAccessToken = (user) => {
-  return jwt.sign(
-    { id: user._id, username: user.username },
-    process.env.JWT_SECRET,
-    { expiresIn: "30d" } // 30 days = 1 month
-  );
+// In-memory fallback for OAuth state tokens when Redis is unavailable
+const oauthStateStore = new Map();
+const OAUTH_STATE_TTL = 10 * 60; // 10 minutes in seconds
+
+// Store OAuth state token (Redis with in-memory fallback)
+const storeOAuthState = async (state) => {
+  try {
+    await redis.set(`oauth_state:${state}`, "1", "EX", OAUTH_STATE_TTL);
+  } catch {
+    oauthStateStore.set(state, Date.now());
+    // Cleanup old entries from memory store
+    const cutoff = Date.now() - OAUTH_STATE_TTL * 1000;
+    for (const [key, timestamp] of oauthStateStore.entries()) {
+      if (timestamp < cutoff) oauthStateStore.delete(key);
+    }
+  }
 };
 
-// Helper: Generate Refresh Token (long-lived)
-const generateRefreshToken = async (user, req) => {
-  const userAgent = req.headers["user-agent"] || "unknown";
-  const ip = req.ip || req.connection?.remoteAddress || "unknown";
-  const refreshToken = user.generateRefreshToken(userAgent, ip);
-  await user.save();
-  return refreshToken;
-};
-
-// Helper: Set secure cookie
-const setTokenCookie = (res, name, token, maxAge) => {
-  res.cookie(name, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-    maxAge
-  });
+// Validate and consume OAuth state token
+const validateOAuthState = async (state) => {
+  if (!state) return false;
+  try {
+    const exists = await redis.get(`oauth_state:${state}`);
+    if (exists) {
+      await redis.del(`oauth_state:${state}`);
+      return true;
+    }
+    return false;
+  } catch {
+    // Fallback to memory store
+    if (oauthStateStore.has(state)) {
+      oauthStateStore.delete(state);
+      return true;
+    }
+    return false;
+  }
 };
 
 // ============================================
@@ -38,7 +50,7 @@ const setTokenCookie = (res, name, token, maxAge) => {
 // ============================================
 
 // Step 1: Generate Google OAuth URL
-router.get("/google/url", (req, res) => {
+router.get("/google/url", async (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const redirectUri = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/oauth/google/callback`;
 
@@ -48,6 +60,7 @@ router.get("/google/url", (req, res) => {
 
   // Generate state token for CSRF protection
   const state = crypto.randomBytes(32).toString("hex");
+  await storeOAuthState(state);
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -76,6 +89,13 @@ router.get("/google/callback", async (req, res) => {
 
     if (!code) {
       return res.redirect(`${frontendUrl}/auth/callback?error=no_code`);
+    }
+
+    // Validate CSRF state token
+    const stateValid = await validateOAuthState(state);
+    if (!stateValid) {
+      console.warn("Google OAuth: Invalid or expired state token");
+      return res.redirect(`${frontendUrl}/auth/callback?error=invalid_state`);
     }
 
     // Exchange code for tokens
@@ -166,7 +186,7 @@ router.get("/google/callback", async (req, res) => {
 // ============================================
 
 // Step 1: Generate GitHub OAuth URL
-router.get("/github/url", (req, res) => {
+router.get("/github/url", async (req, res) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const redirectUri = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/oauth/github/callback`;
 
@@ -176,6 +196,7 @@ router.get("/github/url", (req, res) => {
 
   // Generate state token for CSRF protection
   const state = crypto.randomBytes(32).toString("hex");
+  await storeOAuthState(state);
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -201,6 +222,13 @@ router.get("/github/callback", async (req, res) => {
 
     if (!code) {
       return res.redirect(`${frontendUrl}/auth/callback?error=no_code`);
+    }
+
+    // Validate CSRF state token
+    const stateValid = await validateOAuthState(state);
+    if (!stateValid) {
+      console.warn("GitHub OAuth: Invalid or expired state token");
+      return res.redirect(`${frontendUrl}/auth/callback?error=invalid_state`);
     }
 
     // Exchange code for access token

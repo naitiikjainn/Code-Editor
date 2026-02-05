@@ -50,7 +50,7 @@ export const AuthProvider = ({ children }) => {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
-            "x-auth-token": token || ""
+            "Authorization": `Bearer ${token || ""}`
           },
           body: JSON.stringify({ refreshToken })
         });
@@ -114,7 +114,7 @@ export const AuthProvider = ({ children }) => {
     const makeRequest = async (authToken) => {
       const headers = {
         ...options.headers,
-        "x-auth-token": authToken
+        "Authorization": `Bearer ${authToken}`
       };
       return fetch(url, { ...options, headers });
     };
@@ -223,20 +223,21 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isUsernameValid]);
 
-  // OAuth login helper - call after OAuth callback
-  const handleOAuthCallback = (token, refreshToken) => {
-    // Fetch user data with the token
-    fetch(`${API_URL}/api/auth/me`, {
-      headers: { "x-auth-token": token }
-    })
-      .then(res => res.json())
-      .then(userData => {
-        login(userData, token, refreshToken);
-      })
-      .catch(err => {
-        console.error("OAuth callback error:", err);
+  // OAuth login helper - call after OAuth callback (returns a promise)
+  const handleOAuthCallback = useCallback(async (token, refreshToken) => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/me`, {
+        headers: { "Authorization": `Bearer ${token}` }
       });
-  };
+      const userData = await res.json();
+      if (!res.ok) throw new Error(userData.error || "Failed to fetch user data");
+      login(userData, token, refreshToken);
+      return userData;
+    } catch (err) {
+      console.error("OAuth callback error:", err);
+      throw err;
+    }
+  }, [login]);
 
   const setUsername = async (username) => {
     const token = localStorage.getItem("codeplay_token");

@@ -1,5 +1,6 @@
 import express from "express";
 import Room from "../models/Room.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -15,13 +16,13 @@ const sanitizeUsername = (name) => {
     return name.slice(0, 50).replace(/[<>]/g, '');
 };
 
-// 1. CREATE ROOM
-router.post("/create", async (req, res) => {
+// 1. CREATE ROOM (Requires authentication)
+router.post("/create", authMiddleware, async (req, res) => {
     try {
         const { roomId, username } = req.body;
         
         const sanitizedRoomId = sanitizeRoomId(roomId);
-        const sanitizedUsername = sanitizeUsername(username);
+        const sanitizedUsername = sanitizeUsername(username || req.user.username);
         
         if (!sanitizedRoomId || sanitizedRoomId.length < 3) {
             return res.status(400).json({ error: "Room ID must be at least 3 characters (alphanumeric and dashes only)" });
@@ -35,7 +36,10 @@ router.post("/create", async (req, res) => {
 
         const newRoom = new Room({
             roomId: sanitizedRoomId,
-            host: { username: sanitizedUsername }
+            host: { 
+                username: sanitizedUsername,
+                userId: req.user.id  // Set host userId from authenticated user
+            }
         });
         await newRoom.save();
         res.status(201).json({ message: "Room created", room: newRoom });

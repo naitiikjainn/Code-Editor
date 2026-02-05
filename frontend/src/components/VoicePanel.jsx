@@ -109,19 +109,21 @@ const VoicePanel = memo(function VoicePanel({
             <div
                 style={{
                     position: "fixed",
-                    top: "70px",
-                    right: "20px",
-                    width: "220px",
-                    background: "rgba(20, 20, 30, 0.95)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: "12px",
-                    padding: "10px 12px",
+                    top: "60px",
+                    right: "16px",
+                    width: "200px",
+                    background: "rgba(28, 28, 30, 0.9)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "14px",
+                    padding: "10px 14px",
                     zIndex: 1000,
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+                    backdropFilter: "blur(20px) saturate(180%)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    cursor: "pointer"
+                    cursor: "pointer",
+                    transition: "all 0.2s ease"
                 }}
                 onClick={() => setIsMinimized(false)}
             >
@@ -148,15 +150,16 @@ const VoicePanel = memo(function VoicePanel({
         <div
             style={{
                 position: "fixed",
-                top: "70px",
-                right: "20px",
+                top: "60px",
+                right: "16px",
                 width: "260px",
-                background: "rgba(20, 20, 30, 0.95)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: "12px",
+                background: "rgba(28, 28, 30, 0.9)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "16px",
                 padding: "16px",
                 zIndex: 1000,
-                boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                boxShadow: "0 12px 40px rgba(0,0,0,0.4)",
+                backdropFilter: "blur(24px) saturate(180%)",
             }}
         >
             <div style={{ fontSize: "12px", fontWeight: "bold", color: "#aaa", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

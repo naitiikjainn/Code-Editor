@@ -20,27 +20,27 @@ export default function ConsolePanel({
       style={{
         height: height || "250px",
         flexShrink: 0,
-        backgroundColor: "#000",
-        borderTop: "1px solid var(--border-subtle)",
+        backgroundColor: "rgba(0,0,0,0.95)",
+        borderTop: "1px solid rgba(255,255,255,0.06)",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+        fontFamily: "var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace)",
       }}
     >
       {/* TOOLBAR */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 8px", backgroundColor: "var(--bg-panel)", borderBottom: "1px solid var(--border-subtle)", height: "36px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 12px", background: "rgba(255,255,255,0.02)", borderBottom: "1px solid rgba(255,255,255,0.06)", height: "34px", flexShrink: 0 }}>
         
-        <div style={{ display: "flex", height: "100%", alignItems: "center", gap: "6px", paddingLeft: "8px" }}>
-            <Terminal size={14} color="var(--text-muted)" />
-            <span style={{ fontWeight: "700", fontSize: "12px", color: "var(--text-muted)", letterSpacing: "1px" }}>TERMINAL</span>
+        <div style={{ display: "flex", height: "100%", alignItems: "center", gap: "8px", paddingLeft: "4px" }}>
+            <Terminal size={13} color="var(--text-muted)" />
+            <span style={{ fontWeight: "600", fontSize: "11px", color: "var(--text-muted)", letterSpacing: "0.5px" }}>TERMINAL</span>
         </div>
 
-        <div style={{ display: "flex", gap: "12px" }}>
-          <button onClick={onClear} title="Clear" style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "12px" }}>
-            <Ban size={14} /> Clear
+        <div style={{ display: "flex", gap: "4px" }}>
+          <button onClick={onClear} title="Clear" style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", padding: "4px 8px", borderRadius: "6px", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <Ban size={12} /> Clear
           </button>
-          <button onClick={onClose} title="Close" style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-            <X size={16} />
+          <button onClick={onClose} title="Close" style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "4px 6px", borderRadius: "6px", display: "flex", alignItems: "center", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <X size={14} />
           </button>
         </div>
       </div>
@@ -49,13 +49,13 @@ export default function ConsolePanel({
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           
           {/* OUTPUT AREA */}
-          <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", padding: "12px", borderRight: "1px solid var(--border-subtle)", color: "#d4d4d4", fontSize: "13px", lineHeight: "1.5" }}>
+          <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", padding: "12px 16px", borderRight: "1px solid rgba(255,255,255,0.04)", color: "#d4d4d4", fontSize: "13px", lineHeight: "1.6" }}>
             {logs.length === 0 ?
-              <div style={{ color: "#444", fontStyle: "italic", marginTop: "12px" }}>$ Ready to compile...</div> : 
+              <div style={{ color: "rgba(255,255,255,0.15)", fontStyle: "italic", marginTop: "12px", fontSize: "12px" }}>$ Ready to compile...</div> : 
               logs.map((log, i) => (
                 log && (
-                <div key={i} style={{ padding: "2px 0", color: log.type === "error" ? "#ef5350" : (log.type === "info" ? "#4fc3f7" : "#d4d4d4"), display: "flex", alignItems: "flex-start" }}>
-                  <span style={{ color: "#666", marginRight: "10px", userSelect: "none" }}>$</span>
+                <div key={i} style={{ padding: "1px 0", color: log.type === "error" ? "#ff6b6b" : log.type === "success" ? "#51cf66" : (log.type === "info" ? "#74c0fc" : "#d4d4d4"), display: "flex", alignItems: "flex-start" }}>
+                  <span style={{ color: "rgba(255,255,255,0.15)", marginRight: "10px", userSelect: "none", fontSize: "12px" }}>$</span>
                   <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                       {typeof log === "string"
                         ? log
@@ -69,9 +69,9 @@ export default function ConsolePanel({
           </div>
 
           {/* INPUT AREA */}
-          <div style={{ width: "300px", display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border-subtle)" }}>
-             <div style={{ padding: "4px 8px", background: "var(--bg-panel)", borderBottom: "1px solid var(--border-subtle)", fontSize: "11px", fontWeight: "bold", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
-                <span>⌨️</span> STDIN
+          <div style={{ width: "280px", display: "flex", flexDirection: "column" }}>
+             <div style={{ padding: "6px 12px", background: "rgba(255,255,255,0.02)", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: "10px", fontWeight: "600", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "6px", letterSpacing: "0.5px" }}>
+                STDIN
              </div>
              <textarea 
                 value={input}
@@ -79,14 +79,15 @@ export default function ConsolePanel({
                 placeholder="Enter input here..."
                 style={{ 
                     flex: 1, 
-                    background: "#0d0d0d", 
+                    background: "rgba(0,0,0,0.5)", 
                     border: "none", 
                     color: "#00ff9d", 
                     padding: "12px", 
                     fontFamily: "inherit", 
                     fontSize: "13px", 
                     resize: "none", 
-                    outline: "none" 
+                    outline: "none",
+                    lineHeight: "1.5"
                 }}
              />
           </div>

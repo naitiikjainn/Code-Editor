@@ -8,5 +8,3 @@ export * from './usePerformance';
 
 // Screen recording hook
 export { useScreenRecording } from './useScreenRecording';
-
-} from '@tanstack/react-query';

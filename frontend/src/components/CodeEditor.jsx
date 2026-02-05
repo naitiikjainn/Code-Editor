@@ -1,10 +1,11 @@
 import Editor, { useMonaco } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
+import { API_URL } from "../config";
 
 export default function CodeEditor({ value, onChange, language }) {
   const monaco = useMonaco();
   const editorRef = useRef(null);
-  let debounceTimer = null;
+  const providerRef = useRef(null);
 
   function handleMount(editor) {
     editorRef.current = editor;
@@ -13,41 +14,68 @@ export default function CodeEditor({ value, onChange, language }) {
   useEffect(() => {
     if (!monaco) return;
 
-    monaco.languages.registerInlineCompletionsProvider(language, {
-      provideInlineCompletions: async (model, position) => {
-        const textUntilCursor = model.getValueInRange({
-          startLineNumber: Math.max(1, position.lineNumber - 20),
-          startColumn: 1,
-          endLineNumber: position.lineNumber,
-          endColumn: position.column,
-        });
+    // Dispose previous provider to prevent stacking
+    if (providerRef.current) {
+      providerRef.current.dispose();
+      providerRef.current = null;
+    }
 
-        const res = await fetch("http://localhost:5000/api/ai/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            code: textUntilCursor,
-            language,
-          }),
-        });
+    const disposable = monaco.languages.registerInlineCompletionsProvider(language, {
+      provideInlineCompletions: async (model, position, _ctx, token) => {
+        try {
+          const textUntilCursor = model.getValueInRange({
+            startLineNumber: Math.max(1, position.lineNumber - 20),
+            startColumn: 1,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          });
 
-        const data = await res.json();
+          const controller = new AbortController();
+          // Cancel fetch if Monaco cancels the request
+          token.onCancellationRequested(() => controller.abort());
 
-        return {
-          items: [
-            {
-              insertText: data.completion,
-              range: {
-                startLineNumber: position.lineNumber,
-                startColumn: position.column,
-                endLineNumber: position.lineNumber,
-                endColumn: position.column,
-              },
+          const authToken = localStorage.getItem("codeplay_token");
+          const res = await fetch(`${API_URL}/api/ai/complete`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(authToken && { Authorization: `Bearer ${authToken}` }),
             },
-          ],
-        };
+            body: JSON.stringify({ code: textUntilCursor, language }),
+            signal: controller.signal,
+          });
+
+          if (!res.ok) return { items: [] };
+          const data = await res.json();
+          if (!data.completion) return { items: [] };
+
+          return {
+            items: [
+              {
+                insertText: data.completion,
+                range: {
+                  startLineNumber: position.lineNumber,
+                  startColumn: position.column,
+                  endLineNumber: position.lineNumber,
+                  endColumn: position.column,
+                },
+              },
+            ],
+          };
+        } catch {
+          // Network errors, aborts — return empty completions
+          return { items: [] };
+        }
       },
+      freeInlineCompletions() {},
     });
+
+    providerRef.current = disposable;
+
+    return () => {
+      disposable.dispose();
+      providerRef.current = null;
+    };
   }, [monaco, language]);
 
   return (

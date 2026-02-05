@@ -16,11 +16,15 @@ export default function FriendsPanel({ isOpen, onClose }) {
         friends: false, requests: false, search: false, activity: false
     });
     const [actionLoading, setActionLoading] = useState({});
+    const [error, setError] = useState("");
 
-    const token = localStorage.getItem("codeplay_token");
+    // Use a function to always read fresh token
+    const getToken = () => localStorage.getItem("codeplay_token");
 
     useEffect(() => {
         if (isOpen) {
+            setError("");
+            setSearchResults([]);
             fetchFriends();
             fetchRequests();
             fetchActivity();
@@ -31,12 +35,13 @@ export default function FriendsPanel({ isOpen, onClose }) {
         setLoading(prev => ({ ...prev, friends: true }));
         try {
             const res = await fetch(`${API_URL}/api/friends`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Failed to load friends");
             const data = await res.json();
             setFriends(Array.isArray(data) ? data : []);
         } catch (err) {
-            console.error("Fetch friends error:", err);
+            setError(err.message);
         } finally {
             setLoading(prev => ({ ...prev, friends: false }));
         }
@@ -46,8 +51,9 @@ export default function FriendsPanel({ isOpen, onClose }) {
         setLoading(prev => ({ ...prev, requests: true }));
         try {
             const res = await fetch(`${API_URL}/api/friends/requests`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Failed to load requests");
             const data = await res.json();
             setRequests(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -61,8 +67,9 @@ export default function FriendsPanel({ isOpen, onClose }) {
         setLoading(prev => ({ ...prev, activity: true }));
         try {
             const res = await fetch(`${API_URL}/api/friends/activity`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Failed to load activity");
             const data = await res.json();
             setActivity(Array.isArray(data) ? data : []);
         } catch (err) {
@@ -77,12 +84,13 @@ export default function FriendsPanel({ isOpen, onClose }) {
         setLoading(prev => ({ ...prev, search: true }));
         try {
             const res = await fetch(`${API_URL}/api/friends/search?q=${encodeURIComponent(searchQuery)}`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Search failed");
             const data = await res.json();
             setSearchResults(Array.isArray(data) ? data : []);
         } catch (err) {
-            console.error("Search error:", err);
+            setError(err.message);
         } finally {
             setLoading(prev => ({ ...prev, search: false }));
         }
@@ -93,18 +101,18 @@ export default function FriendsPanel({ isOpen, onClose }) {
         try {
             const res = await fetch(`${API_URL}/api/friends/request/${userId}`, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Failed to send request");
             const data = await res.json();
             if (data.status === "accepted") {
                 fetchFriends();
             }
-            // Update search results
             setSearchResults(prev => prev.map(u => 
                 u._id === userId ? { ...u, hasPendingRequest: true } : u
             ));
         } catch (err) {
-            console.error("Send request error:", err);
+            setError(err.message);
         } finally {
             setActionLoading(prev => ({ ...prev, [userId]: false }));
         }
@@ -113,14 +121,15 @@ export default function FriendsPanel({ isOpen, onClose }) {
     const acceptRequest = async (userId) => {
         setActionLoading(prev => ({ ...prev, [userId]: true }));
         try {
-            await fetch(`${API_URL}/api/friends/accept/${userId}`, {
+            const res = await fetch(`${API_URL}/api/friends/accept/${userId}`, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Failed to accept request");
             fetchFriends();
             fetchRequests();
         } catch (err) {
-            console.error("Accept request error:", err);
+            setError(err.message);
         } finally {
             setActionLoading(prev => ({ ...prev, [userId]: false }));
         }
@@ -129,13 +138,14 @@ export default function FriendsPanel({ isOpen, onClose }) {
     const rejectRequest = async (userId) => {
         setActionLoading(prev => ({ ...prev, [userId]: true }));
         try {
-            await fetch(`${API_URL}/api/friends/reject/${userId}`, {
+            const res = await fetch(`${API_URL}/api/friends/reject/${userId}`, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Failed to reject request");
             fetchRequests();
         } catch (err) {
-            console.error("Reject request error:", err);
+            setError(err.message);
         } finally {
             setActionLoading(prev => ({ ...prev, [userId]: false }));
         }
@@ -144,13 +154,14 @@ export default function FriendsPanel({ isOpen, onClose }) {
     const removeFriend = async (userId) => {
         setActionLoading(prev => ({ ...prev, [userId]: true }));
         try {
-            await fetch(`${API_URL}/api/friends/${userId}`, {
+            const res = await fetch(`${API_URL}/api/friends/${userId}`, {
                 method: "DELETE",
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${getToken()}` }
             });
+            if (!res.ok) throw new Error("Failed to remove friend");
             fetchFriends();
         } catch (err) {
-            console.error("Remove friend error:", err);
+            setError(err.message);
         } finally {
             setActionLoading(prev => ({ ...prev, [userId]: false }));
         }
@@ -168,44 +179,48 @@ export default function FriendsPanel({ isOpen, onClose }) {
 
     return (
         <div style={{
-            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-            background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
-            zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center"
+            position: "fixed", inset: 0,
+            background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)",
+            zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+            animation: "fadeInScale 0.25s ease-out"
         }} onClick={onClose}>
             <div 
                 onClick={e => e.stopPropagation()}
                 style={{
                     width: "90%", maxWidth: "600px", maxHeight: "80vh",
-                    background: "#111113", borderRadius: "16px",
+                    background: "rgba(28,28,30,0.92)", borderRadius: "20px",
                     border: "1px solid rgba(255,255,255,0.08)",
-                    display: "flex", flexDirection: "column", overflow: "hidden"
+                    display: "flex", flexDirection: "column", overflow: "hidden",
+                    backdropFilter: "blur(40px) saturate(180%)",
+                    boxShadow: "0 24px 48px rgba(0,0,0,0.45)"
                 }}
             >
                 {/* Header */}
                 <div style={{ 
-                    padding: "20px 24px", borderBottom: "1px solid rgba(255,255,255,0.05)",
+                    padding: "18px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)",
                     display: "flex", alignItems: "center", justifyContent: "space-between"
                 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <Users size={20} color="#3b82f6" />
-                        <span style={{ fontSize: "16px", fontWeight: "600", color: "#fff" }}>Friends</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <Users size={18} color="var(--accent-primary)" />
+                        <span style={{ fontSize: "16px", fontWeight: "600", color: "#fff", letterSpacing: "-0.01em" }}>Friends</span>
                         {requests.length > 0 && (
                             <span style={{
-                                background: "#ef4444", color: "#fff", fontSize: "11px",
-                                padding: "2px 8px", borderRadius: "10px", fontWeight: "600"
+                                background: "#ef4444", color: "#fff", fontSize: "10px",
+                                padding: "2px 7px", borderRadius: "8px", fontWeight: "600"
                             }}>{requests.length}</span>
                         )}
                     </div>
                     <button onClick={onClose} style={{
-                        background: "none", border: "none", color: "#71717a",
-                        cursor: "pointer", padding: "4px"
-                    }}><X size={20} /></button>
+                        background: "rgba(255,255,255,0.06)", border: "none", color: "var(--text-muted)",
+                        cursor: "pointer", padding: "6px", borderRadius: "8px", display: "flex", alignItems: "center",
+                        transition: "background 0.2s"
+                    }} onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"} onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}><X size={16} /></button>
                 </div>
 
                 {/* Tabs */}
                 <div style={{ 
-                    display: "flex", gap: "4px", padding: "12px 24px",
-                    borderBottom: "1px solid rgba(255,255,255,0.05)"
+                    display: "flex", gap: "4px", padding: "10px 24px",
+                    borderBottom: "1px solid rgba(255,255,255,0.06)"
                 }}>
                     {[
                         { id: "friends", label: "Friends", count: friends.length },
@@ -217,10 +232,10 @@ export default function FriendsPanel({ isOpen, onClose }) {
                             key={t.id}
                             onClick={() => setTab(t.id)}
                             style={{
-                                padding: "8px 16px", borderRadius: "8px", fontSize: "13px",
+                                padding: "7px 14px", borderRadius: "8px", fontSize: "13px",
                                 fontWeight: "500", border: "none", cursor: "pointer",
-                                background: tab === t.id ? "rgba(59,130,246,0.15)" : "transparent",
-                                color: tab === t.id ? "#3b82f6" : "#71717a",
+                                background: tab === t.id ? "rgba(124,92,252,0.12)" : "transparent",
+                                color: tab === t.id ? "var(--accent-primary)" : "var(--text-muted)",
                                 transition: "all 0.2s"
                             }}
                         >
@@ -231,6 +246,19 @@ export default function FriendsPanel({ isOpen, onClose }) {
 
                 {/* Content */}
                 <div style={{ flex: 1, overflow: "auto", padding: "16px 24px" }}>
+                    
+                    {/* Error Banner */}
+                    {error && (
+                        <div style={{
+                            background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)",
+                            color: "#fca5a5", padding: "10px 14px", borderRadius: "10px",
+                            fontSize: "13px", marginBottom: "12px", display: "flex",
+                            alignItems: "center", justifyContent: "space-between"
+                        }}>
+                            <span>⚠️ {error}</span>
+                            <button onClick={() => setError("")} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", fontSize: "16px" }}>×</button>
+                        </div>
+                    )}
                     
                     {/* Friends List */}
                     {tab === "friends" && (
