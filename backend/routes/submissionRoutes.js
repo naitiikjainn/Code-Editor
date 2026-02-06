@@ -151,6 +151,27 @@ router.get("/stats/:userId", async (req, res) => {
     }
 });
 
+// @route   GET /api/submissions/solved
+// @desc    Get distinct accepted problemIds for the current user, optionally filtered by platform
+// @access  Private
+router.get("/solved", authMiddleware, async (req, res) => {
+    try {
+        const query = {
+            userId: req.user.id,
+            verdict: { $in: ["Accepted", "OK", "ACCEPTED"] }
+        };
+        if (req.query.platform) {
+            query.platform = sanitizeString(req.query.platform, 50);
+        }
+
+        const solved = await Submission.distinct("problemId", query);
+        res.json({ solved });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
 // @route   GET /api/submissions/:id
 // @desc    Get a single submission (for code view modal)
 // @access  Public (respects visibility - only owner can view private)

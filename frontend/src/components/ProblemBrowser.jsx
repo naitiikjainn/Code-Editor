@@ -73,42 +73,59 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
 
     // --- FETCH SOLVED STATUS ---
     useEffect(() => {
-        if (provider !== "codeforces") return;
-        
-        const handle = localStorage.getItem("cf_handle") || user?.platforms?.codeforces;
-
-        if (!handle) return; // No handle set, skip fetching status
-        console.log("[ProblemBrowser] Fetching status for handle:", handle);
-        
-        // Use Backend Proxy to avoid CORS
-        fetch(`${API_URL}/api/problems/codeforces/status/${handle}`) 
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === "OK") {
-                    const solved = new Set();
-                    const sNames = new Set();
-                    const attempted = new Set();
-                    const aNames = new Set();
-                    
-                    data.result.forEach(sub => {
-                        const id = `${sub.contestId}${sub.problem.index}`;
-                        const name = sub.problem.name;
+        if (provider === "codeforces") {
+            const handle = localStorage.getItem("cf_handle") || user?.platforms?.codeforces;
+            if (!handle) return;
+            console.log("[ProblemBrowser] Fetching CF status for handle:", handle);
+            
+            fetch(`${API_URL}/api/problems/codeforces/status/${handle}`) 
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "OK") {
+                        const solved = new Set();
+                        const sNames = new Set();
+                        const attempted = new Set();
+                        const aNames = new Set();
                         
-                        if (sub.verdict === "OK") {
-                            solved.add(id);
-                            sNames.add(name);
-                        } else {
-                            attempted.add(id);
-                            aNames.add(name);
-                        }
-                    });
-                    setSolvedProblems(solved);
-                    setSolvedNames(sNames);
-                    setAttemptedProblems(attempted);
-                    setAttemptedNames(aNames);
-                }
+                        data.result.forEach(sub => {
+                            const id = `${sub.contestId}${sub.problem.index}`;
+                            const name = sub.problem.name;
+                            
+                            if (sub.verdict === "OK") {
+                                solved.add(id);
+                                sNames.add(name);
+                            } else {
+                                attempted.add(id);
+                                aNames.add(name);
+                            }
+                        });
+                        setSolvedProblems(solved);
+                        setSolvedNames(sNames);
+                        setAttemptedProblems(attempted);
+                        setAttemptedNames(aNames);
+                    }
+                })
+                .catch(err => console.error("Failed to fetch user status", err));
+        } else if (provider === "leetcode") {
+            // Fetch LeetCode solved status from our own Submissions DB
+            const token = localStorage.getItem("codeplay_token");
+            if (!token) return;
+            console.log("[ProblemBrowser] Fetching LeetCode solved status from DB...");
+            
+            fetch(`${API_URL}/api/submissions/solved?platform=leetcode`, {
+                headers: { Authorization: `Bearer ${token}` }
             })
-            .catch(err => console.error("Failed to fetch user status", err));
+                .then(res => res.json())
+                .then(data => {
+                    if (data.solved) {
+                        const solved = new Set(data.solved);
+                        setSolvedProblems(solved);
+                        setSolvedNames(solved); // titleSlugs serve as both ID and name
+                        console.log(`[ProblemBrowser] LeetCode: ${solved.size} solved problems loaded`);
+                    }
+                })
+                .catch(err => console.error("Failed to fetch LeetCode solved status", err));
+        }
     }, [provider, user]);
     
     // --- FILTERS ---
@@ -706,7 +723,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                     </>
                 ) : null}
                 
-                {/* LeetCode Problem Count */}
+                {/* LeetCode Problem Count + Solved Count */}
                 {provider === "leetcode" && lcTotal > 0 && (
                     <div style={{ marginTop: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <span style={{ 
@@ -720,6 +737,22 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                         }}>
                             {filteredProblems.length} / {lcTotal.toLocaleString()} problems
                         </span>
+                        {solvedProblems.size > 0 && (
+                            <span style={{ 
+                                fontSize: "11px", 
+                                padding: "4px 10px", 
+                                background: "rgba(34, 197, 94, 0.12)", 
+                                border: "1px solid rgba(34, 197, 94, 0.2)",
+                                borderRadius: "20px", 
+                                color: "#4ade80",
+                                fontWeight: "600",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px"
+                            }}>
+                                <CheckCircle2 size={11} /> {solvedProblems.size} solved
+                            </span>
+                        )}
                     </div>
                 )}
             </div>
@@ -910,19 +943,20 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                         {/* Grid Header */}
                         <div style={{ 
-                            display: "flex", padding: "8px 16px", background: "rgba(24, 24, 27, 0.95)", borderBottom: "1px solid rgba(255,255,255,0.05)",
-                            fontSize: "10px", fontWeight: "700", color: "#6b7280", textTransform: "uppercase", letterSpacing: "1px", flexShrink: 0
+                            display: "flex", alignItems: "center", padding: "8px 16px", background: "rgba(24, 24, 27, 0.95)", borderBottom: "1px solid rgba(255,255,255,0.05)",
+                            fontSize: "10px", fontWeight: "700", color: "#52525b", textTransform: "uppercase", letterSpacing: "0.8px", flexShrink: 0
                         }}>
-                            <div style={{ width: "50px" }}>ID</div>
-                            <div style={{ flex: 1 }}>Problem</div>
-                            <div style={{ width: "70px", textAlign: "center" }}>Difficulty</div>
-                            <div style={{ width: "50px", textAlign: "right" }}>Rate</div>
+                            <div style={{ width: "22px", flexShrink: 0 }}></div>
+                            <div style={{ width: "44px", flexShrink: 0, paddingLeft: "4px" }}>#</div>
+                            <div style={{ flex: 1 }}>Title</div>
+                            <div style={{ width: "68px", flexShrink: 0, textAlign: "center" }}>Level</div>
+                            <div style={{ width: "48px", flexShrink: 0, textAlign: "right" }}>Rate</div>
                         </div>
 
                         {/* Virtualized Rows */}
                         <VirtualizedList
                             items={filteredProblems}
-                            itemHeight={60}
+                            itemHeight={56}
                             overscan={10}
                             style={{ flex: 1 }}
                             getItemKey={(item) => item.id || item.titleSlug}
@@ -939,40 +973,59 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                             renderItem={(p, index) => {
                                 const diffColor = getDifficultyColor(p.difficulty);
                                 const isPremium = p.isPremium;
+                                const lcSolved = solvedProblems.has(p.titleSlug) || solvedNames.has(p.titleSlug);
+                                const rowBg = isPremium ? "rgba(255,161,22,0.02)" : (lcSolved ? "rgba(34, 197, 94, 0.05)" : "transparent");
                                 
                                 return (
                                     <div 
                                         onClick={() => !isPremium && handleOpen(p)}
                                         style={{ 
-                                            display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.02)", 
-                                            cursor: isPremium ? "not-allowed" : "pointer", position: "relative",
-                                            transition: "background 0.2s",
-                                            background: isPremium ? "rgba(255,161,22,0.02)" : "transparent",
-                                            opacity: isPremium ? 0.6 : 1,
-                                            height: "60px",
-                                            boxSizing: "border-box"
+                                            display: "flex", alignItems: "center", padding: "0 16px", 
+                                            borderBottom: "1px solid rgba(255,255,255,0.03)", 
+                                            cursor: isPremium ? "not-allowed" : "pointer",
+                                            transition: "background 0.15s",
+                                            background: rowBg,
+                                            opacity: isPremium ? 0.55 : 1,
+                                            height: "56px",
+                                            boxSizing: "border-box",
+                                            overflow: "hidden"
                                         }}
-                                        onMouseEnter={(e) => { if (!isPremium) e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
-                                        onMouseLeave={(e) => { if (!isPremium) e.currentTarget.style.background = "transparent"; }}
+                                        onMouseEnter={(e) => { if (!isPremium) e.currentTarget.style.background = lcSolved ? "rgba(34, 197, 94, 0.1)" : "rgba(255,255,255,0.03)"; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}
                                     >
-                                        <div style={{ width: "50px", fontSize: "12px", fontFamily: "var(--font-mono)", color: "#71717a" }}>
-                                            <div style={{display: "flex", alignItems: "center", gap: "4px"}}>
-                                                {openingId === (p.id || p.titleSlug) ? <Loader2 className="animate-spin" size={10} /> : null}
-                                                {p.id}
-                                            </div>
+                                        {/* Status Icon — fixed width */}
+                                        <div style={{ width: "22px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                            {openingId === (p.id || p.titleSlug) ? (
+                                                <Loader2 className="animate-spin" size={13} style={{ color: "#6b7280" }} />
+                                            ) : lcSolved ? (
+                                                <CheckCircle2 size={14} color="#4ade80" style={{ flexShrink: 0 }} />
+                                            ) : isPremium ? (
+                                                <Lock size={12} color="#ffa116" style={{ flexShrink: 0 }} />
+                                            ) : null}
+                                        </div>
+
+                                        {/* ID — fixed width */}
+                                        <div style={{ width: "44px", flexShrink: 0, fontSize: "12px", fontFamily: "var(--font-mono)", color: lcSolved ? "#4ade80" : "#52525b", paddingLeft: "4px" }}>
+                                            {p.id}
                                         </div>
                                         
-                                        <div style={{ flex: 1, minWidth: 0, paddingRight: "12px" }}>
-                                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                                                {isPremium && <Lock size={12} color="#ffa116" />}
-                                                <span style={{ fontSize: "13px", fontWeight: "500", color: "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</span>
+                                        {/* Title + Tags — flex fill, single line each */}
+                                        <div style={{ flex: 1, minWidth: 0, overflow: "hidden", paddingRight: "12px" }}>
+                                            <div style={{ 
+                                                fontSize: "13px", fontWeight: "500", 
+                                                color: lcSolved ? "#86efac" : (isPremium ? "#a1a1aa" : "#e4e4e7"), 
+                                                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                                                lineHeight: "18px"
+                                            }}>
+                                                {p.title}
                                             </div>
-                                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                                            <div style={{ display: "flex", gap: "4px", marginTop: "3px", overflow: "hidden" }}>
                                                 {p.tags?.slice(0, 2).map((t, idx) => <TagChip key={`${t}-${idx}`} label={t}/>)}
                                             </div>
                                         </div>
 
-                                        <div style={{ width: "70px", textAlign: "center" }}>
+                                        {/* Difficulty — fixed width */}
+                                        <div style={{ width: "68px", flexShrink: 0, textAlign: "center" }}>
                                             <span style={{ 
                                                 fontSize: "10px", fontWeight: "600", color: diffColor,
                                                 padding: "2px 8px", borderRadius: "10px",
@@ -983,8 +1036,9 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                             </span>
                                         </div>
 
-                                        <div style={{ width: "50px", textAlign: "right" }}>
-                                            <span style={{ fontSize: "11px", color: "#71717a" }}>{p.acceptanceRate}%</span>
+                                        {/* Acceptance Rate — fixed width */}
+                                        <div style={{ width: "48px", flexShrink: 0, textAlign: "right" }}>
+                                            <span style={{ fontSize: "11px", color: "#52525b" }}>{p.acceptanceRate}%</span>
                                         </div>
                                     </div>
                                 );

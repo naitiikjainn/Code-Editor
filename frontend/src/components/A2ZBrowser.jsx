@@ -32,13 +32,65 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
     const [difficultyFilter, setDifficultyFilter] = useState('all');
     const [loadingId, setLoadingId] = useState(null);
 
-    // Load solved problems from localStorage
-    useEffect(() => {
-        const saved = localStorage.getItem('a2z_solved');
-        if (saved) {
-            setSolvedProblems(new Set(JSON.parse(saved)));
+    // Build a reverse map: titleSlug -> a2zId (for DB sync)
+    const slugToA2zId = useMemo(() => {
+        const map = {};
+        const cacheProblems = a2zCache.problems || {};
+        for (const [a2zId, cached] of Object.entries(cacheProblems)) {
+            if (cached.titleSlug) {
+                map[cached.titleSlug] = a2zId;
+            }
         }
+        // Also map from URL for problems not in cache
+        for (const topic of a2zData) {
+            for (const prob of topic.problems) {
+                const slug = extractSlug(prob.url, (prob.provider || prob.platform || '').toLowerCase());
+                if (slug && !map[slug]) {
+                    map[slug] = prob.id;
+                }
+            }
+        }
+        return map;
     }, []);
+
+    // Load solved problems from localStorage + sync from DB
+    useEffect(() => {
+        // 1. Load manual toggles from localStorage
+        const saved = localStorage.getItem('a2z_solved');
+        const localSolved = saved ? new Set(JSON.parse(saved)) : new Set();
+        setSolvedProblems(localSolved);
+
+        // 2. Fetch accepted submissions from DB and auto-mark
+        const token = localStorage.getItem('codeplay_token');
+        if (!token) return;
+
+        fetch(`${API_URL}/api/submissions/solved?platform=leetcode`, {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.solved && data.solved.length > 0) {
+                    const merged = new Set(localSolved);
+                    let newCount = 0;
+
+                    for (const titleSlug of data.solved) {
+                        // Map titleSlug back to A2Z problem ID
+                        const a2zId = slugToA2zId[titleSlug];
+                        if (a2zId && !merged.has(a2zId)) {
+                            merged.add(a2zId);
+                            newCount++;
+                        }
+                    }
+
+                    if (newCount > 0) {
+                        console.log(`[A2ZBrowser] Auto-marked ${newCount} problems as solved from DB`);
+                        setSolvedProblems(merged);
+                        localStorage.setItem('a2z_solved', JSON.stringify([...merged]));
+                    }
+                }
+            })
+            .catch(err => console.error("[A2ZBrowser] Failed to fetch solved from DB:", err));
+    }, [slugToA2zId]);
 
     // Calculate stats
     const stats = useMemo(() => {
