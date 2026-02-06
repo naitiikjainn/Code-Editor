@@ -17,12 +17,15 @@ import submissionRoutes from "./routes/submissionRoutes.js";
 import profileRoutes from "./routes/profile.js";
 import livekitRoutes from "./routes/livekit.js";
 import friendsRoutes from "./routes/friends.js";
+import csesRoutes from "./routes/cses.js";
 import socketHandler from "./socket/socketHandler.js";
+import { initCSESJudgeWorker, setIO as setJudgeIO } from "./workers/csesJudgeWorker.js";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { WebSocketServer } from 'ws';
 import { createRequire } from 'module';
 import Room from "./models/Room.js";
+import * as cheerio from "cheerio";
 
 // Performance middleware imports
 import { requestTiming, getMetrics } from "./middleware/performance.js";
@@ -197,6 +200,7 @@ app.use("/api/submissions", submissionRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/livekit", livekitRoutes);
 app.use("/api/friends", friendsRoutes);
+app.use("/api/cses", csesRoutes);
 
 // --- MONITORING ENDPOINTS ---
 // Health check endpoint
@@ -223,23 +227,132 @@ app.post("/api/circuits/:name/reset", authMiddleware, (req, res) => {
   }
 });
 
-app.get("/api/proxy/codechef/:handle", async (req, res) => {
+app.get("/api/proxy/codechef/:handle", cacheMiddleware({ ttl: 900 }), async (req, res) => {
   try {
     const { handle } = req.params;
-    const response = await fetch(`https://codechef-api.vercel.app/handle/${handle}`);
+    const response = await fetch(`https://www.codechef.com/users/${encodeURIComponent(handle)}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    });
 
     if (!response.ok) {
-      // Return empty data instead of error - graceful degradation
-      console.warn(`CodeChef API returned ${response.status} for handle ${handle}`);
+      console.warn(`CodeChef scrape returned ${response.status} for handle ${handle}`);
       return res.json({ ratingData: [], success: false });
     }
 
-    const data = await response.json();
-    res.json(data);
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    // Extract current rating
+    const ratingText = $('.rating-number').first().text().trim();
+    const currentRating = parseInt(ratingText) || 0;
+
+    // Derive stars from rating
+    const starCount = currentRating >= 2500 ? 7 : currentRating >= 2200 ? 6 : currentRating >= 2000 ? 5 :
+      currentRating >= 1800 ? 4 : currentRating >= 1600 ? 3 : currentRating >= 1400 ? 2 : 1;
+    const stars = currentRating > 0 ? `${starCount}★` : '-';
+
+    // Extract highest rating
+    let highestRating = 0;
+    $('small').each((_, el) => {
+      const text = $(el).text();
+      const match = text.match(/Highest Rating\s*(\d+)/i);
+      if (match) highestRating = parseInt(match[1]);
+    });
+    if (!highestRating) {
+      const bodyText = $('body').text();
+      const hMatch = bodyText.match(/Highest Rating[:\s]*(\d+)/i);
+      if (hMatch) highestRating = parseInt(hMatch[1]);
+    }
+
+    // Extract global rank
+    let globalRank = '-';
+    const bodyText = $('body').text();
+    const globalMatch = bodyText.match(/Global Rank[:\s]*(\d+)/i);
+    if (globalMatch) globalRank = parseInt(globalMatch[1]);
+
+    // Extract country rank
+    let countryRank = '-';
+    const countryMatch = bodyText.match(/Country Rank[:\s]*(\d+)/i);
+    if (countryMatch) countryRank = parseInt(countryMatch[1]);
+
+    // Extract rating history from embedded JS
+    let ratingData = [];
+    const scriptTags = $('script').toArray();
+    for (const script of scriptTags) {
+      const content = $(script).html() || '';
+      const ratingMatch = content.match(/var\s+all_rating\s*=\s*(\[[\s\S]*?\]);/);
+      if (ratingMatch) {
+        try { ratingData = JSON.parse(ratingMatch[1]); } catch (e) { /* ignore parse errors */ }
+        break;
+      }
+    }
+
+    res.json({
+      success: true,
+      currentRating,
+      rating: currentRating,
+      highestRating: highestRating || currentRating,
+      stars,
+      globalRank,
+      countryRank,
+      ratingData,
+    });
   } catch (error) {
-    console.error("CodeChef Proxy Error:", error.message);
-    // Graceful degradation - return empty data
+    console.error("CodeChef Scrape Error:", error.message);
     res.json({ ratingData: [], success: false });
+  }
+});
+
+// GitHub API Proxy
+app.get("/api/proxy/github/:username", cacheMiddleware({ ttl: 900 }), async (req, res) => {
+  try {
+    const { username } = req.params;
+    const headers = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'CodePlay-App'
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
+    }
+
+    const userResponse = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, { headers });
+
+    if (!userResponse.ok) {
+      console.warn(`GitHub API returned ${userResponse.status} for user ${username}`);
+      return res.json({ success: false });
+    }
+
+    const userData = await userResponse.json();
+
+    // Fetch repos to compute total stars
+    let totalStars = 0;
+    try {
+      const reposResponse = await fetch(
+        `https://api.github.com/users/${encodeURIComponent(username)}/repos?per_page=100&sort=stargazers_count&direction=desc`,
+        { headers }
+      );
+      if (reposResponse.ok) {
+        const repos = await reposResponse.json();
+        totalStars = repos.reduce((sum, repo) => sum + (repo.stargazers_count || 0), 0);
+      }
+    } catch (e) {
+      console.warn("GitHub stars fetch failed:", e.message);
+    }
+
+    res.json({
+      success: true,
+      public_repos: userData.public_repos || 0,
+      followers: userData.followers || 0,
+      following: userData.following || 0,
+      totalStars,
+    });
+  } catch (error) {
+    console.error("GitHub Proxy Error:", error.message);
+    res.json({ success: false });
   }
 });
 
@@ -305,6 +418,24 @@ app.use(errorHandler);
 
 // Initialize Socket.IO logic
 socketHandler(io);
+
+// Set up Socket.IO user rooms for CSES judge notifications
+io.on("connection", (socket) => {
+  socket.on("join_user_room", ({ userId }) => {
+    if (userId) {
+      socket.join(`user:${userId}`);
+    }
+  });
+});
+
+// Initialize CSES Judge Worker
+setJudgeIO(io);
+try {
+  initCSESJudgeWorker();
+  console.log("✅ CSES Judge Worker initialized");
+} catch (err) {
+  console.warn("⚠️ CSES Judge Worker initialization failed (Redis may be unavailable):", err.message);
+}
 
 const PORT = process.env.PORT || 5000;
 

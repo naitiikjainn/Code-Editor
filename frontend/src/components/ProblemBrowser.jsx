@@ -181,6 +181,22 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                     console.log(`[ProblemBrowser] LeetCode total: ${merged.size} solved problems`);
                 }
             });
+        } else if (provider === "cses") {
+            // Fetch CSES progress from our backend
+            const token = localStorage.getItem("codeplay_token");
+            if (!token) return;
+            fetch(`${API_URL}/api/cses/progress`, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.progress) {
+                        setCsesProgress(data.progress);
+                        setCsesTotalSolved(data.totalSolved || 0);
+                        setCsesTotalAttempted(data.totalAttempted || 0);
+                    }
+                })
+                .catch(err => console.error("[ProblemBrowser] CSES progress fetch error:", err));
         }
     }, [provider, user]);
     
@@ -210,6 +226,9 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     
     // --- CSES ACCORDION STATE ---
     const [expandedCategories, setExpandedCategories] = useState({}); // { "Introductory Problems": true }
+    const [csesProgress, setCsesProgress] = useState({}); // { taskId: { status, attempts } }
+    const [csesTotalSolved, setCsesTotalSolved] = useState(0);
+    const [csesTotalAttempted, setCsesTotalAttempted] = useState(0);
 
     const toggleCategory = (name) => {
         setExpandedCategories(prev => ({ ...prev, [name]: !prev[name] }));
@@ -570,17 +589,35 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                         </span>
                     )}
                     {provider === "cses" && cfProblems.length > 0 && (
-                        <span style={{ 
-                            fontSize: "11px", 
-                            padding: "4px 10px", 
-                            background: "rgba(234, 88, 12, 0.15)", 
-                            border: "1px solid rgba(234, 88, 12, 0.2)",
-                            borderRadius: "20px", 
-                            color: "#fb923c",
-                            fontWeight: "600"
-                        }}>
-                            {cfProblems.reduce((acc, cat) => acc + cat.problems.length, 0)} problems
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{
+                                fontSize: "11px",
+                                padding: "4px 10px",
+                                background: "rgba(234, 88, 12, 0.15)",
+                                border: "1px solid rgba(234, 88, 12, 0.2)",
+                                borderRadius: "20px",
+                                color: "#fb923c",
+                                fontWeight: "600"
+                            }}>
+                                {cfProblems.reduce((acc, cat) => acc + cat.problems.length, 0)} problems
+                            </span>
+                            {csesTotalSolved > 0 && (
+                                <span style={{
+                                    fontSize: "11px",
+                                    padding: "4px 10px",
+                                    background: "rgba(34, 197, 94, 0.12)",
+                                    border: "1px solid rgba(34, 197, 94, 0.2)",
+                                    borderRadius: "20px",
+                                    color: "#4ade80",
+                                    fontWeight: "600",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px"
+                                }}>
+                                    <CheckCircle2 size={11} /> {csesTotalSolved} solved
+                                </span>
+                            )}
+                        </div>
                     )}
                 </div>
 
@@ -846,15 +883,20 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                              // But we can't add hooks inside map. 
                              // We need to move this mapping to a separate component or add state at top.
                              
-                             const isExpanded = expandedCategories[category.name]; // Need to add this state
+                             const isExpanded = expandedCategories[category.name];
+
+                             // Calculate category progress
+                             const catSolved = catProblems.filter(p => csesProgress[p.index]?.status === "solved").length;
+                             const catAttempted = catProblems.filter(p => csesProgress[p.index]?.status === "attempted").length;
+                             const catProgressPct = catProblems.length > 0 ? (catSolved / catProblems.length) * 100 : 0;
 
                              return (
                                  <div key={catIdx} style={{ marginBottom: "0px" }}>
                                      {/* Category Header */}
-                                     <div 
+                                     <div
                                         onClick={() => toggleCategory(category.name)}
-                                        style={{ 
-                                            padding: "12px 16px", background: "rgba(255,255,255,0.03)", 
+                                        style={{
+                                            padding: "12px 16px", background: "rgba(255,255,255,0.03)",
                                             borderBottom: "1px solid rgba(255,255,255,0.05)",
                                             display: "flex", alignItems: "center", gap: "8px",
                                             fontSize: "13px", fontWeight: "700", color: "#e4e4e7",
@@ -866,29 +908,66 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                          <div style={{ transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "flex" }}>
                                             <ChevronDown size={14} color="#6b7280" />
                                          </div>
-                                         {category.name}
-                                         <span style={{ fontSize: "10px", color: "#71717a", marginLeft: "auto" }}>{catProblems.length}</span>
+                                         <span style={{ flex: 1 }}>{category.name}</span>
+                                         {/* Category Progress */}
+                                         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+                                             {catSolved > 0 && (
+                                                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                     <div style={{ width: "40px", height: "3px", borderRadius: "2px", background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                                                         <div style={{ width: `${catProgressPct}%`, height: "100%", borderRadius: "2px", background: catProgressPct === 100 ? "#4ade80" : "#ea580c", transition: "width 0.3s" }} />
+                                                     </div>
+                                                     <span style={{ fontSize: "10px", color: catProgressPct === 100 ? "#4ade80" : "#71717a", fontWeight: "600" }}>{catSolved}/{catProblems.length}</span>
+                                                 </div>
+                                             )}
+                                             {catSolved === 0 && (
+                                                 <span style={{ fontSize: "10px", color: "#71717a" }}>{catProblems.length}</span>
+                                             )}
+                                         </div>
                                      </div>
                                      
                                      {/* Problems List */}
                                      {isExpanded && (
                                      <div style={{ background: "rgba(0,0,0,0.2)" }}>
-                                         {catProblems.map((p) => (
-                                             <div 
+                                         {catProblems.map((p) => {
+                                             const pStatus = csesProgress[p.index]?.status;
+                                             const isSolved = pStatus === "solved";
+                                             const isAttempted = pStatus === "attempted";
+                                             const rowBg = isSolved ? "rgba(34, 197, 94, 0.05)" : (isAttempted ? "rgba(251, 191, 36, 0.04)" : "transparent");
+
+                                             return (
+                                             <div
                                                 key={p.index}
                                                 onClick={() => handleOpen(p)}
-                                                style={{ 
-                                                    display: "flex", alignItems: "center", padding: "8px 16px 8px 36px", 
-                                                    borderBottom: "1px solid rgba(255,255,255,0.02)", cursor: "pointer", 
-                                                    transition: "background 0.2s"
+                                                style={{
+                                                    display: "flex", alignItems: "center", padding: "8px 16px 8px 36px",
+                                                    borderBottom: "1px solid rgba(255,255,255,0.02)", cursor: "pointer",
+                                                    transition: "background 0.2s",
+                                                    background: rowBg
                                                 }}
-                                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.03)"}
-                                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = isSolved ? "rgba(34, 197, 94, 0.1)" : (isAttempted ? "rgba(251, 191, 36, 0.08)" : "rgba(255,255,255,0.03)")}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = rowBg}
                                              >
-                                                 <div style={{ flex: 1, fontSize: "12px", color: "#a1a1aa" }}>{p.name}</div>
-                                                 <div style={{ background: "rgba(234, 88, 12, 0.1)", color: "#ea580c", fontSize: "10px", padding: "2px 6px", borderRadius: "4px" }}>Solve</div>
+                                                 {/* Status Icon */}
+                                                 <div style={{ width: "20px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", marginRight: "6px" }}>
+                                                     {openingId === p.index ? (
+                                                         <Loader2 className="animate-spin" size={12} style={{ color: "#6b7280" }} />
+                                                     ) : isSolved ? (
+                                                         <CheckCircle2 size={13} color="#4ade80" />
+                                                     ) : isAttempted ? (
+                                                         <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#fbbf24" }} />
+                                                     ) : null}
+                                                 </div>
+                                                 <div style={{ flex: 1, fontSize: "12px", color: isSolved ? "#86efac" : (isAttempted ? "#e4e4e7" : "#a1a1aa") }}>{p.name}</div>
+                                                 <div style={{
+                                                     background: isSolved ? "rgba(34, 197, 94, 0.1)" : "rgba(234, 88, 12, 0.1)",
+                                                     color: isSolved ? "#4ade80" : "#ea580c",
+                                                     fontSize: "10px", padding: "2px 6px", borderRadius: "4px"
+                                                 }}>
+                                                     {isSolved ? "Solved" : "Solve"}
+                                                 </div>
                                              </div>
-                                         ))}
+                                             );
+                                         })}
                                      </div>
                                      )}
                                  </div>

@@ -10,7 +10,24 @@ const SubmissionSchema = new mongoose.Schema({
     code: { type: String, required: true },
     language: { type: String, required: true }, // "cpp", "python", "javascript"
 
-    verdict: { type: String, required: true }, // "Accepted", "Wrong Answer", "Compilation Error"
+    verdict: { type: String, required: true }, // "Accepted", "Wrong Answer", "Compilation Error", "Judging"
+
+    // CSES judge detailed results
+    judgeResult: {
+        totalTests: { type: Number },
+        passedTests: { type: Number },
+        firstFailedTest: { type: Number, default: null },
+        firstFailedInput: { type: String, default: null },     // truncated to 500 chars
+        firstFailedExpected: { type: String, default: null },   // truncated to 500 chars
+        firstFailedActual: { type: String, default: null },     // truncated to 500 chars
+        executionTime: { type: Number },                        // max across all tests (ms)
+        memoryUsed: { type: Number },                           // max across all tests (KB)
+        testResults: [{
+            testNumber: { type: Number },
+            verdict: { type: String },                          // AC|WA|TLE|MLE|RE|CE
+            time: { type: Number },
+        }]
+    },
 
     visibility: {
         type: String,

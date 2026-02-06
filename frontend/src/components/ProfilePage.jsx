@@ -64,7 +64,8 @@ export default function ProfilePage() {
   const [lcStats, setLcStats] = useState(null);
   const [ccStats, setCcStats] = useState(null);
   const [ccHistory, setCcHistory] = useState([]);
-  const [loadingStates, setLoadingStates] = useState({ cf: false, lc: false, cc: false });
+  const [ghStats, setGhStats] = useState(null);
+  const [loadingStates, setLoadingStates] = useState({ cf: false, lc: false, cc: false, gh: false });
   const [graphSource, setGraphSource] = useState("codeforces");
 
   // Social
@@ -95,6 +96,7 @@ export default function ProfilePage() {
       if (data.platforms?.codeforces) { setLoadingStates(p => ({ ...p, cf: true })); fetchCFStats(data.platforms.codeforces); }
       if (data.platforms?.leetcode) { setLoadingStates(p => ({ ...p, lc: true })); fetchLCStats(data.platforms.leetcode); }
       if (data.platforms?.codechef) { setLoadingStates(p => ({ ...p, cc: true })); fetchCCStats(data.platforms.codechef); }
+      if (data.platforms?.github) { setLoadingStates(p => ({ ...p, gh: true })); fetchGHStats(data.platforms.github); }
       fetchFriends();
       fetchFriendRequests();
     } catch (err) { console.error("Profile fetch error:", err); }
@@ -139,18 +141,34 @@ export default function ProfilePage() {
     try {
       const res = await fetch(`${API_URL}/api/proxy/codechef/${handle}`);
       const data = await res.json();
-      if (data) {
-        setCcStats(data);
-        if (Array.isArray(data.ratingData)) {
+      if (data && data.success !== false) {
+        setCcStats({
+          currentRating: data.currentRating || data.rating || 0,
+          highestRating: data.highestRating || 0,
+          stars: data.stars || '-',
+          globalRank: data.globalRank || '-',
+          ...data
+        });
+        if (Array.isArray(data.ratingData) && data.ratingData.length > 0) {
           setCcHistory(data.ratingData.map(item => ({
-            newRating: parseInt(item.rating) || 0, oldRating: 0,
-            contestName: item.name || "Contest",
-            ratingUpdateTimeSeconds: new Date(item.end_date).getTime() / 1000
-          })).sort((a, b) => a.ratingUpdateTimeSeconds - b.ratingUpdateTimeSeconds));
+            newRating: parseInt(item.rating || item.code) || 0, oldRating: 0,
+            contestName: item.name || item.getcode || "Contest",
+            ratingUpdateTimeSeconds: new Date(item.end_date || item.getyear).getTime() / 1000
+          })).filter(x => !isNaN(x.ratingUpdateTimeSeconds))
+            .sort((a, b) => a.ratingUpdateTimeSeconds - b.ratingUpdateTimeSeconds));
         }
       }
     } catch (e) { console.error("CC Stats Error:", e); }
     finally { setLoadingStates(p => ({ ...p, cc: false })); }
+  };
+
+  const fetchGHStats = async (username) => {
+    try {
+      const res = await fetch(`${API_URL}/api/proxy/github/${username}`);
+      const data = await res.json();
+      if (data && data.success) setGhStats(data);
+    } catch (e) { console.error("GH Stats Error:", e); }
+    finally { setLoadingStates(p => ({ ...p, gh: false })); }
   };
 
   const fetchFriends = async () => {
@@ -219,7 +237,7 @@ export default function ProfilePage() {
       cfContests: cfHistory.length, ccContests: ccHistory.length,
       localSubmissions: localCount, localAccepted: localAcc
     };
-  }, [cfSubmissions, submissions, lcStats, cfHistory, ccHistory]);
+  }, [cfSubmissions, submissions, lcStats, cfHistory, ccHistory, ghStats]);
 
   const ratingColor = (r) => { if (!r) return c.textDim; if (r < 1200) return "#71717a"; if (r < 1400) return "#22c55e"; if (r < 1600) return "#06b6d4"; if (r < 1900) return "#3b82f6"; if (r < 2100) return "#a855f7"; if (r < 2400) return "#f59e0b"; return "#ef4444"; };
   const ratingTitle = (r) => { if (!r) return "Unrated"; if (r < 1200) return "Newbie"; if (r < 1400) return "Pupil"; if (r < 1600) return "Specialist"; if (r < 1900) return "Expert"; if (r < 2100) return "Candidate Master"; if (r < 2400) return "Master"; if (r < 2600) return "Intl. Master"; if (r < 3000) return "Grandmaster"; return "Legendary GM"; };
@@ -328,6 +346,7 @@ export default function ProfilePage() {
                   { icon: <Trophy size={14} color={c.yellow} />, val: stats.cfContests + stats.ccContests, label: "contests" },
                   { icon: <Users size={14} color={c.blue} />, val: friends.length, label: "friends" },
                   { icon: <Flame size={14} color={c.orange} />, val: stats.activeDays, label: "active days" },
+                  ...(ghStats ? [{ icon: <Github size={14} color="#e4e4e7" />, val: ghStats.public_repos, label: "repos" }] : []),
                 ].map((s, i) => (
                   <span key={i} style={{ color: c.textDim, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
                     {s.icon} <strong style={{ color: c.text }}>{s.val}</strong> {s.label}
@@ -349,6 +368,13 @@ export default function ProfilePage() {
                 <div className="pcard" style={{ padding: "16px 20px", textAlign: "center", minWidth: 110 }}>
                   <div style={{ fontSize: 22, fontWeight: 700, color: c.yellow }}>#{lcStats.ranking.toLocaleString()}</div>
                   <div style={{ fontSize: 11, color: c.textDark, marginTop: 2 }}>LC Rank</div>
+                </div>
+              )}
+              {ghStats && (
+                <div className="pcard" style={{ padding: "16px 20px", textAlign: "center", minWidth: 110 }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: "#e4e4e7" }}>{ghStats.public_repos}</div>
+                  <div style={{ fontSize: 11, color: c.textDark, marginTop: 2 }}>GH Repos</div>
+                  <div style={{ fontSize: 10, color: c.textDim }}>{ghStats.followers} followers</div>
                 </div>
               )}
             </div>
@@ -390,7 +416,9 @@ export default function ProfilePage() {
                 stats={ccStats?.currentRating || ccStats?.rating ? [{ label: "Rating", value: ccStats.currentRating || ccStats.rating || "-" }, { label: "Stars", value: ccStats.stars || "-" }, { label: "Contests", value: ccHistory.length }, { label: "Global", value: ccStats.globalRank || "-" }] : null}
                 apiError={!loadingStates.cc && profile.platforms?.codechef && !ccStats?.currentRating && !ccStats?.rating}
                 link={profile.platforms?.codechef ? `https://www.codechef.com/users/${profile.platforms.codechef}` : null} />
-              <PlatformCard name="GitHub" handle={profile.platforms?.github} icon={<Github size={18} />} color="#e4e4e7" isEditing={isEditing} editValue={editGH} onEditChange={setEditGH}
+              <PlatformCard name="GitHub" handle={profile.platforms?.github} icon={<Github size={18} />} color="#e4e4e7" loading={loadingStates.gh} isEditing={isEditing} editValue={editGH} onEditChange={setEditGH}
+                stats={ghStats ? [{ label: "Repos", value: ghStats.public_repos || 0 }, { label: "Followers", value: ghStats.followers || 0 }, { label: "Following", value: ghStats.following || 0 }, { label: "Stars", value: ghStats.totalStars ?? "-", color: c.yellow }] : null}
+                apiError={!loadingStates.gh && profile.platforms?.github && !ghStats}
                 link={profile.platforms?.github ? `https://github.com/${profile.platforms.github}` : null} />
             </div>
 
@@ -556,7 +584,7 @@ const SectionHeader = ({ icon, title, compact }) => (
 );
 
 const PlatformCard = ({ name, handle, icon, color, loading, isEditing, editValue, onEditChange, stats: platformStats, link, apiError }) => (
-  <div className="pcard" style={{ padding: 20 }}>
+  <div className="pcard" style={{ padding: 20, minHeight: 140, display: "flex", flexDirection: "column" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
       <div style={{ width: 38, height: 38, borderRadius: 10, background: `${color}12`, color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>
         {typeof icon === 'string' ? icon : icon}

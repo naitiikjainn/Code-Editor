@@ -32,6 +32,7 @@ import Whiteboard from "./Whiteboard";
 import VoicePanel from "./VoicePanel";
 import RecordingPanel, { CountdownOverlay, RecordingPreview } from "./RecordingPanel";
 import RecordingIndicator from "./RecordingIndicator";
+import CSESResultModal from "./CSESResultModal";
 import { useScreenRecording } from "../hooks/useScreenRecording";
 import { stringToColor } from "../utils/colors";
 
@@ -162,6 +163,9 @@ export default function Workspace() {
   }, [testCases]);
   const [isRunningTests, setIsRunningTests] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [csesResultModalOpen, setCSESResultModalOpen] = useState(false);
+  const [csesResultModalData, setCSESResultModalData] = useState(null);
+  const [csesResultModalSubmissionId, setCSESResultModalSubmissionId] = useState(null);
 
   // EXTENSION DETECTION
   const EXTENSION_URL = "https://chromewebstore.google.com/detail/codeplay-helper/gnolnmfmmdpfdjilggmgkllbchhmdgpb";
@@ -996,50 +1000,132 @@ export default function Workspace() {
 
     // --- CSES SUBMISSION ---
     if (rightPanel.data.provider === "cses") {
-        submissionInProgressRef.current = false; // Reset for early returns
-        setIsSubmitting(false);
-        const problemId = rightPanel.data.id || rightPanel.data.index; // CSES uses .id, fall back if needed
-        
-        // TEMPORARY: Disable CSES Submission
-        setLogs(prev => [...prev, { type: "warning", message: "CSES submission is not available for the moment." }]);
+        const problemId = rightPanel.data.id || rightPanel.data.index;
+        const problemName = rightPanel.data.title || rightPanel.data.name || `CSES Task ${problemId}`;
+        const lang = activeFile?.language || "cpp";
+        const token = localStorage.getItem("codeplay_token");
+
+        if (!token) {
+            setLogs(prev => [...prev, { type: "error", message: "Please log in to submit CSES solutions." }]);
+            setConsoleOpen(true);
+            submissionInProgressRef.current = false;
+            setIsSubmitting(false);
+            return;
+        }
+
+        setLogs(prev => [...prev, { type: "info", message: `[CSES Judge] Submitting ${problemName}...` }]);
         setConsoleOpen(true);
-        return;
-        
-        const payload = {
-            problemId,
-            code: activeCode
-        };
 
-        const handleResult = (event) => {
-            if (event.data.type === "CODEPLAY_CSES_SUBMIT_RESULT") {
-                window.removeEventListener("message", handleResult);
-                const res = event.data.payload || { success: false, error: "No response from extension" };
-                setIsSubmitting(false);
+        try {
+            const res = await fetch(`${API_URL}/api/cses/submit`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    taskId: String(problemId),
+                    code: activeCode,
+                    language: lang,
+                    problemName,
+                    timeLimit: rightPanel.data.timeLimit,
+                    memoryLimit: rightPanel.data.memoryLimit,
+                })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok || !data.success) {
+                setLogs(prev => [...prev, { type: "error", message: `CSES Submit Failed: ${data.error || "Unknown error"}` }]);
                 submissionInProgressRef.current = false;
-
-                if (res.success) {
-                     setLogs(prev => [...prev, { type: "success", message: `CSES: ${res.message}` }]);
-                } else {
-                     setLogs(prev => [...prev, { type: "error", message: `CSES Failed: ${res.error}` }]);
-                }
+                setIsSubmitting(false);
+                return;
             }
-        };
 
-        window.addEventListener("message", handleResult);
-        window.postMessage({ type: "CODEPLAY_SUBMIT_CSES", payload }, "*");
+            const submissionId = data.submissionId;
+            setLogs(prev => [...prev, { type: "info", message: `[CSES Judge] Judging started (ID: ${submissionId.slice(-6)})...` }]);
 
-        // Timeout
-        setTimeout(() => {
-             window.removeEventListener("message", handleResult);
-             setIsSubmitting(prev => {
-                 if (prev) { 
-                     setLogs(p => [...p, { type: "error", message: "Submission Failed: Extension Disconnected. Check if Extension is active." }]);
-                     return false;
-                 }
-                 return prev;
-             });
-        }, 10000);
-        
+            // Join user room for real-time updates
+            if (user?.id) {
+                socket.emit("join_user_room", { userId: user.id });
+            }
+
+            // Listen for progress updates
+            const handleProgress = (progressData) => {
+                if (progressData.submissionId !== submissionId) return;
+                const { testNumber, totalTests, verdict, passed, time } = progressData;
+                if (testNumber === 0) return; // Initial "Judging" event
+
+                const icon = verdict === "AC" ? "\u2713" : "\u2717";
+                const type = verdict === "AC" ? "success" : "error";
+                const verdictText = verdict === "AC" ? "Accepted" : verdict === "WA" ? "Wrong Answer" : verdict === "TLE" ? "Time Limit Exceeded" : verdict === "MLE" ? "Memory Limit Exceeded" : verdict === "RE" ? "Runtime Error" : verdict === "CE" ? "Compilation Error" : verdict;
+
+                setLogs(prev => [...prev, {
+                    type,
+                    message: `[Test ${testNumber}/${totalTests}] ${icon} ${verdictText}${time ? ` (${time}ms)` : ""}`
+                }]);
+            };
+
+            const handleResult = (resultData) => {
+                if (resultData.submissionId !== submissionId) return;
+
+                // Clean up listeners
+                socket.off("cses:judge:progress", handleProgress);
+                socket.off("cses:judge:result", handleResult);
+
+                const { verdict, judgeResult } = resultData;
+                const isAccepted = verdict === "Accepted";
+
+                setLogs(prev => [...prev, {
+                    type: isAccepted ? "success" : "error",
+                    message: `\n${"─".repeat(40)}\n[CSES Judge] Final Verdict: ${verdict}${judgeResult ? ` (${judgeResult.passedTests}/${judgeResult.totalTests} tests passed)` : ""}${judgeResult?.executionTime ? ` | Max time: ${judgeResult.executionTime}ms` : ""}${judgeResult?.error ? `\n${judgeResult.error}` : ""}`
+                }]);
+
+                // Show first failed test details on failure
+                if (!isAccepted && judgeResult?.firstFailedInput) {
+                    setLogs(prev => [...prev, {
+                        type: "info",
+                        message: `\u2500\u2500 First Failed Test (#${judgeResult.firstFailedTest}) \u2500\u2500\nInput:    ${judgeResult.firstFailedInput}\nExpected: ${judgeResult.firstFailedExpected}\nGot:      ${judgeResult.firstFailedActual}`
+                    }]);
+                }
+
+                // Open CSES Result Modal
+                setCSESResultModalData({
+                    _id: submissionId,
+                    problemId: String(problemId),
+                    problemName,
+                    code: activeCodeRef.current,
+                    language: lang,
+                    verdict,
+                    judgeResult,
+                    createdAt: new Date().toISOString(),
+                });
+                setCSESResultModalOpen(true);
+
+                submissionInProgressRef.current = false;
+                setIsSubmitting(false);
+            };
+
+            socket.on("cses:judge:progress", handleProgress);
+            socket.on("cses:judge:result", handleResult);
+
+            // Timeout fallback (5 minutes)
+            setTimeout(() => {
+                socket.off("cses:judge:progress", handleProgress);
+                socket.off("cses:judge:result", handleResult);
+                if (submissionInProgressRef.current) {
+                    setLogs(prev => [...prev, { type: "error", message: "[CSES Judge] Judging timed out. Check your submissions page." }]);
+                    submissionInProgressRef.current = false;
+                    setIsSubmitting(false);
+                }
+            }, 5 * 60 * 1000);
+
+        } catch (err) {
+            setLogs(prev => [...prev, { type: "error", message: `CSES Submit Error: ${err.message}` }]);
+            submissionInProgressRef.current = false;
+            setIsSubmitting(false);
+        }
+
         return;
     }
 
@@ -2514,6 +2600,20 @@ rl.on('line', (line) => {
           to { transform: translateX(0); opacity: 1; }
         }
       `}</style>
+
+      {/* CSES Result Modal */}
+      <CSESResultModal
+        isOpen={csesResultModalOpen}
+        onClose={() => {
+          setCSESResultModalOpen(false);
+          setCSESResultModalData(null);
+          setCSESResultModalSubmissionId(null);
+        }}
+        submission={csesResultModalData}
+        submissionId={csesResultModalSubmissionId}
+        problemId={csesResultModalData?.problemId || null}
+        user={user}
+      />
     </ErrorBoundary>
   );
 }

@@ -46,6 +46,17 @@ codeforces-problems/editorials/
 backend/scripts/scraper_log.txt
 
 # ===========================
+# CSES Test Cases (4GB+ downloaded via script)
+# ===========================
+backend/cses-tests/
+
+# ===========================
+# Claude temp files
+# ===========================
+tmpclaude-*
+NUL
+
+# ===========================
 # Debug / Temp Artifacts
 # ===========================
 *.zip
