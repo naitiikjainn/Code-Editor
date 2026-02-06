@@ -1,0 +1,1411 @@
+{
+	"info": {
+		"_postman_id": "codeplay-api-v2",
+		"name": "CodePlay API",
+		"description": "Complete API collection for CodePlay — Real-time Collaborative Code Editor.\n\n## Setup\n1. Import this collection\n2. Import the `CodePlay.postman_environment.json` environment file\n3. Set `BASE_URL` to your backend URL (default: http://localhost:5000)\n4. Register or Login — tokens are auto-saved\n5. Start testing!\n\n## Authentication\nMost endpoints require a JWT Bearer token. After calling Login or Register, the token is automatically saved to the `AUTH_TOKEN` environment variable via the Tests script.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "BASE_URL",
+			"value": "http://localhost:5000",
+			"type": "default"
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{AUTH_TOKEN}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"description": "User registration, login, password reset, and token management.",
+			"item": [
+				{
+					"name": "Register",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const json = pm.response.json();",
+									"    pm.environment.set('AUTH_TOKEN', json.token);",
+									"    if (json.refreshToken) pm.environment.set('REFRESH_TOKEN', json.refreshToken);",
+									"    if (json.user && json.user._id) pm.environment.set('USER_ID', json.user._id);",
+									"    if (json.user && json.user.username) pm.environment.set('USERNAME', json.user.username);",
+									"    pm.test('Registration successful', () => pm.response.to.have.status(200));",
+									"    pm.test('Token received', () => pm.expect(json.token).to.be.a('string'));",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"testuser\",\n    \"email\": \"test@example.com\",\n    \"password\": \"TestPass123\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/register",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "register"]
+						},
+						"description": "Create a new user account.\n\n**Validation:**\n- Username: required, unique\n- Email: required, unique, valid format\n- Password: required, must contain at least one letter and one number\n\n**Auto-saves:** `AUTH_TOKEN`, `REFRESH_TOKEN`, `USER_ID`, `USERNAME`"
+					}
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const json = pm.response.json();",
+									"    pm.environment.set('AUTH_TOKEN', json.token);",
+									"    if (json.refreshToken) pm.environment.set('REFRESH_TOKEN', json.refreshToken);",
+									"    if (json.user && json.user._id) pm.environment.set('USER_ID', json.user._id);",
+									"    if (json.user && json.user.username) pm.environment.set('USERNAME', json.user.username);",
+									"    pm.test('Login successful', () => pm.response.to.have.status(200));",
+									"    pm.test('Token received', () => pm.expect(json.token).to.be.a('string'));",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"test@example.com\",\n    \"password\": \"TestPass123\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/login",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "login"]
+						},
+						"description": "Authenticate with email and password.\n\n**Rate Limit:** 10 attempts per 15 minutes\n**Account Lockout:** 5 failed attempts → 15 min lock\n\n**Auto-saves:** `AUTH_TOKEN`, `REFRESH_TOKEN`, `USER_ID`, `USERNAME`"
+					}
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/me",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "me"]
+						},
+						"description": "Get the authenticated user's profile data.\n\n**Auth:** Required (Bearer Token)"
+					}
+				},
+				{
+					"name": "Forgot Password",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"test@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/forgot-password",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "forgot-password"]
+						},
+						"description": "Send a password reset email.\n\n**Note:** Always returns 200 even if email doesn't exist (prevents user enumeration).\n**Requires:** EMAIL_USER and EMAIL_PASS environment variables on the server."
+					}
+				},
+				{
+					"name": "Reset Password",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"PASTE_TOKEN_FROM_EMAIL_HERE\",\n    \"newPassword\": \"NewSecurePass456\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/reset-password",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "reset-password"]
+						},
+						"description": "Reset password using the token received via email."
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const json = pm.response.json();",
+									"    pm.environment.set('AUTH_TOKEN', json.token);",
+									"    if (json.refreshToken) pm.environment.set('REFRESH_TOKEN', json.refreshToken);",
+									"    pm.test('Token refreshed', () => pm.response.to.have.status(200));",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{REFRESH_TOKEN}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/refresh-token",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "refresh-token"]
+						},
+						"description": "Get a new access token using the refresh token.\n\n**Token Rotation:** Each refresh generates a NEW refresh token and invalidates the old one.\n\n**Auto-saves:** `AUTH_TOKEN`, `REFRESH_TOKEN`"
+					}
+				}
+			]
+		},
+		{
+			"name": "OAuth",
+			"description": "Google & GitHub OAuth authentication and account linking.\n\n**Note:** OAuth initiation endpoints (Google/GitHub login) redirect to the provider's consent screen. Test them in a browser, not Postman.",
+			"item": [
+				{
+					"name": "Google OAuth — Initiate",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/google",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "google"]
+						},
+						"description": "Redirects to Google consent screen.\n\n⚠️ **Open in browser, not Postman** — this is a redirect-based flow."
+					}
+				},
+				{
+					"name": "GitHub OAuth — Initiate",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/github",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "github"]
+						},
+						"description": "Redirects to GitHub consent screen.\n\n⚠️ **Open in browser, not Postman** — this is a redirect-based flow."
+					}
+				},
+				{
+					"name": "Check OAuth Connections",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/connections",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "connections"]
+						},
+						"description": "Check which OAuth providers are linked to the current account.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Link Google Account",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/link/google",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "link", "google"]
+						},
+						"description": "Link a Google account to the current user.\n\n⚠️ **Open in browser** — redirects to Google."
+					}
+				},
+				{
+					"name": "Link GitHub Account",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/link/github",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "link", "github"]
+						},
+						"description": "Link a GitHub account to the current user.\n\n⚠️ **Open in browser** — redirects to GitHub."
+					}
+				},
+				{
+					"name": "Unlink Google Account",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/unlink/google",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "unlink", "google"]
+						},
+						"description": "Unlink Google from your account.\n\n**Error:** Cannot unlink if it's your only login method."
+					}
+				},
+				{
+					"name": "Unlink GitHub Account",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/unlink/github",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "unlink", "github"]
+						},
+						"description": "Unlink GitHub from your account."
+					}
+				},
+				{
+					"name": "Refresh OAuth Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const json = pm.response.json();",
+									"    pm.environment.set('AUTH_TOKEN', json.token);",
+									"    if (json.refreshToken) pm.environment.set('REFRESH_TOKEN', json.refreshToken);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{REFRESH_TOKEN}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/refresh-token",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "refresh-token"]
+						},
+						"description": "Refresh the JWT token using OAuth refresh token."
+					}
+				}
+			]
+		},
+		{
+			"name": "Code Execution",
+			"description": "Execute code in a sandboxed environment via the Piston API.\n\nSupported languages: C++ (GCC 10.2), Python (3.10), Java (OpenJDK 15), JavaScript (Node 18).",
+			"item": [
+				{
+					"name": "Execute Code",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"language\": \"cpp\",\n    \"code\": \"#include <iostream>\\nusing namespace std;\\nint main() {\\n    int n;\\n    cin >> n;\\n    cout << n * 2 << endl;\\n    return 0;\\n}\",\n    \"stdin\": \"5\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/code/execute",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "code", "execute"]
+						},
+						"description": "Run code in a sandboxed environment.\n\n**Auth:** Required (Bearer Token)\n\n**Supported Languages:**\n| Value | Runtime | Version |\n|---|---|---|\n| `cpp` | GCC | 10.2.0 |\n| `python` | Python | 3.10.0 |\n| `java` | OpenJDK | 15.0.2 |\n| `javascript` | Node.js | 18.15.0 |\n\n**Body Fields:**\n- `language` (required): Language identifier\n- `code` (required): Source code to execute\n- `stdin` (optional): Standard input"
+					}
+				},
+				{
+					"name": "Execute Code — Python",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"language\": \"python\",\n    \"code\": \"n = int(input())\\nprint(n * 2)\",\n    \"stdin\": \"5\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/code/execute",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "code", "execute"]
+						},
+						"description": "Example: Execute Python code."
+					}
+				},
+				{
+					"name": "Execute Code — Java",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"language\": \"java\",\n    \"code\": \"import java.util.Scanner;\\npublic class Main {\\n    public static void main(String[] args) {\\n        Scanner sc = new Scanner(System.in);\\n        int n = sc.nextInt();\\n        System.out.println(n * 2);\\n    }\\n}\",\n    \"stdin\": \"5\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/code/execute",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "code", "execute"]
+						},
+						"description": "Example: Execute Java code."
+					}
+				},
+				{
+					"name": "Execute Code — JavaScript",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"language\": \"javascript\",\n    \"code\": \"const readline = require('readline');\\nconst rl = readline.createInterface({ input: process.stdin });\\nrl.on('line', (line) => {\\n    console.log(parseInt(line) * 2);\\n    rl.close();\\n});\",\n    \"stdin\": \"5\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/code/execute",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "code", "execute"]
+						},
+						"description": "Example: Execute JavaScript (Node.js) code."
+					}
+				}
+			]
+		},
+		{
+			"name": "Files",
+			"description": "File CRUD operations for managing code files within collaboration rooms.",
+			"item": [
+				{
+					"name": "Get Files",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/files?roomId={{ROOM_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "files"],
+							"query": [
+								{ "key": "roomId", "value": "{{ROOM_ID}}" }
+							]
+						},
+						"description": "Get all files for the current user in a specific room.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Create File",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"solution.cpp\",\n    \"language\": \"cpp\",\n    \"content\": \"#include <bits/stdc++.h>\\nusing namespace std;\\nint main() {\\n    \\n    return 0;\\n}\",\n    \"roomId\": \"{{ROOM_ID}}\",\n    \"folder\": null\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/files",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "files"]
+						},
+						"description": "Create a new code file in a room.\n\n**Auth:** Required\n\n**Body:**\n- `name`: File name with extension\n- `language`: Programming language (`cpp`, `python`, `java`, `javascript`)\n- `content`: Initial file content\n- `roomId`: Room ID where the file belongs\n- `folder`: Parent folder ID (null for root)"
+					}
+				},
+				{
+					"name": "Update File",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"content\": \"// updated code here...\",\n    \"language\": \"cpp\",\n    \"name\": \"solution_v2.cpp\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/files/{{FILE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "files", "{{FILE_ID}}"]
+						},
+						"description": "Update a file's content, name, or language.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Delete File",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/files/{{FILE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "files", "{{FILE_ID}}"]
+						},
+						"description": "Delete a file.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Rename File",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"new_name.cpp\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/files/{{FILE_ID}}/rename",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "files", "{{FILE_ID}}", "rename"]
+						},
+						"description": "Rename a file.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Create Folder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Contest Solutions\",\n    \"roomId\": \"{{ROOM_ID}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/files/folder",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "files", "folder"]
+						},
+						"description": "Create a new folder in a room.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Move File to Folder",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"folder\": \"FOLDER_ID_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/files/{{FILE_ID}}/move",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "files", "{{FILE_ID}}", "move"]
+						},
+						"description": "Move a file into a folder.\n\n**Auth:** Required\n\nSet `folder` to `null` to move back to root."
+					}
+				}
+			]
+		},
+		{
+			"name": "Rooms",
+			"description": "Collaboration room management. Rooms auto-expire after 24 hours of inactivity.",
+			"item": [
+				{
+					"name": "Create Room",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200 || pm.response.code === 201) {",
+									"    const json = pm.response.json();",
+									"    if (json.roomId) pm.environment.set('ROOM_ID', json.roomId);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"roomId\": \"test-room-123\",\n    \"host\": \"{{USERNAME}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/rooms/create",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "rooms", "create"]
+						},
+						"description": "Create a new collaboration room.\n\n**Auto-saves:** `ROOM_ID`\n\n**TTL:** Room expires 24h after last activity."
+					}
+				},
+				{
+					"name": "Get Room",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/rooms/{{ROOM_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "rooms", "{{ROOM_ID}}"]
+						},
+						"description": "Get room details including participants."
+					}
+				}
+			]
+		},
+		{
+			"name": "Problems",
+			"description": "Fetch competitive programming problems from multiple platforms: Codeforces, LeetCode, CSES, GeeksforGeeks, and AtCoder.",
+			"item": [
+				{
+					"name": "Get Codeforces Problems",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems?page=1&limit=20",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "20" },
+								{ "key": "tag", "value": "dp", "disabled": true },
+								{ "key": "minRating", "value": "1200", "disabled": true },
+								{ "key": "maxRating", "value": "1600", "disabled": true }
+							]
+						},
+						"description": "Fetch paginated Codeforces problems.\n\n**Query Params (all optional):**\n- `page`: Page number (default: 1)\n- `limit`: Items per page (default: 50)\n- `tag`: Filter by tag (e.g., dp, greedy, graphs)\n- `minRating`: Min difficulty rating\n- `maxRating`: Max difficulty rating\n\nEnable disabled params to use filters."
+					}
+				},
+				{
+					"name": "Get CF Problem by ID",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/codeforces/1890/A",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "codeforces", "1890", "A"]
+						},
+						"description": "Get a specific Codeforces problem by contest ID and index.\n\nReturns full problem content including HTML statement, sample tests, time/memory limits."
+					}
+				},
+				{
+					"name": "Random CF Problem",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/codeforces/random?tag=dp&minRating=1200&maxRating=1600",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "codeforces", "random"],
+							"query": [
+								{ "key": "tag", "value": "dp", "disabled": true },
+								{ "key": "minRating", "value": "1200", "disabled": true },
+								{ "key": "maxRating", "value": "1600", "disabled": true }
+							]
+						},
+						"description": "Get a random Codeforces problem. Optional filters for tag and rating range."
+					}
+				},
+				{
+					"name": "Search Problems",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/search?q=two sum",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "search"],
+							"query": [
+								{ "key": "q", "value": "two sum" }
+							]
+						},
+						"description": "Full-text search across all cached problems from all platforms."
+					}
+				},
+				{
+					"name": "Get LeetCode Problem",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/leetcode/two-sum",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "leetcode", "two-sum"]
+						},
+						"description": "Get a LeetCode problem by slug.\n\nReturns: title, difficulty, content (HTML), code snippets, topic tags, stats."
+					}
+				},
+				{
+					"name": "Get CSES Problem",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/cses/1068",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "cses", "1068"]
+						},
+						"description": "Get a CSES problem by ID.\n\nExample: 1068 = Weird Algorithm"
+					}
+				},
+				{
+					"name": "Get GFG Problem",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/gfg/array-leaders",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "gfg", "array-leaders"]
+						},
+						"description": "Get a GeeksforGeeks problem by slug."
+					}
+				},
+				{
+					"name": "Get AtCoder Problem",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/atcoder/abc300/abc300_a",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "atcoder", "abc300", "abc300_a"]
+						},
+						"description": "Get an AtCoder problem by contest ID and task ID.\n\nFormat: /atcoder/:contestId/:taskId"
+					}
+				},
+				{
+					"name": "Get A2Z Sheet",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/a2z/sheet",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "a2z", "sheet"]
+						},
+						"description": "Get Striver's A2Z DSA Sheet data — all topics and problems."
+					}
+				},
+				{
+					"name": "Get CP-31 Sheet",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/cp31",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "cp31"]
+						},
+						"description": "Get the CP-31 sheet data."
+					}
+				},
+				{
+					"name": "Get Problem Tags",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/tags",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "tags"]
+						},
+						"description": "Get all available problem tags for filtering."
+					}
+				},
+				{
+					"name": "Get Editorial",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/editorial/1890/A",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "editorial", "1890", "A"]
+						},
+						"description": "Get editorial for a Codeforces problem."
+					}
+				},
+				{
+					"name": "Get CF Contests",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/contests?type=upcoming",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "contests"],
+							"query": [
+								{ "key": "type", "value": "upcoming" }
+							]
+						},
+						"description": "Get Codeforces contests.\n\n`type`: `upcoming` or `past`"
+					}
+				},
+				{
+					"name": "Get CF Standings",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/standings/1890",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "standings", "1890"]
+						},
+						"description": "Get standings for a Codeforces contest."
+					}
+				},
+				{
+					"name": "Daily Problem",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/daily",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "daily"]
+						},
+						"description": "Get today's daily challenge problem."
+					}
+				},
+				{
+					"name": "Batch Fetch Problems",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"problems\": [\n        { \"platform\": \"leetcode\", \"slug\": \"two-sum\" },\n        { \"platform\": \"codeforces\", \"contestId\": 1890, \"index\": \"A\" }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/batch",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "batch"]
+						},
+						"description": "Fetch multiple problems at once from different platforms."
+					}
+				},
+				{
+					"name": "Problem Stats",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/stats",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "stats"]
+						},
+						"description": "Get database statistics (total cached problems, breakdown by platform)."
+					}
+				},
+				{
+					"name": "Problem Health Check",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/problems/health",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "problems", "health"]
+						},
+						"description": "Check the health of the problem scraping subsystem."
+					}
+				}
+			]
+		},
+		{
+			"name": "LeetCode Tools",
+			"description": "LeetCode submission proxy. Requires browser extension for session cookies.",
+			"item": [
+				{
+					"name": "Submit to LeetCode",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"slug\": \"two-sum\",\n    \"code\": \"class Solution {\\npublic:\\n    vector<int> twoSum(vector<int>& nums, int target) {\\n        unordered_map<int,int> m;\\n        for(int i=0;i<nums.size();i++){\\n            if(m.count(target-nums[i])) return {m[target-nums[i]],i};\\n            m[nums[i]]=i;\\n        }\\n        return {};\\n    }\\n};\",\n    \"language\": \"cpp\",\n    \"leetcode_session\": \"YOUR_LEETCODE_SESSION_COOKIE\",\n    \"csrf_token\": \"YOUR_CSRF_TOKEN\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/leettools/submit",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "leettools", "submit"]
+						},
+						"description": "Submit code to LeetCode.\n\n**Auth:** Required (Bearer Token)\n\n**Note:** `leetcode_session` and `csrf_token` are normally provided by the browser extension which reads them from LeetCode's cookies. To test manually:\n1. Log into LeetCode in your browser\n2. Open DevTools → Application → Cookies → leetcode.com\n3. Copy `LEETCODE_SESSION` and `csrftoken` values"
+					}
+				}
+			]
+		},
+		{
+			"name": "Submissions",
+			"description": "Submission history management — track your competitive programming submissions.",
+			"item": [
+				{
+					"name": "Get My Submissions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/submissions?page=1&limit=20",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "submissions"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "20" },
+								{ "key": "platform", "value": "codeforces", "disabled": true },
+								{ "key": "status", "value": "Accepted", "disabled": true }
+							]
+						},
+						"description": "Get the current user's submission history.\n\n**Auth:** Required\n\n**Query Params:**\n- `page`: Page number\n- `limit`: Items per page\n- `platform`: Filter (`codeforces`, `leetcode`)\n- `status`: Filter (`Accepted`, `Wrong Answer`, etc.)"
+					}
+				},
+				{
+					"name": "Create Submission",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"problemName\": \"Two Sum\",\n    \"problemId\": \"two-sum\",\n    \"platform\": \"leetcode\",\n    \"language\": \"cpp\",\n    \"code\": \"class Solution { ... }\",\n    \"status\": \"Accepted\",\n    \"runtime\": \"4 ms\",\n    \"memory\": \"8.2 MB\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/submissions",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "submissions"]
+						},
+						"description": "Record a new submission.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Get Submission by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/submissions/SUBMISSION_ID_HERE",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "submissions", "SUBMISSION_ID_HERE"]
+						},
+						"description": "Get a specific submission by its MongoDB ID."
+					}
+				},
+				{
+					"name": "Get Submission Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/submissions/stats",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "submissions", "stats"]
+						},
+						"description": "Get aggregated submission statistics.\n\n**Auth:** Required\n\nReturns: total count, accepted count, breakdown by platform and language, recent activity."
+					}
+				},
+				{
+					"name": "Delete Submission",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/submissions/SUBMISSION_ID_HERE",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "submissions", "SUBMISSION_ID_HERE"]
+						},
+						"description": "Delete a submission.\n\n**Auth:** Required"
+					}
+				}
+			]
+		},
+		{
+			"name": "Profile",
+			"description": "User profile management and public profile viewing.",
+			"item": [
+				{
+					"name": "Get User Profile",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/profile/{{USERNAME}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "profile", "{{USERNAME}}"]
+						},
+						"description": "Get a user's public profile.\n\nReturns: username, bio, avatar, platform handles, solved problems, stats."
+					}
+				},
+				{
+					"name": "Update My Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"bio\": \"CP enthusiast | Codeforces Expert\",\n    \"platformHandles\": {\n        \"codeforces\": \"my_cf_handle\",\n        \"leetcode\": \"my_lc_handle\",\n        \"codechef\": \"my_cc_handle\",\n        \"atcoder\": \"my_at_handle\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/profile",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "profile"]
+						},
+						"description": "Update the authenticated user's profile.\n\n**Auth:** Required\n\n**Editable fields:** bio, platformHandles (codeforces, leetcode, codechef, atcoder)"
+					}
+				},
+				{
+					"name": "Get User Activity",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/profile/{{USERNAME}}/activity?page=1&limit=20",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "profile", "{{USERNAME}}", "activity"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "20" }
+							]
+						},
+						"description": "Get a user's recent activity feed."
+					}
+				}
+			]
+		},
+		{
+			"name": "LiveKit (Voice Chat)",
+			"description": "Generate LiveKit tokens for voice chat rooms.",
+			"item": [
+				{
+					"name": "Get Voice Token",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"roomId\": \"{{ROOM_ID}}\",\n    \"username\": \"{{USERNAME}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/livekit/token",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "livekit", "token"]
+						},
+						"description": "Generate a LiveKit token for joining a voice room.\n\n**Requires:** LIVEKIT_API_KEY, LIVEKIT_API_SECRET, and LIVEKIT_URL environment variables on the server."
+					}
+				}
+			]
+		},
+		{
+			"name": "AI Assistant",
+			"description": "AI-powered coding help using Google Gemini 2.5 Flash.",
+			"item": [
+				{
+					"name": "Ask AI",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"prompt\": \"Explain the two-pointer technique for solving the Two Sum problem\",\n    \"code\": \"\",\n    \"language\": \"cpp\",\n    \"context\": \"I'm trying to solve Two Sum on LeetCode\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/ai/ask",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "ai", "ask"]
+						},
+						"description": "Get AI-powered help for competitive programming.\n\n**Body:**\n- `prompt` (required): Your question\n- `code` (optional): Current code for context\n- `language` (optional): Programming language\n- `context` (optional): Additional context\n\n**Response:** Markdown-formatted explanation with code examples.\n\n**Requires:** GEMINI_API_KEY environment variable on the server."
+					}
+				}
+			]
+		},
+		{
+			"name": "Code Sharing",
+			"description": "Share code snippets with short URLs. Shared codes expire after 7 days.",
+			"item": [
+				{
+					"name": "Create Shared Code",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200 || pm.response.code === 201) {",
+									"    const json = pm.response.json();",
+									"    if (json.id) pm.environment.set('SHARE_ID', json.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"code\": \"#include <bits/stdc++.h>\\nusing namespace std;\\nint main() {\\n    cout << \\\"Hello World!\\\" << endl;\\n    return 0;\\n}\",\n    \"language\": \"cpp\",\n    \"title\": \"My Solution\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/share",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "share"]
+						},
+						"description": "Create a shared code snippet.\n\n**TTL:** Expires after 7 days.\n\n**Auto-saves:** `SHARE_ID`"
+					}
+				},
+				{
+					"name": "Get Shared Code",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/share/{{SHARE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "share", "{{SHARE_ID}}"]
+						},
+						"description": "Get a shared code snippet by ID."
+					}
+				}
+			]
+		},
+		{
+			"name": "Friends & Social",
+			"description": "Friend system — send/accept requests, view friends list, activity feed.\n\nAll endpoints require authentication.",
+			"item": [
+				{
+					"name": "Send Friend Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"TARGET_USERNAME\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/request",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "request"]
+						},
+						"description": "Send a friend request to another user.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Accept Friend Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"requestId\": \"REQUEST_ID_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/accept",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "accept"]
+						},
+						"description": "Accept a pending friend request.\n\n**Auth:** Required\n\nGet the `requestId` from the \"Get Pending Requests\" endpoint."
+					}
+				},
+				{
+					"name": "Reject Friend Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"requestId\": \"REQUEST_ID_HERE\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/reject",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "reject"]
+						},
+						"description": "Reject a pending friend request.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Get Friends List",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends"]
+						},
+						"description": "Get the authenticated user's friends list.\n\n**Auth:** Required\n\nReturns: username, avatar, bio, online status, last seen."
+					}
+				},
+				{
+					"name": "Get Pending Requests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/requests",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "requests"]
+						},
+						"description": "Get pending friend requests (incoming and outgoing).\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Remove Friend",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/TARGET_USERNAME",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "TARGET_USERNAME"]
+						},
+						"description": "Remove a friend.\n\n**Auth:** Required\n\nReplace `TARGET_USERNAME` with the friend's username."
+					}
+				},
+				{
+					"name": "Search Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/search?q=john",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "search"],
+							"query": [
+								{ "key": "q", "value": "john" }
+							]
+						},
+						"description": "Search for users by username.\n\n**Auth:** Required\n\nReturns: matching users with friend status."
+					}
+				},
+				{
+					"name": "Get Activity Feed",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/feed?page=1&limit=20",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "feed"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "20" }
+							]
+						},
+						"description": "Get recent activities from friends.\n\n**Auth:** Required"
+					}
+				},
+				{
+					"name": "Update Online Status",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"isOnline\": true,\n    \"currentRoom\": \"{{ROOM_ID}}\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/friends/status",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "friends", "status"]
+						},
+						"description": "Update the user's online status.\n\n**Auth:** Required"
+					}
+				}
+			]
+		},
+		{
+			"name": "Proxy Routes",
+			"description": "Proxy endpoints to bypass CORS restrictions when calling external APIs.\n\nThese forward requests to the external services and return the response.",
+			"item": [
+				{
+					"name": "Codeforces API Proxy",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/codeforces-api/user.info?handles=tourist",
+							"host": ["{{BASE_URL}}"],
+							"path": ["codeforces-api", "user.info"],
+							"query": [
+								{ "key": "handles", "value": "tourist" }
+							]
+						},
+						"description": "Proxy to Codeforces API (`codeforces.com/api/`).\n\nExample: Get user info for 'tourist'."
+					}
+				},
+				{
+					"name": "Codeforces Site Proxy",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/codeforces/problemset/problem/1890/A",
+							"host": ["{{BASE_URL}}"],
+							"path": ["codeforces", "problemset", "problem", "1890", "A"]
+						},
+						"description": "Proxy to Codeforces website (`codeforces.com/`). Returns HTML."
+					}
+				},
+				{
+					"name": "LeetCode GraphQL Proxy",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"query\": \"query questionData($titleSlug: String!) { question(titleSlug: $titleSlug) { title difficulty content topicTags { name } } }\",\n    \"variables\": { \"titleSlug\": \"two-sum\" }\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/leetcode/graphql",
+							"host": ["{{BASE_URL}}"],
+							"path": ["leetcode", "graphql"]
+						},
+						"description": "Proxy to LeetCode GraphQL API.\n\nExample: Fetch problem data for 'two-sum'."
+					}
+				},
+				{
+					"name": "CodeChef Proxy",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/codechef/api/list/problems",
+							"host": ["{{BASE_URL}}"],
+							"path": ["codechef", "api", "list", "problems"]
+						},
+						"description": "Proxy to CodeChef (`codechef.com/`)."
+					}
+				}
+			]
+		},
+		{
+			"name": "Health & Metrics",
+			"description": "Server health checks and monitoring.",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/health",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "health"]
+						},
+						"description": "Check if the server is running.\n\nReturns: `{ status: 'healthy' }`"
+					}
+				},
+				{
+					"name": "Server Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/metrics",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "metrics"]
+						},
+						"description": "Get server performance metrics (request durations, response sizes).\n\n**Auth:** Required"
+					}
+				}
+			]
+		}
+	]
+}

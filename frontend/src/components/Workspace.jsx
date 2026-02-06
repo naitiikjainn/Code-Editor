@@ -24,7 +24,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { API_URL } from "../config"; 
 import io from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap, Mic, MicOff, PhoneOff, Headphones, VolumeX } from "lucide-react"; 
+import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap, Mic, MicOff, PhoneOff, Headphones, VolumeX, Download, ExternalLink, Puzzle } from "lucide-react"; 
 import { useVoiceChat } from "../hooks/useVoiceChat"; 
 import SettingsModal from "./SettingsModal";
 import SettingsPanel from "./SettingsPanel";
@@ -162,6 +162,38 @@ export default function Workspace() {
   }, [testCases]);
   const [isRunningTests, setIsRunningTests] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // EXTENSION DETECTION
+  const EXTENSION_URL = "https://chromewebstore.google.com/detail/codeplay-helper/gnolnmfmmdpfdjilggmgkllbchhmdgpb";
+  const [extensionDetected, setExtensionDetected] = useState(null); // null = checking, true/false
+  const [extensionBannerDismissed, setExtensionBannerDismissed] = useState(() => {
+    try { return sessionStorage.getItem("ext_banner_dismissed") === "1"; } catch { return false; }
+  });
+
+  // Detect extension on mount by sending a ping
+  useEffect(() => {
+    let timeout;
+    const handlePong = (event) => {
+      if (event.data?.type === "CODEPLAY_PONG" || event.data?.type === "CODEPLAY_COOKIES_RECEIVED" || event.data?.type === "CODEPLAY_SUBMIT_RESULT" || event.data?.type === "CODEPLAY_CF_HANDLE_RESULT") {
+        setExtensionDetected(true);
+        window.removeEventListener("message", handlePong);
+        clearTimeout(timeout);
+      }
+    };
+    window.addEventListener("message", handlePong);
+    // Send a ping that the extension content script should respond to
+    window.postMessage({ type: "CODEPLAY_PING" }, "*");
+    // Also try fetching CF handle as a secondary check
+    window.postMessage({ type: "CODEPLAY_FETCH_CF_HANDLE" }, "*");
+    timeout = setTimeout(() => {
+      setExtensionDetected(prev => prev === null ? false : prev);
+      window.removeEventListener("message", handlePong);
+    }, 3000);
+    return () => {
+      window.removeEventListener("message", handlePong);
+      clearTimeout(timeout);
+    };
+  }, []);
 
   // ACCESS STATE
   const [accessStatus, setAccessStatus] = useState("loading"); // loading, waiting, granted, denied, login_required
@@ -1757,9 +1789,16 @@ rl.on('line', (line) => {
                      {isRunning ? "..." : <><Play size={14} fill="white" /> Run</>}
                 </button>
                 {rightPanel?.data && (
-                    <button onClick={handleSubmit} disabled={isSubmitting} className="btn-primary" style={{ padding: "6px 16px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #16a34a, #15803d)" }}>
-                         {isSubmitting ? "..." : <><Zap size={14} fill="white" /> Submit</>}
-                    </button>
+                    <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <button onClick={handleSubmit} disabled={isSubmitting} className="btn-primary" title={extensionDetected === false ? "⚠️ Extension not detected — Install CodePlay Helper to submit" : "Submit code"} style={{ padding: "6px 16px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #16a34a, #15803d)" }}>
+                             {isSubmitting ? "..." : <><Zap size={14} fill="white" /> Submit</>}
+                        </button>
+                        {extensionDetected === false && (
+                            <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" title="Install CodePlay Helper Extension" style={{ width: "28px", height: "28px", borderRadius: "8px", background: "rgba(251,146,60,0.12)", border: "1px solid rgba(251,146,60,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s", textDecoration: "none" }} onMouseEnter={e => { e.currentTarget.style.background = "rgba(251,146,60,0.2)"; e.currentTarget.style.transform = "scale(1.05)"; }} onMouseLeave={e => { e.currentTarget.style.background = "rgba(251,146,60,0.12)"; e.currentTarget.style.transform = "scale(1)"; }}>
+                                <Puzzle size={13} style={{ color: "#fb923c" }} />
+                            </a>
+                        )}
+                    </div>
                 )}
                 <button onClick={handleCopyLink} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "13px" }}><Share2 size={14} /></button>
                 
@@ -1866,6 +1905,73 @@ rl.on('line', (line) => {
             </div>
         </div>
         </div>
+
+        {/* EXTENSION INSTALL BANNER */}
+        {extensionDetected === false && !extensionBannerDismissed && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "12px",
+            padding: "8px 16px",
+            background: "linear-gradient(90deg, rgba(251,146,60,0.08), rgba(249,115,22,0.12), rgba(251,146,60,0.08))",
+            borderBottom: "1px solid rgba(251,146,60,0.2)",
+            fontSize: "13px",
+            color: "#fbbf24",
+            fontWeight: 500,
+            flexShrink: 0,
+            animation: "fadeIn 0.3s ease"
+          }}>
+            <Puzzle size={15} style={{ color: "#fb923c", flexShrink: 0 }} />
+            <span style={{ color: "var(--text-muted)" }}>
+              <strong style={{ color: "#fb923c" }}>CodePlay Helper Extension</strong> is required to submit code to Codeforces &amp; LeetCode.
+            </span>
+            <a
+              href={EXTENSION_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                padding: "4px 14px",
+                background: "linear-gradient(135deg, #fb923c, #f97316)",
+                color: "#fff",
+                borderRadius: "8px",
+                fontSize: "12px",
+                fontWeight: 600,
+                textDecoration: "none",
+                transition: "all 0.2s",
+                whiteSpace: "nowrap",
+                boxShadow: "0 2px 8px rgba(251,146,60,0.25)"
+              }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.03)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(251,146,60,0.35)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(251,146,60,0.25)"; }}
+            >
+              <Download size={12} />
+              Install Extension
+              <ExternalLink size={10} style={{ opacity: 0.7 }} />
+            </a>
+            <button
+              onClick={() => { setExtensionBannerDismissed(true); try { sessionStorage.setItem("ext_banner_dismissed", "1"); } catch {} }}
+              style={{
+                background: "none",
+                border: "none",
+                color: "rgba(255,255,255,0.3)",
+                cursor: "pointer",
+                padding: "2px",
+                display: "flex",
+                alignItems: "center",
+                transition: "color 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.6)"}
+              onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.3)"}
+              title="Dismiss"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* WORKSPACE BODY */}
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -2097,14 +2203,22 @@ rl.on('line', (line) => {
                                     </span>
                                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                          {rightPanel.data.provider === "leetcode" && (
+                                            <>
                                             <button 
                                                 onClick={handleSubmit}
                                                 disabled={isSubmitting}
                                                 className="btn-primary"
+                                                title={extensionDetected === false ? "⚠️ Extension required — Install CodePlay Helper first" : "Submit to LeetCode"}
                                                 style={{ padding: "4px 12px", fontSize: "11px", height: "24px", display: "flex", alignItems: "center", gap: "4px" }}
                                             >
                                                 {isSubmitting ? "Submitting..." : "Submit to LeetCode"}
                                             </button>
+                                            {extensionDetected === false && (
+                                                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" title="Install extension to enable submissions" style={{ height: "24px", padding: "0 8px", borderRadius: "6px", background: "rgba(251,146,60,0.12)", border: "1px solid rgba(251,146,60,0.25)", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", textDecoration: "none", fontSize: "11px", color: "#fb923c", fontWeight: 600, transition: "all 0.2s", whiteSpace: "nowrap" }} onMouseEnter={e => e.currentTarget.style.background = "rgba(251,146,60,0.2)"} onMouseLeave={e => e.currentTarget.style.background = "rgba(251,146,60,0.12)"}>
+                                                    <Puzzle size={11} /> Get Extension
+                                                </a>
+                                            )}
+                                            </>
                                          )}
                                         <button 
                                             onClick={() => setRightPanel(null)}

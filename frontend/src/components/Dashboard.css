@@ -441,6 +441,198 @@
   50% { opacity: 0.8; }
 }
 
+/* === EXTENSION BANNER === */
+.extension-banner {
+  position: relative;
+  padding: 0 0 40px;
+  animation: fadeIn 0.6s var(--ease-out) 0.6s both;
+}
+
+.extension-banner-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px;
+  height: 300px;
+  background: radial-gradient(ellipse, rgba(251, 146, 60, 0.08), transparent 70%);
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.extension-banner-inner {
+  position: relative;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(251, 146, 60, 0.15);
+  border-radius: 24px;
+  padding: 36px 40px;
+  overflow: hidden;
+}
+
+.extension-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  background: rgba(251, 146, 60, 0.08);
+  border: 1px solid rgba(251, 146, 60, 0.2);
+  font-size: 11px;
+  color: #fb923c;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+.extension-badge svg {
+  color: #fb923c;
+}
+
+.extension-content {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-bottom: 28px;
+}
+
+.extension-icon-wrapper {
+  flex-shrink: 0;
+}
+
+.extension-icon-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s var(--ease-smooth);
+}
+
+.extension-banner-inner:hover .extension-icon-ring {
+  transform: scale(1.05);
+}
+
+.extension-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.extension-text h3 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.extension-text p {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.extension-text strong {
+  color: #fb923c;
+  font-weight: 600;
+}
+
+.extension-cta-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #fb923c, #f97316);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.3s var(--ease-smooth);
+  box-shadow: 0 4px 20px rgba(251, 146, 60, 0.25);
+  white-space: nowrap;
+}
+
+.extension-cta-btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 28px rgba(251, 146, 60, 0.35);
+  color: #fff;
+}
+
+.extension-cta-btn:active {
+  transform: scale(0.98);
+}
+
+.extension-cta-btn .ext-link-icon {
+  opacity: 0.7;
+}
+
+/* Steps row */
+.extension-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.ext-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ext-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ext-step span {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ext-step-arrow {
+  color: rgba(255, 255, 255, 0.12);
+  font-size: 16px;
+}
+
+/* Feature card extension link */
+.feature-ext-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.25s;
+  opacity: 0.85;
+}
+
+.feature-ext-link:hover {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
 /* === FEATURES === */
 .features-section {
   padding: 120px 0 80px;
@@ -614,10 +806,21 @@
   .editor-body { min-height: 200px; }
   .line-numbers { width: 36px; font-size: 11px; }
   .code-area { font-size: 11px; padding: 12px 8px; }
+
+  /* Extension banner responsive */
+  .extension-banner-inner { padding: 24px 20px; }
+  .extension-content { flex-direction: column; text-align: center; gap: 20px; }
+  .extension-text h3 { font-size: 18px; }
+  .extension-cta-btn { width: 100%; justify-content: center; }
+  .extension-steps { flex-direction: column; gap: 12px; }
+  .ext-step-arrow { transform: rotate(90deg); }
 }
 
 @media (max-width: 480px) {
   .nav-glass { padding: 8px 16px; gap: 16px; }
   .hero { padding-top: 80px; }
   .features-section { padding: 80px 0 40px; }
+  .extension-banner-inner { padding: 20px 16px; }
+  .extension-icon-ring { width: 56px; height: 56px; }
+  .extension-icon-ring svg { width: 32px; height: 32px; }
 }

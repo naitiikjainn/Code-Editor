@@ -1,31 +1,58 @@
-# Ignore dependencies
+# ===========================
+# Dependencies
+# ===========================
 node_modules/
 
-# Ignore API Keys and Secrets (Very Important)
+# ===========================
+# Environment & Secrets
+# ===========================
 .env
 .env.local
 .env.production
 .env.development
 .env*.local
 
-# Ignore build files
+# ===========================
+# Build Output
+# ===========================
 dist/
 build/
 
-# Ignore logs and system files
+# ===========================
+# Logs
+# ===========================
 *.log
 npm-debug.log*
+
+# ===========================
+# OS Files
+# ===========================
 .DS_Store
 Thumbs.db
 
-# Ignore IDE settings
+# ===========================
+# IDE / Editor
+# ===========================
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Ignore scraped content (large files)
+# ===========================
+# Scraped Data (large files)
+# ===========================
 codeforces-problems/content/
+codeforces-problems/editorials/
+backend/scripts/scraper_log.txt
 
-# Private Extension
-# chrome-extension/
+# ===========================
+# Debug / Temp Artifacts
+# ===========================
+*.zip
+backend/*.html
+backend/*.png
+
+# ===========================
+# Postman (auto-generated)
+# ===========================
+.postman/

@@ -5,7 +5,8 @@ import { API_URL } from "../config";
 import AuthModal from "./AuthModal";
 import { 
   Code2, Sparkles, Users, Zap, Terminal, ArrowRight,
-  Cpu, PenTool, Trophy, Send, MousePointer2, User
+  Cpu, PenTool, Trophy, Send, MousePointer2, User,
+  Download, ExternalLink, Chrome, Puzzle
 } from "lucide-react";
 import "./Dashboard.css";
 
@@ -175,12 +176,85 @@ const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
   );
 };
 
+// --- EXTENSION CTA BANNER ---
+const EXTENSION_URL = "https://chromewebstore.google.com/detail/codeplay-helper/gnolnmfmmdpfdjilggmgkllbchhmdgpb";
+
+const ExtensionBanner = () => (
+  <section className="extension-banner">
+    <div className="extension-banner-glow" />
+    <div className="extension-banner-inner">
+      <div className="extension-badge">
+        <Zap size={12} />
+        <span>Required for Submissions</span>
+      </div>
+
+      <div className="extension-content">
+        <div className="extension-icon-wrapper">
+          <div className="extension-icon-ring">
+            <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="20" fill="url(#chromeGrad)" />
+              <circle cx="24" cy="24" r="8" fill="#fff" />
+              <path d="M24 4a20 20 0 0 1 17.32 10H24V4z" fill="#EA4335" />
+              <path d="M41.32 14A20 20 0 0 1 24 44l7-12.12L41.32 14z" fill="#34A853" />
+              <path d="M24 44A20 20 0 0 1 6.68 14l10.32 18L24 44z" fill="#4285F4" />
+              <path d="M6.68 14A20 20 0 0 1 24 4v10H6.68z" fill="#FBBC05" />
+              <circle cx="24" cy="24" r="8" fill="#fff" />
+              <defs>
+                <radialGradient id="chromeGrad" cx="0.5" cy="0.5" r="0.5">
+                  <stop stopColor="#fff" />
+                  <stop offset="1" stopColor="#f0f0f0" />
+                </radialGradient>
+              </defs>
+            </svg>
+          </div>
+        </div>
+
+        <div className="extension-text">
+          <h3>Install CodePlay Helper Extension</h3>
+          <p>
+            Submit code directly to <strong>Codeforces</strong> and <strong>LeetCode</strong> from the editor.
+            The browser extension is required to enable direct submissions.
+          </p>
+        </div>
+
+        <a
+          href={EXTENSION_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="extension-cta-btn"
+        >
+          <Download size={16} />
+          <span>Add to Chrome</span>
+          <ExternalLink size={12} className="ext-link-icon" />
+        </a>
+      </div>
+
+      <div className="extension-steps">
+        <div className="ext-step">
+          <div className="ext-step-num">1</div>
+          <span>Install the extension</span>
+        </div>
+        <div className="ext-step-arrow">→</div>
+        <div className="ext-step">
+          <div className="ext-step-num">2</div>
+          <span>Log in to CF / LC</span>
+        </div>
+        <div className="ext-step-arrow">→</div>
+        <div className="ext-step">
+          <div className="ext-step-num">3</div>
+          <span>Submit from CodePlay</span>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
 // --- FEATURES GRID ---
 const features = [
   { icon: Cpu, title: "AI Copilot", desc: "Intelligent code completion and debugging powered by Gemini.", color: "#c084fc", bg: "rgba(192,132,252,0.1)" },
   { icon: Users, title: "Real-time Sync", desc: "Code with your team seamlessly. See every keystroke live.", color: "#38bdf8", bg: "rgba(56,189,248,0.1)" },
   { icon: Trophy, title: "DSA Mastery", desc: "Integrated CP-31 and A2Z sheets with progress tracking.", color: "#4ade80", bg: "rgba(74,222,128,0.1)" },
-  { icon: Send, title: "Direct Submissions", desc: "Submit to Codeforces and LeetCode directly from the editor.", color: "#fb923c", bg: "rgba(251,146,60,0.1)" },
+  { icon: Send, title: "Direct Submissions", desc: "Submit to Codeforces and LeetCode directly from the editor.", color: "#fb923c", bg: "rgba(251,146,60,0.1)", link: EXTENSION_URL, linkText: "Get Extension" },
   { icon: PenTool, title: "Whiteboard", desc: "Plan algorithms visually with your team on a shared canvas.", color: "#f472b6", bg: "rgba(244,114,182,0.1)" },
   { icon: Zap, title: "Instant Setup", desc: "No configuration. Create a room and start coding instantly.", color: "#fbbf24", bg: "rgba(251,191,36,0.1)" },
 ];
@@ -200,6 +274,13 @@ const FeaturesSection = () => (
           </div>
           <h3>{f.title}</h3>
           <p>{f.desc}</p>
+          {f.link && (
+            <a href={f.link} target="_blank" rel="noopener noreferrer" className="feature-ext-link" style={{ color: f.color }}>
+              <Download size={13} />
+              {f.linkText}
+              <ExternalLink size={11} />
+            </a>
+          )}
           <div className="feature-glow" />
         </div>
       ))}
@@ -279,6 +360,7 @@ export default function Dashboard() {
           setRoomId={setRoomId}
           handleJoin={handleJoin}
         />
+        <ExtensionBanner />
         <FeaturesSection />
       </main>
 
