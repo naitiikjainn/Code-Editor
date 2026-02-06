@@ -1768,8 +1768,8 @@ rl.on('line', (line) => {
                                 zIndex: 10 + i,
                                 transition: "transform 0.15s ease"
                             }}
-                            onMouseEnterCapture={e => e.currentTarget.style.transform = "scale(1.15)"}
-                            onMouseLeaveCapture={e => e.currentTarget.style.transform = "scale(1)"}
+                            onMouseEnter={e => e.currentTarget.style.transform = "scale(1.15)"}
+                            onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
                         >
                             {(u.username || "U")[0].toUpperCase()}
                             {hoveredUser === u.username && (
@@ -2273,7 +2273,8 @@ rl.on('line', (line) => {
       {/* Recording Countdown Overlay - Always rendered at top level */}
       <CountdownOverlay count={countdown} active={countdownActive} />
       
-      {/* Recording Preview Modal - Always rendered at top level */}
+      {/* Recording Preview Modal - Only when not recording */}
+      {!isRecording && (
       <RecordingPreview
         blob={recordedBlob}
         isOpen={isRecordingPreviewOpen}
@@ -2289,6 +2290,7 @@ rl.on('line', (line) => {
         }}
         duration={recordingTime}
       />
+      )}
 
       {(accessStatus === "waiting" || accessStatus === "loading" || accessStatus === "login_required" || accessStatus === "denied") && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(24px) saturate(180%)", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white" }}>

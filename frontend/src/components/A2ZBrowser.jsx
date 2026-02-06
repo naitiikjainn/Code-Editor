@@ -53,44 +53,87 @@ const A2ZBrowser = ({ onOpenProblem, user }) => {
         return map;
     }, []);
 
-    // Load solved problems from localStorage + sync from DB
+    // Load solved problems from localStorage + sync from DB + LeetCode API
     useEffect(() => {
         // 1. Load manual toggles from localStorage
         const saved = localStorage.getItem('a2z_solved');
         const localSolved = saved ? new Set(JSON.parse(saved)) : new Set();
         setSolvedProblems(localSolved);
 
-        // 2. Fetch accepted submissions from DB and auto-mark
         const token = localStorage.getItem('codeplay_token');
-        if (!token) return;
+        const lcUsername = user?.platforms?.leetcode;
+        const allSolvedSlugs = new Set();
 
-        fetch(`${API_URL}/api/submissions/solved?platform=leetcode`, {
-            headers: { Authorization: `Bearer ${token}` }
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.solved && data.solved.length > 0) {
-                    const merged = new Set(localSolved);
-                    let newCount = 0;
+        // 2. Fetch accepted submissions from our DB
+        const dbPromise = token
+            ? fetch(`${API_URL}/api/submissions/solved?platform=leetcode`, {
+                headers: { Authorization: `Bearer ${token}` }
+              }).then(r => r.json()).then(data => {
+                  if (data.solved) data.solved.forEach(s => allSolvedSlugs.add(s));
+              }).catch(() => {})
+            : Promise.resolve();
 
-                    for (const titleSlug of data.solved) {
-                        // Map titleSlug back to A2Z problem ID
-                        const a2zId = slugToA2zId[titleSlug];
-                        if (a2zId && !merged.has(a2zId)) {
-                            merged.add(a2zId);
-                            newCount++;
-                        }
-                    }
-
-                    if (newCount > 0) {
-                        console.log(`[A2ZBrowser] Auto-marked ${newCount} problems as solved from DB`);
-                        setSolvedProblems(merged);
-                        localStorage.setItem('a2z_solved', JSON.stringify([...merged]));
+        // 3. Fetch ALL solved from LeetCode API via extension cookies
+        const lcApiPromise = new Promise((resolve) => {
+            const handler = (event) => {
+                if (event.data?.type === "CODEPLAY_COOKIES_RECEIVED") {
+                    window.removeEventListener("message", handler);
+                    const payload = event.data.payload;
+                    if (payload?.success && payload.cookie && payload.csrfToken) {
+                        const authToken = localStorage.getItem('codeplay_token');
+                        fetch(`${API_URL}/api/leettools/solved`, {
+                            method: "POST",
+                            headers: { 
+                                "Content-Type": "application/json",
+                                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+                            },
+                            body: JSON.stringify({ 
+                                cookie: payload.cookie, 
+                                csrfToken: payload.csrfToken, 
+                                ...(lcUsername ? { username: lcUsername } : {})
+                            })
+                        })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.success && data.solved) {
+                                data.solved.forEach(s => allSolvedSlugs.add(s));
+                                console.log(`[A2ZBrowser] LeetCode API: ${data.solved.length} solved loaded`);
+                            }
+                            resolve();
+                        })
+                        .catch(() => resolve());
+                    } else {
+                        resolve(); // Extension available but no cookies
                     }
                 }
-            })
-            .catch(err => console.error("[A2ZBrowser] Failed to fetch solved from DB:", err));
-    }, [slugToA2zId]);
+            };
+            window.addEventListener("message", handler);
+            window.postMessage({ type: "CODEPLAY_FETCH_COOKIES" }, "*");
+            setTimeout(() => { window.removeEventListener("message", handler); resolve(); }, 10000);
+        });
+
+        // 4. Merge all solved slugs into A2Z problem IDs
+        Promise.all([dbPromise, lcApiPromise]).then(() => {
+            if (allSolvedSlugs.size > 0) {
+                const merged = new Set(localSolved);
+                let newCount = 0;
+
+                for (const titleSlug of allSolvedSlugs) {
+                    const a2zId = slugToA2zId[titleSlug];
+                    if (a2zId && !merged.has(a2zId)) {
+                        merged.add(a2zId);
+                        newCount++;
+                    }
+                }
+
+                if (newCount > 0) {
+                    console.log(`[A2ZBrowser] Auto-marked ${newCount} problems as solved (total: ${merged.size})`);
+                    setSolvedProblems(merged);
+                    localStorage.setItem('a2z_solved', JSON.stringify([...merged]));
+                }
+            }
+        });
+    }, [slugToA2zId, user]);
 
     // Calculate stats
     const stats = useMemo(() => {

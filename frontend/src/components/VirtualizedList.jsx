@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 /**
@@ -14,6 +14,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
  * @param {Function} getItemKey - Function to get unique key for each item
  * @param {Function} onEndReached - Callback when scrolling near end
  * @param {number} endReachedThreshold - How many items from end to trigger onEndReached
+ * @param {boolean} isLoading - Whether more items are currently being loaded
+ * @param {Function} renderFooter - Optional footer component (e.g., loading indicator)
  */
 const VirtualizedList = ({
     items,
@@ -25,9 +27,17 @@ const VirtualizedList = ({
     getItemKey,
     onEndReached,
     endReachedThreshold = 10,
+    isLoading = false,
+    renderFooter,
 }) => {
     const parentRef = useRef(null);
     const endReachedCalledRef = useRef(false);
+    const onEndReachedRef = useRef(onEndReached);
+    const isLoadingRef = useRef(isLoading);
+
+    // Keep refs up-to-date without re-subscribing scroll listener
+    useEffect(() => { onEndReachedRef.current = onEndReached; });
+    useEffect(() => { isLoadingRef.current = isLoading; });
 
     // Create virtualizer
     const virtualizer = useVirtualizer({
@@ -40,27 +50,38 @@ const VirtualizedList = ({
 
     const virtualItems = virtualizer.getVirtualItems();
 
-    // Handle end reached
-    useEffect(() => {
-        if (!onEndReached || items.length === 0) return;
-
-        const lastItem = virtualItems[virtualItems.length - 1];
-        if (!lastItem) return;
-
-        const isNearEnd = lastItem.index >= items.length - endReachedThreshold;
-
-        if (isNearEnd && !endReachedCalledRef.current) {
-            endReachedCalledRef.current = true;
-            onEndReached();
-        } else if (!isNearEnd) {
-            endReachedCalledRef.current = false;
-        }
-    }, [virtualItems, items.length, onEndReached, endReachedThreshold]);
-
-    // Reset end reached when items change
+    // Reset end reached flag when items change (new batch loaded)
     useEffect(() => {
         endReachedCalledRef.current = false;
     }, [items.length]);
+
+    // Scroll-based end detection — much more reliable than virtualItems-based
+    useEffect(() => {
+        const scrollElement = parentRef.current;
+        if (!scrollElement) return;
+
+        const handleScroll = () => {
+            if (!onEndReachedRef.current || isLoadingRef.current) return;
+            
+            const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+            // Trigger when within N item-heights of the bottom
+            const threshold = endReachedThreshold * itemHeight;
+            const distanceFromEnd = scrollHeight - scrollTop - clientHeight;
+
+            if (distanceFromEnd < threshold && !endReachedCalledRef.current) {
+                endReachedCalledRef.current = true;
+                onEndReachedRef.current();
+            } else if (distanceFromEnd >= threshold) {
+                endReachedCalledRef.current = false;
+            }
+        };
+
+        scrollElement.addEventListener('scroll', handleScroll, { passive: true });
+        // Also check immediately (in case list is shorter than viewport)
+        handleScroll();
+
+        return () => scrollElement.removeEventListener('scroll', handleScroll);
+    }, [endReachedThreshold, itemHeight, items.length]);
 
     if (items.length === 0) {
         return null;
@@ -99,6 +120,8 @@ const VirtualizedList = ({
                     </div>
                 ))}
             </div>
+            {/* Footer — rendered inside scroll area (e.g., loading indicator) */}
+            {renderFooter && renderFooter()}
         </div>
     );
 };

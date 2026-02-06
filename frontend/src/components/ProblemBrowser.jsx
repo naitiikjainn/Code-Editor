@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, Zap, X, Lock } from "lucide-react";
+import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, X, Lock } from "lucide-react";
 import { API_URL } from "../config";
 import { fetchCodeforcesProblem, fetchCSESProblem, fetchLeetCodeProblem } from "../utils/problemFetcher";
 import { VirtualizedList, InfiniteList } from "./VirtualizedList";
+
+// Official LeetCode Logo SVG
+const LeetCodeIcon = ({ size = 18, color = "white" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <path d="M13.483 0a1.374 1.374 0 0 0-.961.438L7.116 6.226l-3.854 4.126a5.266 5.266 0 0 0-1.209 2.104 5.35 5.35 0 0 0-.125.513 5.527 5.527 0 0 0 .062 2.362 5.83 5.83 0 0 0 .349 1.017 5.938 5.938 0 0 0 1.271 1.818l4.277 4.193.039.038c2.248 2.165 5.852 2.133 8.063-.074l2.396-2.392c.54-.54.54-1.414.003-1.955a1.378 1.378 0 0 0-1.951-.003l-2.396 2.392a3.021 3.021 0 0 1-4.205.038l-.02-.019-4.276-4.193c-.652-.64-.972-1.469-.948-2.263a2.68 2.68 0 0 1 .066-.523 2.545 2.545 0 0 1 .619-1.164L9.13 8.114c1.058-1.134 3.204-1.27 4.43-.278l3.501 2.831c.593.48 1.461.387 1.94-.207a1.384 1.384 0 0 0-.207-1.943l-3.5-2.831c-.8-.647-1.766-1.045-2.774-1.202l2.015-2.158A1.384 1.384 0 0 0 13.483 0zm-2.866 12.815a1.38 1.38 0 0 0-1.38 1.382 1.38 1.38 0 0 0 1.38 1.382H20.79a1.38 1.38 0 0 0 1.38-1.382 1.38 1.38 0 0 0-1.38-1.382z"/>
+    </svg>
+);
 
 // --- MOCK DATA ---
 const CP31_SHEET = {
@@ -107,24 +114,73 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                 })
                 .catch(err => console.error("Failed to fetch user status", err));
         } else if (provider === "leetcode") {
-            // Fetch LeetCode solved status from our own Submissions DB
             const token = localStorage.getItem("codeplay_token");
-            if (!token) return;
-            console.log("[ProblemBrowser] Fetching LeetCode solved status from DB...");
-            
-            fetch(`${API_URL}/api/submissions/solved?platform=leetcode`, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.solved) {
-                        const solved = new Set(data.solved);
-                        setSolvedProblems(solved);
-                        setSolvedNames(solved); // titleSlugs serve as both ID and name
-                        console.log(`[ProblemBrowser] LeetCode: ${solved.size} solved problems loaded`);
+            const lcUsername = user?.platforms?.leetcode;
+            const merged = new Set();
+
+            // 1. Quick: load from our DB (submissions made through CodePlay)
+            const dbPromise = token 
+                ? fetch(`${API_URL}/api/submissions/solved?platform=leetcode`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  }).then(r => r.json()).then(data => {
+                      if (data.solved) data.solved.forEach(s => merged.add(s));
+                  }).catch(() => {})
+                : Promise.resolve();
+
+            // 2. Full: fetch from LeetCode API via extension cookies (gets ALL solved)
+            const lcApiPromise = new Promise((resolve) => {
+                // Try getting cookies from extension
+                const handler = (event) => {
+                    if (event.data?.type === "CODEPLAY_COOKIES_RECEIVED") {
+                        window.removeEventListener("message", handler);
+                        const payload = event.data.payload;
+                        if (payload?.success && payload.cookie && payload.csrfToken) {
+                            console.log("[ProblemBrowser] Got extension cookies, fetching LeetCode solved...");
+                            const authToken = localStorage.getItem("codeplay_token");
+                            fetch(`${API_URL}/api/leettools/solved`, {
+                                method: "POST",
+                                headers: { 
+                                    "Content-Type": "application/json",
+                                    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+                                },
+                                body: JSON.stringify({ 
+                                    cookie: payload.cookie, 
+                                    csrfToken: payload.csrfToken, 
+                                    ...(lcUsername ? { username: lcUsername } : {})
+                                })
+                            })
+                            .then(r => r.json())
+                            .then(data => {
+                                if (data.success && data.solved) {
+                                    data.solved.forEach(s => merged.add(s));
+                                    console.log(`[ProblemBrowser] LeetCode API: ${data.solved.length} solved loaded (strategy: ${data.strategy || "unknown"})`);
+                                    if (data.stats) {
+                                        console.log(`[ProblemBrowser] LeetCode stats:`, data.stats);
+                                    }
+                                }
+                                resolve();
+                            })
+                            .catch((err) => { console.warn("[ProblemBrowser] LeetCode solved fetch error:", err); resolve(); });
+                        } else {
+                            resolve(); // Extension available but no cookies
+                        }
                     }
-                })
-                .catch(err => console.error("Failed to fetch LeetCode solved status", err));
+                };
+                window.addEventListener("message", handler);
+                window.postMessage({ type: "CODEPLAY_FETCH_COOKIES" }, "*");
+                // Timeout — if extension doesn't respond in 10s, continue with DB only
+                // (increased from 3s because fetching ALL solved problems takes longer)
+                setTimeout(() => { window.removeEventListener("message", handler); resolve(); }, 10000);
+            });
+
+            // Wait for both, then apply
+            Promise.all([dbPromise, lcApiPromise]).then(() => {
+                if (merged.size > 0) {
+                    setSolvedProblems(merged);
+                    setSolvedNames(merged);
+                    console.log(`[ProblemBrowser] LeetCode total: ${merged.size} solved problems`);
+                }
+            });
         }
     }, [provider, user]);
     
@@ -309,23 +365,20 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
 
     const handleScroll = (e) => {
         const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-        if (scrollHeight - scrollTop <= clientHeight + 100) { // Load more when near bottom
-             if (provider === "leetcode") {
-                 if (!cfLoading && cfProblems.length < lcTotal) {
-                     // Debounce or just relying on state update speed?
-                     // Verify we aren't already fetching? cfLoading checks this.
-                     // But lcSkip effect triggers fetch.
-                     setLcSkip(prev => {
-                         if (prev + 100 >= lcTotal) return prev; // Limit
-                         if (prev + 100 > cfProblems.length) return prev; // Don't skip ahead if current fetch incomplete
-                         return prev + 100;
-                     });
-                 }
-             } else {
-                 setVisibleCount(prev => Math.min(prev + 50, filteredProblems.length));
-             }
+        if (scrollHeight - scrollTop <= clientHeight + 100) {
+             setVisibleCount(prev => Math.min(prev + 50, filteredProblems.length));
         }
     };
+
+    // LeetCode infinite scroll — load next batch
+    const loadMoreLeetCode = useCallback(() => {
+        if (cfLoading || cfProblems.length >= lcTotal) return;
+        setLcSkip(prev => {
+            if (prev + 100 >= lcTotal) return prev;
+            if (prev + 100 > cfProblems.length) return prev;
+            return prev + 100;
+        });
+    }, [cfLoading, cfProblems.length, lcTotal]);
 
     // --- ACTION HANDLER ---
     const handleOpen = async (p) => {
@@ -489,7 +542,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                borderRadius: "10px",
                                boxShadow: "0 4px 12px rgba(255, 161, 22, 0.3)"
                            }}>
-                               <Zap size={18} color="white" fill="white" />
+                               <LeetCodeIcon size={18} color="white" />
                            </div>
                        )}
                        
@@ -960,16 +1013,26 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                             overscan={10}
                             style={{ flex: 1 }}
                             getItemKey={(item) => item.id || item.titleSlug}
-                            onEndReached={() => {
-                                if (!cfLoading && cfProblems.length < lcTotal) {
-                                    setLcSkip(prev => {
-                                        if (prev + 100 >= lcTotal) return prev;
-                                        if (prev + 100 > cfProblems.length) return prev;
-                                        return prev + 100;
-                                    });
+                            onEndReached={loadMoreLeetCode}
+                            isLoading={cfLoading}
+                            endReachedThreshold={15}
+                            renderFooter={() => {
+                                if (cfLoading && cfProblems.length > 0) {
+                                    return (
+                                        <div style={{ padding: "16px", display: "flex", justifyContent: "center", color: "#666", fontSize: "12px" }}>
+                                            <Loader2 className="animate-spin" size={14} style={{marginRight: "8px"}} /> Loading more problems...
+                                        </div>
+                                    );
                                 }
+                                if (cfProblems.length > 0 && cfProblems.length >= lcTotal) {
+                                    return (
+                                        <div style={{ padding: "12px", textAlign: "center", color: "#3f3f46", fontSize: "11px" }}>
+                                            All {lcTotal} problems loaded
+                                        </div>
+                                    );
+                                }
+                                return null;
                             }}
-                            endReachedThreshold={20}
                             renderItem={(p, index) => {
                                 const diffColor = getDifficultyColor(p.difficulty);
                                 const isPremium = p.isPremium;
@@ -1044,11 +1107,6 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                 );
                             }}
                         />
-                        {cfLoading && cfProblems.length > 0 && (
-                             <div style={{ padding: "16px", display: "flex", justifyContent: "center", color: "#666", fontSize: "12px", flexShrink: 0 }}>
-                                <Loader2 className="animate-spin" size={14} style={{marginRight: "8px"}} /> Loading more...
-                             </div>
-                        )}
                     </div>
                 )}
             </>

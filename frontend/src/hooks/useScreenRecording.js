@@ -429,8 +429,6 @@ export function useScreenRecording() {
 
       mediaRecorderRef.current.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mimeType });
-        setRecordedBlob(blob);
-        setIsPreviewOpen(true);
         
         // Cleanup streams
         if (streamRef.current) {
@@ -438,7 +436,20 @@ export function useScreenRecording() {
         }
         stopAudioVisualization();
         stopCompositing();
-        // Don't stop webcam here - user might want to record again
+        
+        // Stop webcam to prevent duplicate video boxes in preview
+        if (webcamStream) {
+          webcamStream.getTracks().forEach(track => track.stop());
+          setWebcamStream(null);
+        }
+        setWebcamEnabled(false);
+        
+        // Set recording to false before showing preview to avoid
+        // both RecordingIndicator and RecordingPreview being visible
+        setIsRecording(false);
+        setIsPaused(false);
+        setRecordedBlob(blob);
+        setIsPreviewOpen(true);
       };
 
       mediaRecorderRef.current.onerror = (e) => {
@@ -491,18 +502,25 @@ export function useScreenRecording() {
     }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      // onstop callback will handle cleanup and state updates
       mediaRecorderRef.current.stop();
+    } else {
+      // If recorder already inactive, clean up manually
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      stopAudioVisualization();
+      stopCompositing();
+      // Stop webcam
+      if (webcamStream) {
+        webcamStream.getTracks().forEach(track => track.stop());
+        setWebcamStream(null);
+      }
+      setWebcamEnabled(false);
+      setIsRecording(false);
+      setIsPaused(false);
     }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-    }
-
-    stopAudioVisualization();
-    stopCompositing();
-    setIsRecording(false);
-    setIsPaused(false);
-  }, [stopAudioVisualization, stopCompositing]);
+  }, [stopAudioVisualization, stopCompositing, webcamStream]);
 
   // Download recording
   const downloadRecording = useCallback((filename = "codeplay-recording") => {
