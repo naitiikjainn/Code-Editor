@@ -1082,7 +1082,12 @@ export default function Workspace() {
                 }]);
 
                 // Show first failed test details on failure
-                if (!isAccepted && judgeResult?.firstFailedInput) {
+                if (!isAccepted && judgeResult?.firstFailedStderr && verdict === "Compilation Error") {
+                    setLogs(prev => [...prev, {
+                        type: "error",
+                        message: `\u2500\u2500 Compiler Error \u2500\u2500\n${judgeResult.firstFailedStderr}`
+                    }]);
+                } else if (!isAccepted && judgeResult?.firstFailedInput) {
                     setLogs(prev => [...prev, {
                         type: "info",
                         message: `\u2500\u2500 First Failed Test (#${judgeResult.firstFailedTest}) \u2500\u2500\nInput:    ${judgeResult.firstFailedInput}\nExpected: ${judgeResult.firstFailedExpected}\nGot:      ${judgeResult.firstFailedActual}`

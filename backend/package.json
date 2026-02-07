@@ -11,6 +11,7 @@
     "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.985.0",
     "@google/generative-ai": "^0.24.1",
     "@hocuspocus/server": "^3.4.3",
     "adm-zip": "^0.5.16",

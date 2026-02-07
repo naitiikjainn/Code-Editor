@@ -47,9 +47,7 @@ async function processCSESJudge(job) {
             testCases = await getTestCases(taskId);
         } catch (err) {
             console.error(`[CSES Judge] Failed to get test cases for task ${taskId}:`, err.message);
-            const errorMsg = err.message.includes("not found on disk")
-                ? "Test cases not downloaded yet. An admin must run the CSES test downloader script first."
-                : "Failed to load test cases: " + err.message;
+            const errorMsg = "Failed to load test cases: " + err.message;
             await Submission.findByIdAndUpdate(submissionId, {
                 verdict: "Judge Error",
                 judgeResult: {
@@ -88,6 +86,7 @@ async function processCSESJudge(job) {
             let testVerdict;
             if (result.verdict === "CE") {
                 testVerdict = "CE";
+                console.error(`[CSES Judge] Compilation Error for submission ${submissionId}:\n${result.stderr}`);
             } else if (result.verdict === "TLE") {
                 testVerdict = "TLE";
             } else if (result.verdict === "MLE") {
@@ -105,6 +104,7 @@ async function processCSESJudge(job) {
                 testNumber: tc.testNumber,
                 verdict: testVerdict,
                 time: result.time,
+                stderr: result.stderr || "",
             };
             testResults.push(testResult);
             maxTime = Math.max(maxTime, result.time);
@@ -117,6 +117,7 @@ async function processCSESJudge(job) {
                     input: truncate(tc.input),
                     expected: truncate(tc.expectedOutput),
                     actual: truncate(result.stdout),
+                    stderr: truncate(result.stderr, 1000),
                     verdict: testVerdict,
                 };
             }
@@ -157,6 +158,7 @@ async function processCSESJudge(job) {
             firstFailedInput: firstFailed?.input || null,
             firstFailedExpected: firstFailed?.expected || null,
             firstFailedActual: firstFailed?.actual || null,
+            firstFailedStderr: firstFailed?.stderr || null,
             executionTime: maxTime,
             testResults,
         };

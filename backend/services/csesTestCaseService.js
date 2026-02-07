@@ -1,10 +1,28 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import AdmZip from "adm-zip";
+import { S3Client, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TESTS_DIR = path.join(__dirname, "..", "cses-tests");
+
+// S3 configuration
+const S3_BUCKET = process.env.AWS_S3_BUCKET || "codeplay-cses-tests";
+const S3_REGION = process.env.AWS_REGION || "us-east-1";
+const S3_PREFIX = "tests/"; // keys are like tests/{taskId}/1.in
+
+let s3 = null;
+if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    s3 = new S3Client({
+        region: S3_REGION,
+        credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        },
+    });
+} else {
+    console.warn("[CSES Tests] AWS credentials not set. S3 test case fetching will be unavailable. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars.");
+}
 
 // Ensure base directory exists
 if (!fs.existsSync(TESTS_DIR)) {
@@ -15,10 +33,8 @@ if (!fs.existsSync(TESTS_DIR)) {
 const downloadLocks = new Map();
 
 /**
- * Get CSES test cases for a given task ID from local disk cache.
- *
- * Test cases must be pre-downloaded using:
- *   node backend/scripts/downloadCSESTests.js --user YOUR_USER --pass YOUR_PASS
+ * Get CSES test cases for a given task ID.
+ * Checks local disk cache first, then downloads from S3 if needed.
  *
  * @param {string} taskId - CSES task ID (e.g. "1068")
  * @returns {Promise<{ input: string, expectedOutput: string, testNumber: number }[]>}
@@ -31,7 +47,7 @@ export async function getTestCases(taskId) {
         return readTestCases(taskDir);
     }
 
-    // If a download with cookie is in progress, wait for it
+    // If a download is already in progress for this task, wait for it
     if (downloadLocks.has(taskId)) {
         await downloadLocks.get(taskId);
         if (fs.existsSync(taskDir) && hasTestFiles(taskDir)) {
@@ -39,28 +55,8 @@ export async function getTestCases(taskId) {
         }
     }
 
-    throw new Error(
-        `Test cases for CSES task ${taskId} not found on disk. ` +
-        `Run: node backend/scripts/downloadCSESTests.js --user YOUR_USER --pass YOUR_PASS --task ${taskId}`
-    );
-}
-
-/**
- * Download test cases for a specific task using an authenticated session cookie.
- * Called by the download script or admin API.
- *
- * @param {string} taskId
- * @param {string} cookie - Authenticated CSES session cookie (e.g. "PHPSESSID=xxx")
- */
-export async function downloadTestCasesWithAuth(taskId, cookie) {
-    const taskDir = path.join(TESTS_DIR, String(taskId));
-
-    if (downloadLocks.has(taskId)) {
-        await downloadLocks.get(taskId);
-        return;
-    }
-
-    const downloadPromise = downloadAndExtract(taskId, taskDir, cookie);
+    // Download from S3
+    const downloadPromise = downloadFromS3(taskId, taskDir);
     downloadLocks.set(taskId, downloadPromise);
 
     try {
@@ -68,6 +64,15 @@ export async function downloadTestCasesWithAuth(taskId, cookie) {
     } finally {
         downloadLocks.delete(taskId);
     }
+
+    if (fs.existsSync(taskDir) && hasTestFiles(taskDir)) {
+        return readTestCases(taskDir);
+    }
+
+    throw new Error(
+        `Test cases for CSES task ${taskId} not found in S3 bucket (s3://${S3_BUCKET}/${S3_PREFIX}${taskId}/). ` +
+        `Ensure the test cases have been uploaded.`
+    );
 }
 
 /**
@@ -80,7 +85,6 @@ export async function getTestCount(taskId) {
     const taskDir = path.join(TESTS_DIR, String(taskId));
 
     if (!fs.existsSync(taskDir) || !hasTestFiles(taskDir)) {
-        // Download first
         await getTestCases(taskId);
     }
 
@@ -130,110 +134,60 @@ function readTestCases(dir) {
 }
 
 /**
- * Download ZIP from CSES and extract to target directory.
- * CSES requires a two-step process: GET page for csrf_token, then POST to download.
+ * Download test case files for a task from S3 and cache them locally.
+ *
+ * S3 structure: s3://{bucket}/tests/{taskId}/1.in, 1.out, 2.in, 2.out, ...
  */
-async function downloadAndExtract(taskId, taskDir, cookie) {
-    const url = `https://cses.fi/problemset/tests/${taskId}/`;
-    console.log(`[CSES Tests] Downloading test cases for task ${taskId}...`);
-
-    const baseHeaders = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    };
-    if (cookie) {
-        baseHeaders["Cookie"] = cookie;
+async function downloadFromS3(taskId, taskDir) {
+    if (!s3) {
+        throw new Error(
+            "AWS credentials not configured. Add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables to your deployment."
+        );
     }
 
-    // Step 1: GET the tests page to extract csrf_token from the download form
-    const pageRes = await fetch(url, {
-        headers: { ...baseHeaders },
-        redirect: "follow",
+    const prefix = `${S3_PREFIX}${taskId}/`;
+    console.log(`[CSES Tests] Downloading task ${taskId} from S3 (s3://${S3_BUCKET}/${prefix})...`);
+
+    // List all objects under the task prefix
+    const listRes = await s3.send(new ListObjectsV2Command({
+        Bucket: S3_BUCKET,
+        Prefix: prefix,
+    }));
+
+    const objects = (listRes.Contents || []).filter(obj => {
+        const filename = obj.Key.split("/").pop();
+        return filename.endsWith(".in") || filename.endsWith(".out");
     });
 
-    if (!pageRes.ok) {
-        throw new Error(`Failed to load CSES tests page for task ${taskId}: HTTP ${pageRes.status}`);
+    if (objects.length === 0) {
+        throw new Error(`No test files found in S3 for task ${taskId} at prefix ${prefix}`);
     }
 
-    const pageHtml = await pageRes.text();
-    const csrfMatch = pageHtml.match(/name=["']csrf_token["']\s+value=["']([^"']+)["']/);
-    if (!csrfMatch) {
-        throw new Error(`No download form found on CSES tests page for task ${taskId}. Are you authenticated?`);
+    // Create task directory
+    fs.mkdirSync(taskDir, { recursive: true });
+
+    // Download all files
+    let downloaded = 0;
+    for (const obj of objects) {
+        const filename = obj.Key.split("/").pop();
+        const getRes = await s3.send(new GetObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: obj.Key,
+        }));
+
+        // Stream body to string
+        const chunks = [];
+        for await (const chunk of getRes.Body) {
+            chunks.push(chunk);
+        }
+        const content = Buffer.concat(chunks).toString("utf-8");
+
+        fs.writeFileSync(path.join(taskDir, filename), content);
+        downloaded++;
     }
 
-    const csrfToken = csrfMatch[1];
-
-    // Step 2: POST to download the actual ZIP file
-    const formData = new URLSearchParams();
-    formData.append("csrf_token", csrfToken);
-    formData.append("download", "true");
-
-    const response = await fetch(url, {
-        method: "POST",
-        headers: {
-            ...baseHeaders,
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: formData.toString(),
-        redirect: "follow",
-    });
-
-    if (!response.ok) {
-        throw new Error(`Failed to download CSES tests for task ${taskId}: HTTP ${response.status}`);
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    // Ensure we got a ZIP file
-    if (buffer.length < 100) {
-        throw new Error(`CSES returned an unexpectedly small response for task ${taskId} (${buffer.length} bytes). The task ID may be invalid.`);
-    }
-
-    // Extract ZIP
-    try {
-        const zip = new AdmZip(buffer);
-        const entries = zip.getEntries();
-
-        if (entries.length === 0) {
-            throw new Error(`ZIP archive is empty for task ${taskId}`);
-        }
-
-        // Create task directory
-        fs.mkdirSync(taskDir, { recursive: true });
-
-        // Extract files
-        let extracted = 0;
-        for (const entry of entries) {
-            if (entry.isDirectory) continue;
-
-            // Get just the filename (ignore directory nesting in ZIP)
-            const filename = path.basename(entry.entryName);
-
-            // Only extract .in and .out files
-            if (filename.endsWith(".in") || filename.endsWith(".out")) {
-                const content = entry.getData().toString("utf-8");
-                fs.writeFileSync(path.join(taskDir, filename), content);
-                extracted++;
-            }
-        }
-
-        if (extracted === 0) {
-            // Clean up empty directory
-            fs.rmSync(taskDir, { recursive: true, force: true });
-            throw new Error(`No test files found in ZIP for task ${taskId}`);
-        }
-
-        const testCount = fs.readdirSync(taskDir).filter(f => f.endsWith(".in")).length;
-        console.log(`[CSES Tests] Extracted ${testCount} test cases for task ${taskId}`);
-    } catch (err) {
-        // Clean up on failure
-        if (fs.existsSync(taskDir)) {
-            fs.rmSync(taskDir, { recursive: true, force: true });
-        }
-        if (err.message.includes("ZIP") || err.message.includes("test files")) {
-            throw err;
-        }
-        throw new Error(`Failed to extract ZIP for task ${taskId}: ${err.message}`);
-    }
+    const testCount = fs.readdirSync(taskDir).filter(f => f.endsWith(".in")).length;
+    console.log(`[CSES Tests] Cached ${testCount} test cases for task ${taskId} from S3 (${downloaded} files)`);
 }
 
-export default { getTestCases, getTestCount, clearTestCases, downloadTestCasesWithAuth };
+export default { getTestCases, getTestCount, clearTestCases };

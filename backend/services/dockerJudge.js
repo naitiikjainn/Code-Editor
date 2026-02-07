@@ -177,6 +177,7 @@ async function executeWithoutDocker({ code, lang, config, input, timeLimit, tmpD
             const exeName = process.platform === "win32" ? "sol.exe" : "sol";
             const compileResult = await runProcess("g++", ["-O2", "-std=c++14", "-o", path.join(tmpDir, exeName), sourceFile], { timeout: 15000 });
             if (compileResult.exitCode !== 0) {
+                console.error(`[Judge] C++ compilation failed (exit ${compileResult.exitCode}):\n  cmd: g++ -O2 -std=c++14 -o ${path.join(tmpDir, exeName)} ${sourceFile}\n  stderr: ${compileResult.stderr}`);
                 return { verdict: "CE", stdout: "", stderr: compileResult.stderr, time: Date.now() - startTime, exitCode: "CE" };
             }
             // Run
@@ -228,22 +229,42 @@ function formatResult(runResult, startTime) {
 
 function runProcess(cmd, args, options = {}) {
     return new Promise((resolve) => {
-        const proc = execFile(cmd, args, {
-            timeout: options.timeout || 10000,
-            maxBuffer: 10 * 1024 * 1024,
-            env: { ...process.env, PATH: process.env.PATH },
-        }, (err, stdout, stderr) => {
-            resolve({
-                stdout: stdout || "",
-                stderr: stderr || "",
-                exitCode: err ? (err.code || 1) : 0,
-                killed: err?.killed || false,
+        try {
+            const proc = execFile(cmd, args, {
+                timeout: options.timeout || 10000,
+                maxBuffer: 10 * 1024 * 1024,
+                env: { ...process.env, PATH: process.env.PATH },
+            }, (err, stdout, stderr) => {
+                if (err && err.code === "ENOENT") {
+                    resolve({
+                        stdout: "",
+                        stderr: `Command not found: ${cmd}. Make sure it is installed and in PATH.`,
+                        exitCode: "ENOENT",
+                        killed: false,
+                    });
+                    return;
+                }
+                resolve({
+                    stdout: stdout || "",
+                    stderr: stderr || (err ? err.message : ""),
+                    exitCode: err ? (typeof err.code === "number" ? err.code : 1) : 0,
+                    killed: err?.killed || false,
+                });
             });
-        });
 
-        if (options.input && proc.stdin) {
-            proc.stdin.write(options.input);
-            proc.stdin.end();
+            if (options.input && proc.stdin) {
+                proc.stdin.write(options.input);
+                proc.stdin.end();
+            }
+        } catch (spawnErr) {
+            resolve({
+                stdout: "",
+                stderr: spawnErr.code === "ENOENT"
+                    ? `Command not found: ${cmd}. Make sure it is installed and in PATH.`
+                    : spawnErr.message,
+                exitCode: spawnErr.code || 1,
+                killed: false,
+            });
         }
     });
 }

@@ -16,12 +16,12 @@ WORKDIR /app
 ENV PORT=5000
 ENV NODE_ENV=production
 
+# Install g++ for C++ compilation (CSES judge)
+RUN apk add --no-cache g++
+
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package*.json ./
 COPY --from=build /app .
-
-# Use non-root user
-USER node
 
 EXPOSE 5000
 
