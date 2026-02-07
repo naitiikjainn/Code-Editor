@@ -127,6 +127,85 @@ function extractProblemSection(htmlContent, contestId, problemIndex) {
 
 // --- LEETCODE API ---
 
+// LeetCode Daily Challenge (POTD)
+router.get("/leetcode/daily", async (req, res) => {
+    try {
+        const cacheKey = "leetcode:daily";
+        const cached = await redis.get(cacheKey).catch(() => null);
+        if (cached) {
+            return res.json(JSON.parse(cached));
+        }
+
+        const memoryCached = getMemoryCache(cacheKey);
+        if (memoryCached) {
+            return res.json(memoryCached);
+        }
+
+        console.log("[LeetCode] Fetching daily challenge...");
+
+        const query = `
+            query questionOfToday {
+                activeDailyCodingChallengeQuestion {
+                    date
+                    link
+                    question {
+                        questionId
+                        questionFrontendId
+                        title
+                        titleSlug
+                        difficulty
+                        acRate
+                        topicTags {
+                            name
+                        }
+                        isPaidOnly
+                    }
+                }
+            }
+        `;
+
+        const response = await fetch("https://leetcode.com/graphql", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Referer": "https://leetcode.com"
+            },
+            body: JSON.stringify({ query }),
+            signal: AbortSignal.timeout(15000)
+        });
+
+        const data = await response.json();
+        const daily = data.data?.activeDailyCodingChallengeQuestion;
+
+        if (!daily || !daily.question) {
+            throw new Error("Invalid response from LeetCode daily challenge API");
+        }
+
+        const result = {
+            date: daily.date,
+            link: daily.link,
+            id: daily.question.questionFrontendId,
+            questionId: daily.question.questionId,
+            title: daily.question.title,
+            titleSlug: daily.question.titleSlug,
+            difficulty: daily.question.difficulty,
+            acceptanceRate: Math.round(daily.question.acRate * 10) / 10,
+            tags: daily.question.topicTags.map(t => t.name),
+            isPremium: daily.question.isPaidOnly
+        };
+
+        // Cache for 4 hours
+        redis.setex(cacheKey, 14400, JSON.stringify(result)).catch(e => console.error("Redis cache error:", e));
+        setMemoryCache(cacheKey, result, 14400 * 1000);
+
+        res.json(result);
+
+    } catch (err) {
+        console.error("LeetCode Daily Error:", err);
+        res.status(500).json({ error: "Failed to fetch LeetCode daily challenge" });
+    }
+});
+
 // LeetCode Problem List with filters
 router.get("/leetcode/list", async (req, res) => {
     try {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, X, Lock } from "lucide-react";
+import { Search, Trophy, Loader2, Filter, ChevronDown, CheckCircle2, User, RefreshCw, Grid, Star, ExternalLink, X, Lock, Calendar } from "lucide-react";
 import { API_URL } from "../config";
 import { fetchCodeforcesProblem, fetchCSESProblem, fetchLeetCodeProblem } from "../utils/problemFetcher";
 import { VirtualizedList, InfiniteList } from "./VirtualizedList";
@@ -215,6 +215,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
     const [lcTotal, setLcTotal] = useState(0);
     const [lcSkip, setLcSkip] = useState(0);
     const [debouncedSearch, setDebouncedSearch] = useState("");
+    const [dailyChallenge, setDailyChallenge] = useState(null);
 
     // Debounce Search
     useEffect(() => {
@@ -319,6 +320,11 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                     .then(tags => setLcTags(tags || []))
                     .catch(console.error);
             }
+            // Fetch daily challenge
+            fetch(`${API_URL}/api/problems/leetcode/daily`)
+                .then(res => res.json())
+                .then(data => { if (data.title) setDailyChallenge(data); })
+                .catch(() => {});
         }
     }, [provider]);
 
@@ -1061,6 +1067,63 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                     </div>
                 ) : (
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                        {/* Daily Challenge Card */}
+                        {dailyChallenge && (
+                            <div
+                                onClick={() => handleOpen(dailyChallenge)}
+                                style={{
+                                    margin: "12px 12px 0 12px",
+                                    padding: "12px 14px",
+                                    background: "linear-gradient(135deg, rgba(255, 161, 22, 0.08) 0%, rgba(234, 88, 12, 0.05) 100%)",
+                                    border: "1px solid rgba(255, 161, 22, 0.2)",
+                                    borderRadius: "10px",
+                                    cursor: "pointer",
+                                    transition: "border-color 0.2s, background 0.2s",
+                                    flexShrink: 0
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(255, 161, 22, 0.4)"; e.currentTarget.style.background = "linear-gradient(135deg, rgba(255, 161, 22, 0.12) 0%, rgba(234, 88, 12, 0.08) 100%)"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255, 161, 22, 0.2)"; e.currentTarget.style.background = "linear-gradient(135deg, rgba(255, 161, 22, 0.08) 0%, rgba(234, 88, 12, 0.05) 100%)"; }}
+                            >
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                                    <Calendar size={13} color="#ffa116" />
+                                    <span style={{ fontSize: "10px", fontWeight: "700", color: "#ffa116", textTransform: "uppercase", letterSpacing: "0.8px" }}>Daily Challenge</span>
+                                    <span style={{ fontSize: "10px", color: "#71717a", marginLeft: "auto" }}>{dailyChallenge.date}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: "13px", fontWeight: "600", color: "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                            {dailyChallenge.id}. {dailyChallenge.title}
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                                            <span style={{
+                                                fontSize: "10px", fontWeight: "600",
+                                                color: getDifficultyColor(dailyChallenge.difficulty),
+                                                padding: "1px 8px", borderRadius: "10px",
+                                                background: getDifficultyColor(dailyChallenge.difficulty) === "#4ade80" ? "rgba(74, 222, 128, 0.1)" :
+                                                    (getDifficultyColor(dailyChallenge.difficulty) === "#fbbf24" ? "rgba(251, 191, 36, 0.1)" : "rgba(239, 68, 68, 0.1)")
+                                            }}>
+                                                {dailyChallenge.difficulty}
+                                            </span>
+                                            <span style={{ fontSize: "10px", color: "#52525b" }}>{dailyChallenge.acceptanceRate}%</span>
+                                        </div>
+                                    </div>
+                                    <div style={{
+                                        padding: "5px 12px",
+                                        background: "rgba(255, 161, 22, 0.15)",
+                                        border: "1px solid rgba(255, 161, 22, 0.3)",
+                                        borderRadius: "6px",
+                                        fontSize: "11px",
+                                        fontWeight: "600",
+                                        color: "#ffa116",
+                                        flexShrink: 0,
+                                        marginLeft: "12px"
+                                    }}>
+                                        Solve
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Grid Header */}
                         <div style={{ 
                             display: "flex", alignItems: "center", padding: "8px 16px", background: "rgba(24, 24, 27, 0.95)", borderBottom: "1px solid rgba(255,255,255,0.05)",
