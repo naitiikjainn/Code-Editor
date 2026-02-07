@@ -102,7 +102,7 @@ setInterval(async () => {
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (origin.includes("localhost") || origin.includes(".vercel.app") || origin.includes(".onrender.com")) {
+    if (origin.includes("localhost") || origin.includes(".vercel.app") || origin.includes(".onrender.com") || origin.includes("cod-play.tech")) {
       return callback(null, true);
     }
     const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
