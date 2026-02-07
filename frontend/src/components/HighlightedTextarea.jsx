@@ -1,51 +1,43 @@
 import React, { useRef } from 'react';
-// SyntaxHighlighter removed
-// import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-// import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 const HighlightedTextarea = ({ value, onChange, language = "text", placeholder, style }) => {
     const textareaRef = useRef(null);
-    const preRef = useRef(null);
-
-    const handleScroll = () => {
-        if (textareaRef.current && preRef.current) {
-            // Use requestAnimationFrame for smooth sync
-            requestAnimationFrame(() => {
-                if (textareaRef.current && preRef.current) {
-                    preRef.current.scrollTop = textareaRef.current.scrollTop;
-                    preRef.current.scrollLeft = textareaRef.current.scrollLeft;
-                }
-            });
-        }
-    };
 
     return (
         <div style={{ position: "relative", width: "100%", height: "100%", minHeight: "60px", ...style }}>
-            {/* Transparent Textarea (Foreground) */}
             <textarea
                 ref={textareaRef}
                 value={value}
                 onChange={onChange}
-                onScroll={handleScroll}
                 placeholder={placeholder}
                 spellCheck={false}
+                className="ht-textarea"
                 style={{
                     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
                     margin: 0, padding: "10px",
                     width: "100%", height: "100%",
                     overflow: "auto",
-                    background: "#0a0a0a", // Make visible
-                    color: "#e4e4e7", // Show text
-                    caretColor: "#fff", // Show cursor
-                    border: "1px solid #333", borderRadius: "4px",
-                    fontSize: "12px", fontFamily: "'Fira Code', monospace", lineHeight: "1.5",
-                    resize: "none", outline: "none",
+                    background: "transparent",
+                    color: "#e4e4e7",
+                    caretColor: "#a78bfa",
+                    border: "none",
+                    borderRadius: 0,
+                    fontSize: "12.5px",
+                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                    lineHeight: "1.6",
+                    resize: "none",
+                    outline: "none",
                     zIndex: 1,
-                    boxSizing: "border-box"
+                    boxSizing: "border-box",
+                    letterSpacing: "0.2px",
                 }}
-                onFocus={(e) => e.target.style.borderColor = "#555"}
-                onBlur={(e) => e.target.style.borderColor = "#333"}
             />
+            <style>{`
+                .ht-textarea::placeholder {
+                    color: #3a3a3a;
+                    font-style: normal;
+                }
+            `}</style>
         </div>
     );
 };

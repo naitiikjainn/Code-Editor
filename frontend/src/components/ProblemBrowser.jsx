@@ -542,19 +542,7 @@ export default function ProblemBrowser({ onOpenProblem, activeSheet: initialShee
                                    <rect x="17" y="10" width="5" height="12" rx="1" fill="#F44336"/>
                                </svg>
                            </div>
-                       ) : provider === "cses" ? (
-                           <div style={{ 
-                               background: "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)", 
-                               padding: "8px", 
-                               borderRadius: "10px",
-                               boxShadow: "0 4px 12px rgba(234, 88, 12, 0.3)"
-                           }}>
-                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                   <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                                   <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                               </svg>
-                           </div>
-                       ) : (
+                       ) : provider === "cses" ? null : (
                            <div style={{ 
                                background: "linear-gradient(135deg, #ffa116 0%, #d97706 100%)", 
                                padding: "8px", 

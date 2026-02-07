@@ -2093,12 +2093,13 @@ rl.on('line', (line) => {
                         />
                     )}
                     {activeSidebar === "tests" && (
-                        <TestPanel 
-                            testCases={testCases} 
-                            setTestCases={setTestCases} 
+                        <TestPanel
+                            testCases={testCases}
+                            setTestCases={setTestCases}
                             runTests={runTests}
                             runSingleTest={runSingleTest}
                             isRunningTests={isRunningTests || isSubmitting}
+                            onClose={() => setActiveSidebar(null)}
                             language={activeFile?.language || "text"} // Pass language
                         />
                     )}

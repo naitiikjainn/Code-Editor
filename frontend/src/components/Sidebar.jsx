@@ -19,13 +19,17 @@ const LeetCodeLogo = ({ active }) => (
   </svg>
 );
 
-// CSES Logo (book style)
+// CSES Original Logo (golden CSES text)
 const CSESLogo = ({ active }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#ea580c" : "#52525b"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "all 0.25s" }}>
-    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    <path d="M8 7h8" />
-    <path d="M8 11h6" />
+  <svg width="24" height="14" viewBox="0 0 40 14" fill="none" style={{ transition: "all 0.25s" }}>
+    <defs>
+      <linearGradient id="csesGold" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor={active ? "#d4a853" : "#71717a"} />
+        <stop offset="50%" stopColor={active ? "#f5d78e" : "#a1a1aa"} />
+        <stop offset="100%" stopColor={active ? "#b8943a" : "#52525b"} />
+      </linearGradient>
+    </defs>
+    <text x="20" y="11" textAnchor="middle" fontSize="12" fontWeight="800" fontFamily="Arial Black, sans-serif" fill="url(#csesGold)" stroke={active ? "#8b6914" : "#3f3f46"} strokeWidth="0.3">CSES</text>
   </svg>
 );
 

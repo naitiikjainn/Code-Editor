@@ -1,15 +1,14 @@
 import React, { useState } from "react";
-import { Play, X, FlaskConical, Plus, Trash2, CheckCircle, AlertCircle, Loader2, ChevronRight, ChevronDown, Zap, Copy, Check } from "lucide-react";
+import { Play, X, FlaskConical, Plus, Trash2, CheckCircle, AlertCircle, Loader2, ChevronRight, ChevronDown, Zap, Copy, Check, Lightbulb } from "lucide-react";
 
 import HighlightedTextarea from "./HighlightedTextarea";
 
-const TestPanel = ({ 
+const TestPanel = ({
     testCases, setTestCases, runTests, runSingleTest, isRunningTests, onClose, language = "text"
 }) => {
-  
+
   const [copiedId, setCopiedId] = useState(null);
-  
-  // Helper to copy text to clipboard
+
   const copyToClipboard = (text, id) => {
       navigator.clipboard.writeText(text);
       setCopiedId(id);
@@ -17,13 +16,13 @@ const TestPanel = ({
   };
 
   const addTestCase = () => {
-      const newCase = { 
-          id: Date.now(), 
-          input: "", 
-          expectedOutput: "", 
-          status: "idle", 
+      const newCase = {
+          id: Date.now(),
+          input: "",
+          expectedOutput: "",
+          status: "idle",
           actualOutput: "",
-          expanded: true 
+          expanded: true
       };
       setTestCases([...testCases, newCase]);
   };
@@ -33,7 +32,7 @@ const TestPanel = ({
   };
 
   const updateTestCase = (id, field, value) => {
-      setTestCases(testCases.map(t => 
+      setTestCases(testCases.map(t =>
           t.id === id ? { ...t, [field]: value, status: field === "input" || field === "expectedOutput" ? "idle" : t.status, actualOutput: field === "input" || field === "expectedOutput" ? "" : t.actualOutput } : t
       ));
   };
@@ -42,385 +41,329 @@ const TestPanel = ({
       setTestCases(testCases.map(t => t.id === id ? { ...t, expanded: !(t.expanded !== false) } : t));
   };
 
-  // Get summary stats
   const passedCount = testCases.filter(t => t.status === "accepted").length;
   const failedCount = testCases.filter(t => t.status === "wrong_answer" || t.status === "error").length;
+  const isDisabled = isRunningTests || testCases.length === 0;
+
+  const statusColor = (status) => {
+      if (status === "accepted") return "#4ade80";
+      if (status === "wrong_answer" || status === "error") return "#ef5350";
+      return null;
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0a0a0a", borderLeft: "1px solid #1a1a1a", fontFamily: "'Inter', sans-serif" }}>
-        
-        {/* HEADER */}
-        <div style={{ 
-            height: "52px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", 
-            background: "linear-gradient(180deg, #111 0%, #0a0a0a 100%)"
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#09090b", borderLeft: "1px solid rgba(255,255,255,0.06)", fontFamily: "'Inter', sans-serif" }}>
+
+        {/* ─── HEADER ─── */}
+        <div style={{
+            height: "48px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px",
+            background: "#0c0c0e"
         }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ 
-                    background: "linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(99, 102, 241, 0.2))", 
-                    padding: "8px", 
-                    borderRadius: "8px", 
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{
+                    background: "rgba(139, 92, 246, 0.12)",
+                    padding: "6px",
+                    borderRadius: "8px",
                     display: "flex",
-                    border: "1px solid rgba(139, 92, 246, 0.3)"
+                    border: "1px solid rgba(139, 92, 246, 0.18)"
                 }}>
-                    <FlaskConical size={18} color="#a78bfa" />
+                    <FlaskConical size={16} color="#a78bfa" />
                 </div>
                 <div>
-                    <div style={{ fontWeight: "700", fontSize: "14px", color: "#fff", letterSpacing: "-0.3px" }}>Test Cases</div>
-                    <div style={{ fontSize: "11px", color: "#666", marginTop: "2px" }}>
+                    <div style={{ fontWeight: "600", fontSize: "13px", color: "#f4f4f5", letterSpacing: "-0.2px" }}>Test Cases</div>
+                    <div style={{ fontSize: "11px", color: "#52525b", marginTop: "1px" }}>
                         {testCases.length} case{testCases.length !== 1 ? 's' : ''}
-                        {passedCount > 0 && <span style={{ color: "#4ade80", marginLeft: "8px" }}>✓ {passedCount}</span>}
-                        {failedCount > 0 && <span style={{ color: "#ef5350", marginLeft: "8px" }}>✗ {failedCount}</span>}
+                        {passedCount > 0 && <span style={{ color: "#4ade80", marginLeft: "6px" }}>&#10003; {passedCount}</span>}
+                        {failedCount > 0 && <span style={{ color: "#ef5350", marginLeft: "6px" }}>&#10007; {failedCount}</span>}
                     </div>
                 </div>
             </div>
-            <button 
-                onClick={onClose} 
-                style={{ 
-                    background: "rgba(255,255,255,0.05)", 
-                    border: "none", 
-                    color: "#666", 
-                    cursor: "pointer", 
-                    transition: "all 0.2s",
+            <button
+                onClick={onClose}
+                className="tp-close-btn"
+                style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#52525b",
+                    cursor: "pointer",
                     padding: "6px",
-                    borderRadius: "6px"
+                    borderRadius: "6px",
+                    display: "flex",
+                    alignItems: "center",
+                    transition: "all 0.15s"
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "#fff"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#666"; }}
             >
-                <X size={16}/>
+                <X size={15}/>
             </button>
         </div>
 
-        {/* CONTENT */}
-        <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px", minHeight: 0 }}>
-            
+        {/* ─── CONTENT ─── */}
+        <div className="tp-scrollbar" style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "10px", minHeight: 0 }}>
+
             {/* EMPTY STATE */}
             {testCases.length === 0 && (
-                <div style={{ 
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", 
-                    height: "200px", color: "#444", textAlign: "center", gap: "12px" 
+                <div style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    height: "200px", color: "#3f3f46", textAlign: "center", gap: "12px"
                 }}>
-                    <FlaskConical size={40} strokeWidth={1.5} />
+                    <div style={{
+                        background: "rgba(139, 92, 246, 0.06)",
+                        borderRadius: "16px",
+                        padding: "16px",
+                        border: "1px solid rgba(139, 92, 246, 0.08)"
+                    }}>
+                        <FlaskConical size={32} strokeWidth={1.5} color="#52525b" />
+                    </div>
                     <div>
-                        <div style={{ fontSize: "14px", fontWeight: "600", color: "#888" }}>No Test Cases</div>
-                        <div style={{ fontSize: "12px", marginTop: "4px" }}>Add test cases to verify your solution</div>
+                        <div style={{ fontSize: "13px", fontWeight: "600", color: "#71717a" }}>No Test Cases</div>
+                        <div style={{ fontSize: "11.5px", marginTop: "4px", color: "#52525b" }}>Add test cases to verify your solution</div>
                     </div>
                 </div>
             )}
 
-            {/* LIST OF CASES */}
-            {testCases.map((test, i) => (
-                <div key={test.id} style={{ 
-                    background: "#111", 
-                    borderRadius: "10px", 
+            {/* ─── LIST OF CASES ─── */}
+            {testCases.map((test, i) => {
+                const sc = statusColor(test.status);
+                const isExpanded = test.expanded !== false;
+                const isActive = test.status !== "idle";
+
+                return (
+                <div key={test.id} className="tp-card" style={{
+                    background: "#0f0f11",
+                    borderRadius: "10px",
                     flexShrink: 0,
-                    border: test.status === "accepted" 
-                        ? "1px solid rgba(74, 222, 128, 0.4)" 
-                        : test.status === "wrong_answer" || test.status === "error"
-                            ? "1px solid rgba(239, 83, 80, 0.4)" 
-                            : "1px solid #1a1a1a",
-                    boxShadow: test.status === "accepted" 
-                        ? "0 0 20px rgba(74, 222, 128, 0.1), inset 0 1px 0 rgba(74, 222, 128, 0.1)" 
-                        : test.status === "wrong_answer" || test.status === "error"
-                            ? "0 0 20px rgba(239, 83, 80, 0.1), inset 0 1px 0 rgba(239, 83, 80, 0.1)"
-                            : "inset 0 1px 0 rgba(255,255,255,0.02)",
-                    overflow: "hidden"
+                    border: sc
+                        ? `1px solid ${sc}33`
+                        : "1px solid rgba(255,255,255,0.06)",
+                    boxShadow: sc
+                        ? `0 0 16px ${sc}0d`
+                        : "none",
+                    overflow: "hidden",
+                    transition: "border-color 0.2s, box-shadow 0.2s"
                 }}>
-                    
-                    {/* CASE HEADER (Click to Expand) */}
-                    <div 
+
+                    {/* CASE HEADER */}
+                    <div
                         onClick={() => toggleExpand(test.id)}
-                        style={{ 
-                            padding: "12px 14px", 
-                            background: test.status === "accepted" 
-                                ? "linear-gradient(90deg, rgba(74, 222, 128, 0.08), transparent)" 
-                                : test.status === "wrong_answer" || test.status === "error"
-                                    ? "linear-gradient(90deg, rgba(239, 83, 80, 0.08), transparent)"
-                                    : "linear-gradient(90deg, rgba(255,255,255,0.02), transparent)", 
-                            display: "flex", 
-                            justifyContent: "space-between", 
-                            alignItems: "center", 
-                            borderBottom: (test.expanded !== false) ? "1px solid rgba(255,255,255,0.05)" : "none", 
-                            cursor: "pointer", 
+                        className="tp-card-header"
+                        style={{
+                            padding: "10px 12px",
+                            background: sc
+                                ? `linear-gradient(90deg, ${sc}08, transparent)`
+                                : "transparent",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            borderBottom: isExpanded ? "1px solid rgba(255,255,255,0.04)" : "none",
+                            cursor: "pointer",
                             userSelect: "none",
-                            transition: "background 0.2s"
+                            transition: "background 0.15s"
                         }}
                     >
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <div style={{ 
-                                color: test.status === "accepted" ? "#4ade80" : test.status === "wrong_answer" || test.status === "error" ? "#ef5350" : "#555", 
-                                display: "flex", 
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div style={{
+                                color: sc || "#3f3f46",
+                                display: "flex",
                                 alignItems: "center",
-                                transition: "color 0.2s"
+                                transition: "transform 0.15s, color 0.15s",
+                                transform: isExpanded ? "rotate(0)" : "rotate(0)"
                             }}>
-                                {(test.expanded !== false) ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
+                                {isExpanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
                             </div>
-                            <span style={{ 
-                                fontSize: "13px", 
-                                fontWeight: "700", 
-                                color: test.status === "accepted" ? "#4ade80" : test.status === "wrong_answer" || test.status === "error" ? "#ef5350" : "#888", 
+                            <span style={{
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                color: sc || "#71717a",
                                 fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                                letterSpacing: "0.5px"
+                                letterSpacing: "0.5px",
+                                transition: "color 0.15s"
                             }}>
                                 TEST {i+1}
                             </span>
-                            
-                            {/* STATUS BADGES - Enhanced */}
+
+                            {/* STATUS BADGES */}
                             {test.status === "accepted" && (
-                                <span style={{ 
-                                    fontSize: "11px", 
-                                    color: "#4ade80", 
-                                    background: "rgba(74, 222, 128, 0.15)", 
-                                    padding: "4px 10px", 
-                                    borderRadius: "20px", 
-                                    display: "flex", 
-                                    alignItems: "center", 
-                                    gap: "5px",
-                                    fontWeight: "700",
-                                    border: "1px solid rgba(74, 222, 128, 0.3)",
-                                    textShadow: "0 0 10px rgba(74, 222, 128, 0.5)"
-                                }}>
-                                    <CheckCircle size={12}/> PASSED
+                                <span className="tp-badge tp-badge-pass">
+                                    <CheckCircle size={11}/> PASSED
                                 </span>
                             )}
                             {(test.status === "wrong_answer" || test.status === "error") && (
-                                <span style={{ 
-                                    fontSize: "11px", 
-                                    color: "#ef5350", 
-                                    background: "rgba(239, 83, 80, 0.15)", 
-                                    padding: "4px 10px", 
-                                    borderRadius: "20px", 
-                                    display: "flex", 
-                                    alignItems: "center", 
-                                    gap: "5px",
-                                    fontWeight: "700",
-                                    border: "1px solid rgba(239, 83, 80, 0.3)",
-                                    textShadow: "0 0 10px rgba(239, 83, 80, 0.5)"
-                                }}>
-                                    <AlertCircle size={12}/> {test.status === "error" ? "ERROR" : "FAILED"}
+                                <span className="tp-badge tp-badge-fail">
+                                    <AlertCircle size={11}/> {test.status === "error" ? "ERROR" : "FAILED"}
                                 </span>
                             )}
                             {test.status === "running" && (
-                                <span style={{ 
-                                    fontSize: "11px", 
-                                    color: "#fbbf24", 
-                                    background: "rgba(251, 191, 36, 0.15)", 
-                                    padding: "4px 10px", 
-                                    borderRadius: "20px", 
-                                    display: "flex", 
-                                    alignItems: "center", 
-                                    gap: "5px",
-                                    fontWeight: "700",
-                                    border: "1px solid rgba(251, 191, 36, 0.3)",
-                                    animation: "pulse 1.5s infinite"
-                                }}>
-                                    <Loader2 size={12} className="animate-spin"/> RUNNING
+                                <span className="tp-badge tp-badge-run">
+                                    <Loader2 size={11} className="animate-spin"/> RUNNING
                                 </span>
                             )}
                         </div>
 
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            {/* Run Single Test Button - Enhanced */}
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); runSingleTest && runSingleTest(test.id); }} 
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); runSingleTest && runSingleTest(test.id); }}
                                 disabled={test.status === "running" || isRunningTests}
-                                style={{ 
-                                    color: test.status === "running" || isRunningTests ? "#333" : "#a78bfa", 
-                                    background: test.status === "running" || isRunningTests ? "transparent" : "rgba(139, 92, 246, 0.1)", 
-                                    border: test.status === "running" || isRunningTests ? "none" : "1px solid rgba(139, 92, 246, 0.2)", 
-                                    cursor: test.status === "running" || isRunningTests ? "not-allowed" : "pointer", 
-                                    transition: "all 0.2s",
-                                    padding: "6px 10px",
+                                className="tp-run-btn"
+                                style={{
+                                    color: test.status === "running" || isRunningTests ? "#27272a" : "#a78bfa",
+                                    background: test.status === "running" || isRunningTests ? "transparent" : "rgba(139, 92, 246, 0.08)",
+                                    border: test.status === "running" || isRunningTests ? "1px solid transparent" : "1px solid rgba(139, 92, 246, 0.15)",
+                                    cursor: test.status === "running" || isRunningTests ? "not-allowed" : "pointer",
+                                    padding: "4px 8px",
                                     borderRadius: "6px",
                                     display: "flex",
                                     alignItems: "center",
                                     gap: "4px",
                                     fontSize: "11px",
-                                    fontWeight: "600"
-                                }} 
+                                    fontWeight: "600",
+                                    transition: "all 0.15s"
+                                }}
                                 title="Run this test"
-                                onMouseEnter={(e) => { 
-                                    if (test.status !== "running" && !isRunningTests) {
-                                        e.currentTarget.style.background = "rgba(139, 92, 246, 0.2)";
-                                        e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.4)";
-                                    }
-                                }}
-                                onMouseLeave={(e) => { 
-                                    if (test.status !== "running" && !isRunningTests) {
-                                        e.currentTarget.style.background = "rgba(139, 92, 246, 0.1)";
-                                        e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.2)";
-                                    }
-                                }}
                             >
-                                <Zap size={12} fill={test.status === "running" || isRunningTests ? "#333" : "#a78bfa"}/>
+                                <Zap size={11} fill={test.status === "running" || isRunningTests ? "#27272a" : "#a78bfa"}/>
                                 Run
                             </button>
-                            
-                            {/* Delete Button */}
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); removeTestCase(test.id); }} 
-                                style={{ 
-                                    color: "#444", 
-                                    background: "none", 
-                                    border: "none", 
-                                    cursor: "pointer", 
-                                    transition: "all 0.2s", 
-                                    padding: "6px",
-                                    borderRadius: "6px"
-                                }} 
+
+                            <button
+                                onClick={(e) => { e.stopPropagation(); removeTestCase(test.id); }}
+                                className="tp-del-btn"
+                                style={{
+                                    color: "#3f3f46",
+                                    background: "none",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    padding: "5px",
+                                    borderRadius: "6px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    transition: "all 0.15s"
+                                }}
                                 title="Delete Case"
-                                onMouseEnter={(e) => { e.currentTarget.style.color = "#ef5350"; e.currentTarget.style.background = "rgba(239, 83, 80, 0.1)"; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.color = "#444"; e.currentTarget.style.background = "none"; }}
                             >
-                                <Trash2 size={14}/>
+                                <Trash2 size={13}/>
                             </button>
                         </div>
                     </div>
 
-                    {/* CASE BODY (EDITABLE) */}
-                    {(test.expanded !== false) && (
-                    <div style={{ padding: "14px", fontSize: "12px", background: "#0a0a0a" }}>
-                        
+                    {/* CASE BODY */}
+                    {isExpanded && (
+                    <div style={{ padding: "12px", fontSize: "12px", background: "#0a0a0c" }}>
+
                         {/* INPUT */}
-                        <div style={{ marginBottom: "14px" }}>
-                            <div style={{ 
-                                fontSize: "11px", 
-                                color: "#888", 
-                                marginBottom: "6px", 
-                                fontWeight: "700", 
-                                letterSpacing: "0.8px",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "6px"
-                            }}>
-                                <span style={{ color: "#6366f1" }}>→</span> INPUT
+                        <div style={{ marginBottom: "12px" }}>
+                            <div className="tp-label">
+                                <span style={{ color: "#6366f1", fontSize: "10px" }}>&#9654;</span> INPUT
                             </div>
-                            <div style={{ 
-                                resize: "vertical", 
-                                overflow: "hidden", 
-                                minHeight: "80px", 
-                                borderRadius: "8px", 
-                                border: "1px solid #1a1a1a",
-                                background: "#0d0d0d"
-                            }}>
+                            <div className="tp-textarea-wrap">
                                 <HighlightedTextarea
                                     value={test.input}
                                     onChange={(e) => updateTestCase(test.id, "input", e.target.value)}
                                     language={language}
-                                    placeholder="Enter input here..."
-                                    style={{ background: "transparent", fontSize: "13px" }}
+                                    placeholder="Enter input..."
+                                    style={{ background: "transparent", fontSize: "12.5px" }}
                                 />
                             </div>
                         </div>
 
                         {/* EXPECTED OUTPUT */}
-                        <div style={{ marginBottom: "14px" }}>
-                            <div style={{ 
-                                fontSize: "11px", 
-                                color: "#888", 
-                                marginBottom: "6px", 
-                                fontWeight: "700", 
-                                letterSpacing: "0.8px",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "6px"
-                            }}>
-                                <span style={{ color: "#22c55e" }}>←</span> EXPECTED OUTPUT
+                        <div style={{ marginBottom: isActive ? "12px" : 0 }}>
+                            <div className="tp-label">
+                                <span style={{ color: "#22c55e", fontSize: "10px" }}>&#9664;</span> EXPECTED OUTPUT
                             </div>
-                            <div style={{ 
-                                resize: "vertical", 
-                                overflow: "hidden", 
-                                minHeight: "80px", 
-                                borderRadius: "8px", 
-                                border: "1px solid #1a1a1a",
-                                background: "#0d0d0d"
-                            }}>
+                            <div className="tp-textarea-wrap">
                                 <HighlightedTextarea
                                     value={test.expectedOutput}
                                     onChange={(e) => updateTestCase(test.id, "expectedOutput", e.target.value)}
                                     language={language}
-                                    placeholder="Enter expected output here..."
-                                    style={{ background: "transparent", fontSize: "13px" }}
+                                    placeholder="Enter expected output..."
+                                    style={{ background: "transparent", fontSize: "12.5px" }}
                                 />
                             </div>
                         </div>
-                        
-                        {/* ACTUAL OUTPUT (Only if ran) */}
-                        {test.status !== "idle" && (
+
+                        {/* ACTUAL OUTPUT */}
+                        {isActive && (
                             <div>
-                                <div style={{ 
-                                    fontSize: "11px", 
-                                    color: test.status === "wrong_answer" || test.status === "error" ? "#ef5350" : (test.status === "accepted" ? "#4ade80" : "#888"), 
-                                    marginBottom: "6px", 
-                                    fontWeight: "700", 
+                                <div style={{
+                                    fontSize: "10px",
+                                    color: sc || "#71717a",
+                                    marginBottom: "6px",
+                                    fontWeight: "600",
                                     letterSpacing: "0.8px",
                                     display: "flex",
                                     alignItems: "center",
-                                    justifyContent: "space-between"
+                                    justifyContent: "space-between",
+                                    textTransform: "uppercase"
                                 }}>
                                     <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                        <span style={{ color: test.status === "accepted" ? "#4ade80" : "#ef5350" }}>◆</span> 
-                                        YOUR OUTPUT
+                                        <span style={{ fontSize: "8px" }}>&#9670;</span>
+                                        Your Output
                                     </span>
                                     {test.actualOutput && (
                                         <button
                                             onClick={() => copyToClipboard(test.actualOutput, `output-${test.id}`)}
+                                            className="tp-copy-btn"
                                             style={{
                                                 background: "none",
                                                 border: "none",
-                                                color: copiedId === `output-${test.id}` ? "#4ade80" : "#555",
+                                                color: copiedId === `output-${test.id}` ? "#4ade80" : "#52525b",
                                                 cursor: "pointer",
-                                                padding: "2px",
+                                                padding: "2px 4px",
                                                 display: "flex",
                                                 alignItems: "center",
-                                                gap: "4px",
-                                                fontSize: "10px"
+                                                gap: "3px",
+                                                fontSize: "10px",
+                                                borderRadius: "4px",
+                                                transition: "all 0.15s"
                                             }}
                                         >
-                                            {copiedId === `output-${test.id}` ? <Check size={12}/> : <Copy size={12}/>}
-                                            {copiedId === `output-${test.id}` ? "Copied!" : "Copy"}
+                                            {copiedId === `output-${test.id}` ? <Check size={11}/> : <Copy size={11}/>}
+                                            {copiedId === `output-${test.id}` ? "Copied" : "Copy"}
                                         </button>
                                     )}
                                 </div>
-                                <div style={{ 
-                                    background: test.status === "wrong_answer" || test.status === "error"
-                                        ? "linear-gradient(135deg, rgba(239, 83, 80, 0.08), rgba(239, 83, 80, 0.02))" 
-                                        : test.status === "accepted" 
-                                            ? "linear-gradient(135deg, rgba(74, 222, 128, 0.08), rgba(74, 222, 128, 0.02))" 
-                                            : "#0d0d0d", 
-                                    padding: "12px", 
-                                    borderRadius: "8px", 
-                                    color: test.status === "wrong_answer" || test.status === "error" ? "#ef5350" : (test.status === "accepted" ? "#4ade80" : "#ccc"), 
+                                <div style={{
+                                    background: sc === "#4ade80"
+                                        ? "rgba(74, 222, 128, 0.05)"
+                                        : sc === "#ef5350"
+                                            ? "rgba(239, 83, 80, 0.05)"
+                                            : "#0d0d0f",
+                                    padding: "10px 12px",
+                                    borderRadius: "8px",
+                                    color: sc || "#a1a1aa",
                                     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                                    fontSize: "13px",
-                                    border: test.status === "wrong_answer" || test.status === "error"
-                                        ? "1px solid rgba(239, 83, 80, 0.3)" 
-                                        : test.status === "accepted" 
-                                            ? "1px solid rgba(74, 222, 128, 0.3)" 
-                                            : "1px solid #1a1a1a", 
-                                    whiteSpace: "pre-wrap", 
-                                    minHeight: "50px",
+                                    fontSize: "12.5px",
+                                    lineHeight: "1.6",
+                                    border: sc
+                                        ? `1px solid ${sc}22`
+                                        : "1px solid rgba(255,255,255,0.06)",
+                                    whiteSpace: "pre-wrap",
+                                    minHeight: "40px",
                                     maxHeight: "300px",
                                     overflowY: "auto",
                                     width: "100%",
                                     boxSizing: "border-box",
-                                    fontWeight: "500"
+                                    transition: "border-color 0.2s, background 0.2s"
                                 }}>
-                                    {test.actualOutput || <span style={{ color: "#444", fontStyle: "italic" }}>No output</span>}
+                                    {test.actualOutput || <span style={{ color: "#3f3f46", fontStyle: "italic", fontSize: "11.5px" }}>No output</span>}
                                 </div>
-                                
-                                {/* Show diff hint for failures */}
+
+                                {/* Diff hint */}
                                 {test.status === "wrong_answer" && test.expectedOutput && test.actualOutput && (
-                                    <div style={{ 
-                                        marginTop: "10px", 
-                                        padding: "10px", 
-                                        background: "rgba(251, 191, 36, 0.05)", 
-                                        border: "1px solid rgba(251, 191, 36, 0.2)",
+                                    <div style={{
+                                        marginTop: "8px",
+                                        padding: "8px 10px",
+                                        background: "rgba(251, 191, 36, 0.04)",
+                                        border: "1px solid rgba(251, 191, 36, 0.12)",
                                         borderRadius: "6px",
                                         fontSize: "11px",
-                                        color: "#fbbf24"
+                                        color: "#a3842a",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "6px"
                                     }}>
-                                        💡 <strong>Hint:</strong> Compare your output with expected output above
+                                        <Lightbulb size={13} style={{ flexShrink: 0 }} />
+                                        <span><strong>Hint:</strong> Compare your output with expected output above</span>
                                     </div>
                                 )}
                             </div>
@@ -429,108 +372,156 @@ const TestPanel = ({
                     </div>
                     )}
                 </div>
-            ))}
+                );
+            })}
 
-            {/* ADD BUTTON - Enhanced */}
-            <button 
+            {/* ADD BUTTON */}
+            <button
                 onClick={addTestCase}
-                style={{ 
-                    width: "100%", 
-                    padding: "14px", 
-                    background: "linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.05))", 
-                    border: "2px dashed #2a2a2a", 
-                    borderRadius: "10px", 
-                    color: "#666", 
-                    fontSize: "13px", 
+                className="tp-add-btn"
+                style={{
+                    width: "100%",
+                    padding: "12px",
+                    background: "transparent",
+                    border: "1.5px dashed rgba(255,255,255,0.08)",
+                    borderRadius: "10px",
+                    color: "#52525b",
+                    fontSize: "12.5px",
                     fontWeight: "600",
-                    cursor: "pointer", 
-                    display: "flex", 
-                    alignItems: "center", 
-                    justifyContent: "center", 
-                    gap: "8px",
-                    transition: "all 0.3s"
-                }}
-                onMouseEnter={(e) => { 
-                    e.currentTarget.style.borderColor = "#6366f1"; 
-                    e.currentTarget.style.color = "#a78bfa"; 
-                    e.currentTarget.style.background = "rgba(99, 102, 241, 0.1)";
-                }}
-                onMouseLeave={(e) => { 
-                    e.currentTarget.style.borderColor = "#2a2a2a"; 
-                    e.currentTarget.style.color = "#666"; 
-                    e.currentTarget.style.background = "linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.05))";
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    transition: "all 0.2s"
                 }}
             >
-                <Plus size={16} /> Add Test Case
+                <Plus size={15} /> Add Test Case
             </button>
 
         </div>
 
-        {/* FOOTER ACTIONS - Enhanced */}
-        <div style={{ padding: "16px", borderTop: "1px solid #1a1a1a", background: "linear-gradient(180deg, #0d0d0d 0%, #0a0a0a 100%)" }}>
-             <button 
+        {/* ─── FOOTER ─── */}
+        <div style={{ padding: "12px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "#0c0c0e" }}>
+             <button
                 onClick={runTests}
-                disabled={isRunningTests || testCases.length === 0}
-                style={{ 
+                disabled={isDisabled}
+                className="tp-run-all-btn"
+                style={{
                     width: "100%",
-                    backgroundColor: isRunningTests || testCases.length === 0 
-                        ? "#1a1a1a" 
-                        : "transparent",
-                    backgroundImage: isRunningTests || testCases.length === 0
-                        ? "none"
-                        : "linear-gradient(135deg, #8b5cf6 0%, #6366f1 50%, #8b5cf6 100%)",
-                    backgroundSize: isRunningTests || testCases.length === 0 ? "auto" : "200% 100%",
-                    color: isRunningTests || testCases.length === 0 ? "#444" : "white", 
-                    border: isRunningTests || testCases.length === 0 ? "1px solid #222" : "none",
-                    padding: "14px", 
-                    borderRadius: "10px", 
-                    fontWeight: "700", 
-                    fontSize: "14px",
-                    cursor: isRunningTests || testCases.length === 0 ? "not-allowed" : "pointer",
-                    display: "flex", 
-                    alignItems: "center", 
-                    justifyContent: "center", 
-                    gap: "10px",
-                    boxShadow: isRunningTests || testCases.length === 0 ? "none" : "0 4px 20px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.1)",
-                    transition: "all 0.3s",
-                    letterSpacing: "0.5px",
-                    textShadow: isRunningTests || testCases.length === 0 ? "none" : "0 1px 2px rgba(0,0,0,0.3)"
+                    background: isDisabled
+                        ? "#18181b"
+                        : "linear-gradient(135deg, #7c3aed 0%, #6366f1 50%, #7c3aed 100%)",
+                    backgroundSize: isDisabled ? "auto" : "200% 100%",
+                    color: isDisabled ? "#3f3f46" : "white",
+                    border: isDisabled ? "1px solid rgba(255,255,255,0.06)" : "none",
+                    padding: "12px",
+                    borderRadius: "10px",
+                    fontWeight: "700",
+                    fontSize: "13px",
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    boxShadow: isDisabled ? "none" : "0 4px 16px rgba(124, 58, 237, 0.3)",
+                    transition: "all 0.2s",
+                    letterSpacing: "0.3px"
                 }}
-                onMouseEnter={(e) => { 
-                    if (!isRunningTests && testCases.length > 0) {
-                        e.currentTarget.style.transform = "translateY(-1px)";
-                        e.currentTarget.style.boxShadow = "0 6px 25px rgba(139, 92, 246, 0.5), inset 0 1px 0 rgba(255,255,255,0.15)";
-                    }
-                }}
-                onMouseLeave={(e) => { 
-                    if (!isRunningTests && testCases.length > 0) {
-                        e.currentTarget.style.transform = "translateY(0)";
-                        e.currentTarget.style.boxShadow = "0 4px 20px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.1)";
-                    }
-                }}
-                onMouseDown={(e) => !isRunningTests && testCases.length > 0 && (e.currentTarget.style.transform = "translateY(0) scale(0.98)")}
-                onMouseUp={(e) => !isRunningTests && testCases.length > 0 && (e.currentTarget.style.transform = "translateY(-1px) scale(1)")}
               >
-                  {isRunningTests ? <Loader2 size={18} className="animate-spin"/> : <Play size={18} fill="white"/>} 
+                  {isRunningTests ? <Loader2 size={16} className="animate-spin"/> : <Play size={16} fill="white"/>}
                   {isRunningTests ? "Running Tests..." : "Run All Tests"}
               </button>
         </div>
-        
-        {/* INLINE STYLES */}
+
+        {/* ─── STYLES ─── */}
         <style>{`
-            .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-            .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-            .custom-scrollbar::-webkit-scrollbar-thumb { background: #222; border-radius: 6px; }
-            .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #333; }
-            
-            @keyframes pulse {
+            .tp-scrollbar::-webkit-scrollbar { width: 5px; }
+            .tp-scrollbar::-webkit-scrollbar-track { background: transparent; }
+            .tp-scrollbar::-webkit-scrollbar-thumb { background: #1e1e22; border-radius: 6px; }
+            .tp-scrollbar::-webkit-scrollbar-thumb:hover { background: #2a2a2e; }
+
+            .tp-close-btn:hover { background: rgba(255,255,255,0.06) !important; color: #a1a1aa !important; }
+
+            .tp-card-header:hover { background: rgba(255,255,255,0.02) !important; }
+
+            .tp-badge {
+                font-size: 10px;
+                padding: 2px 7px;
+                border-radius: 20px;
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-weight: 700;
+                letter-spacing: 0.3px;
+            }
+            .tp-badge-pass {
+                color: #4ade80;
+                background: rgba(74, 222, 128, 0.1);
+                border: 1px solid rgba(74, 222, 128, 0.2);
+            }
+            .tp-badge-fail {
+                color: #ef5350;
+                background: rgba(239, 83, 80, 0.1);
+                border: 1px solid rgba(239, 83, 80, 0.2);
+            }
+            .tp-badge-run {
+                color: #fbbf24;
+                background: rgba(251, 191, 36, 0.1);
+                border: 1px solid rgba(251, 191, 36, 0.2);
+                animation: tp-pulse 1.5s infinite;
+            }
+
+            .tp-run-btn:not(:disabled):hover {
+                background: rgba(139, 92, 246, 0.15) !important;
+                border-color: rgba(139, 92, 246, 0.3) !important;
+            }
+            .tp-del-btn:hover { color: #ef5350 !important; background: rgba(239, 83, 80, 0.08) !important; }
+            .tp-copy-btn:hover { color: #a1a1aa !important; background: rgba(255,255,255,0.04); }
+
+            .tp-label {
+                font-size: 10px;
+                color: #52525b;
+                margin-bottom: 6px;
+                font-weight: 600;
+                letter-spacing: 0.8px;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                text-transform: uppercase;
+            }
+
+            .tp-textarea-wrap {
+                resize: vertical;
+                overflow: hidden;
+                min-height: 72px;
+                border-radius: 8px;
+                border: 1px solid rgba(255,255,255,0.06);
+                background: #0d0d0f;
+                transition: border-color 0.2s, box-shadow 0.2s;
+            }
+            .tp-textarea-wrap:focus-within {
+                border-color: rgba(139, 92, 246, 0.4);
+                box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1);
+            }
+
+            .tp-add-btn:hover {
+                border-color: rgba(139, 92, 246, 0.3) !important;
+                color: #a78bfa !important;
+                background: rgba(139, 92, 246, 0.04) !important;
+            }
+
+            .tp-run-all-btn:not(:disabled):hover {
+                transform: translateY(-1px);
+                box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35) !important;
+            }
+            .tp-run-all-btn:not(:disabled):active {
+                transform: translateY(0) scale(0.98);
+            }
+
+            @keyframes tp-pulse {
                 0%, 100% { opacity: 1; }
                 50% { opacity: 0.6; }
-            }
-            
-            @keyframes shimmer {
-                0% { background-position: 200% 0; }
-                100% { background-position: -200% 0; }
             }
         `}</style>
     </div>
