@@ -1,6 +1,6 @@
 import { createWorker } from "../utils/jobQueue.js";
 import { getTestCases } from "../services/csesTestCaseService.js";
-import { execute, compareOutput } from "../services/dockerJudge.js";
+import { execute, executeBatch, compareOutput } from "../services/dockerJudge.js";
 import Submission from "../models/Submission.js";
 import CSESProgress from "../models/CSESProgress.js";
 
@@ -73,69 +73,79 @@ async function processCSESJudge(job) {
             submissionId, testNumber: 0, totalTests, verdict: "Judging", passed: 0
         });
 
-        // 2. Run each test case sequentially
-        for (const tc of testCases) {
-            const result = await execute({
-                code,
-                language,
-                input: tc.input,
-                timeLimit: timeLimit || 1,
-                memoryLimit: memoryLimit || 256,
-            });
+        // 2. Run all test cases with batch execution (compile once, run many)
+        const inputs = testCases.map(tc => ({ testNumber: tc.testNumber, input: tc.input }));
+        let stopped = false; // Track if we stopped early on failure
 
-            let testVerdict;
-            if (result.verdict === "CE") {
-                testVerdict = "CE";
-                console.error(`[CSES Judge] Compilation Error for submission ${submissionId}:\n${result.stderr}`);
-            } else if (result.verdict === "TLE") {
-                testVerdict = "TLE";
-            } else if (result.verdict === "MLE") {
-                testVerdict = "MLE";
-            } else if (result.verdict === "RE") {
-                testVerdict = "RE";
-            } else if (result.verdict === "OK") {
-                // Compare output
-                testVerdict = compareOutput(result.stdout, tc.expectedOutput) ? "AC" : "WA";
-            } else {
-                testVerdict = "RE";
-            }
+        const batchResults = await executeBatch({
+            code,
+            language,
+            inputs,
+            timeLimit: timeLimit || 1,
+            memoryLimit: memoryLimit || 256,
+            shouldStop: () => stopped, // Stop running tests after first failure
+            onTestComplete: (testNumber, result) => {
+                if (stopped) return; // Already stopped, ignore further callbacks
 
-            const testResult = {
-                testNumber: tc.testNumber,
-                verdict: testVerdict,
-                time: result.time,
-                stderr: result.stderr || "",
-            };
-            testResults.push(testResult);
-            maxTime = Math.max(maxTime, result.time);
+                let testVerdict;
+                if (result.verdict === "CE") {
+                    testVerdict = "CE";
+                    console.error(`[CSES Judge] Compilation Error for submission ${submissionId}:\n${result.stderr}`);
+                } else if (result.verdict === "TLE") {
+                    testVerdict = "TLE";
+                } else if (result.verdict === "MLE") {
+                    testVerdict = "MLE";
+                } else if (result.verdict === "RE") {
+                    testVerdict = "RE";
+                } else if (result.verdict === "OK") {
+                    const tc = testCases.find(t => t.testNumber === testNumber);
+                    testVerdict = tc && compareOutput(result.stdout, tc.expectedOutput) ? "AC" : "WA";
+                } else {
+                    testVerdict = "RE";
+                }
 
-            if (testVerdict === "AC") {
-                passedTests++;
-            } else if (!firstFailed) {
-                firstFailed = {
-                    testNumber: tc.testNumber,
-                    input: truncate(tc.input),
-                    expected: truncate(tc.expectedOutput),
-                    actual: truncate(result.stdout),
-                    stderr: truncate(result.stderr, 1000),
+                const testResult = {
+                    testNumber,
                     verdict: testVerdict,
+                    time: result.time,
+                    stderr: result.stderr || "",
                 };
-            }
+                testResults.push(testResult);
+                maxTime = Math.max(maxTime, result.time);
 
-            // Emit per-test progress
-            emitToUser(userId, "cses:judge:progress", {
-                submissionId,
-                testNumber: tc.testNumber,
-                totalTests,
-                verdict: testVerdict,
-                passed: passedTests,
-                time: result.time,
-            });
+                if (testVerdict === "AC") {
+                    passedTests++;
+                } else if (!firstFailed) {
+                    const tc = testCases.find(t => t.testNumber === testNumber);
+                    firstFailed = {
+                        testNumber,
+                        input: truncate(tc?.input || ""),
+                        expected: truncate(tc?.expectedOutput || ""),
+                        actual: truncate(result.stdout),
+                        stderr: truncate(result.stderr, 1000),
+                        verdict: testVerdict,
+                    };
+                }
 
-            // Stop on first failure (CE always stops)
-            if (testVerdict === "CE") break;
-            if (testVerdict !== "AC") break; // Stop on first non-AC
-        }
+                // Emit per-test progress
+                emitToUser(userId, "cses:judge:progress", {
+                    submissionId,
+                    testNumber,
+                    totalTests,
+                    verdict: testVerdict,
+                    passed: passedTests,
+                    time: result.time,
+                });
+
+                // Stop on first failure
+                if (testVerdict === "CE" || testVerdict !== "AC") {
+                    stopped = true;
+                }
+            },
+        });
+
+        // If batch returned more results than we processed (due to CE returning all),
+        // we already handled it via onTestComplete + stopped flag
 
         // 3. Determine final verdict
         let finalVerdict;

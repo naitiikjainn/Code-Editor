@@ -36,14 +36,20 @@ export async function isDockerAvailable() {
 }
 
 /**
- * Check if a Docker image exists locally
+ * Check if a Docker image exists locally (cached per image name)
  */
+const imageCache = new Map();
 async function imageExists(imageName) {
-    return new Promise((resolve) => {
-        execFile("docker", ["image", "inspect", imageName], { timeout: 5000 }, (err) => {
+    if (imageCache.has(imageName)) return imageCache.get(imageName);
+    const result = await new Promise((resolve) => {
+        execFile("docker", ["image", "inspect", imageName], { timeout: 3000 }, (err) => {
             resolve(!err);
         });
     });
+    imageCache.set(imageName, result);
+    // Re-check after 60s in case images were added/removed
+    setTimeout(() => imageCache.delete(imageName), 60000);
+    return result;
 }
 
 /**
@@ -270,6 +276,206 @@ function runProcess(cmd, args, options = {}) {
 }
 
 /**
+ * Execute user code against multiple test cases with a single compilation step.
+ * Compiles once, runs for each input. Much faster than calling execute() in a loop.
+ *
+ * @param {Object} options
+ * @param {string} options.code - User source code
+ * @param {string} options.language - Programming language
+ * @param {Array<{testNumber: number, input: string}>} options.inputs - Test case inputs
+ * @param {number} options.timeLimit - Time limit in seconds per test
+ * @param {number} options.memoryLimit - Memory limit in MB
+ * @param {Function} [options.onTestComplete] - Callback(testNumber, result) called after each test
+ * @param {Function} [options.shouldStop] - Callback() returning true to stop after current test
+ * @returns {Promise<Array<{ verdict: string, stdout: string, stderr: string, time: number, exitCode: string, testNumber: number }>>}
+ */
+export async function executeBatch({ code, language, inputs, timeLimit = 2, memoryLimit = 256, onTestComplete, shouldStop }) {
+    const lang = normalizeLang(language);
+    const config = LANG_CONFIG[lang];
+
+    if (!config) {
+        return inputs.map(inp => {
+            const r = { verdict: "CE", stdout: "", stderr: `Unsupported language: ${language}`, time: 0, exitCode: "CE", testNumber: inp.testNumber };
+            onTestComplete?.(inp.testNumber, r);
+            return r;
+        });
+    }
+
+    const tmpId = crypto.randomBytes(8).toString("hex");
+    const tmpDir = path.join(os.tmpdir(), `cses-batch-${tmpId}`);
+
+    try {
+        fs.mkdirSync(tmpDir, { recursive: true });
+        const sourceFile = path.join(tmpDir, `solution.${config.ext}`);
+        fs.writeFileSync(sourceFile, code);
+
+        const hasImage = await imageExists(config.image);
+        if (!hasImage) {
+            return await executeBatchWithoutDocker({ lang, config, sourceFile, inputs, timeLimit, tmpDir, onTestComplete, shouldStop });
+        }
+
+        // Docker path: write source once, run docker per test (avoids re-writing files)
+        return await executeBatchWithDocker({ lang, config, tmpDir, inputs, timeLimit, memoryLimit, onTestComplete, shouldStop });
+    } finally {
+        try {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+            // Ignore cleanup errors
+        }
+    }
+}
+
+/**
+ * Batch execution without Docker — compile once, run many.
+ */
+async function executeBatchWithoutDocker({ lang, config, sourceFile, inputs, timeLimit, tmpDir, onTestComplete, shouldStop }) {
+    console.warn("[Judge] Docker image not found, using batch direct execution (compile once)");
+    const results = [];
+    let runCmd, runArgs;
+
+    // === COMPILE ONCE ===
+    if (lang === "cpp") {
+        const exeName = process.platform === "win32" ? "sol.exe" : "sol";
+        const exePath = path.join(tmpDir, exeName);
+        const compileResult = await runProcess("g++", ["-O2", "-std=c++14", "-o", exePath, sourceFile], { timeout: 15000 });
+        if (compileResult.exitCode !== 0) {
+            console.error(`[Judge] C++ compilation failed:\n  stderr: ${compileResult.stderr}`);
+            return inputs.map(inp => {
+                const r = { verdict: "CE", stdout: "", stderr: compileResult.stderr, time: 0, exitCode: "CE", testNumber: inp.testNumber };
+                onTestComplete?.(inp.testNumber, r);
+                return r;
+            });
+        }
+        console.log("[Judge] C++ compiled successfully, running tests...");
+        runCmd = exePath;
+        runArgs = [];
+    } else if (lang === "java") {
+        fs.copyFileSync(sourceFile, path.join(tmpDir, "Main.java"));
+        const compileResult = await runProcess("javac", [path.join(tmpDir, "Main.java")], { timeout: 15000 });
+        if (compileResult.exitCode !== 0) {
+            console.error(`[Judge] Java compilation failed:\n  stderr: ${compileResult.stderr}`);
+            return inputs.map(inp => {
+                const r = { verdict: "CE", stdout: "", stderr: compileResult.stderr, time: 0, exitCode: "CE", testNumber: inp.testNumber };
+                onTestComplete?.(inp.testNumber, r);
+                return r;
+            });
+        }
+        console.log("[Judge] Java compiled successfully, running tests...");
+        runCmd = "java";
+        runArgs = ["-cp", tmpDir, "Main"];
+    } else if (lang === "python") {
+        // Check if python3 is available first
+        const checkResult = await runProcess("python3", ["--version"], { timeout: 3000 });
+        if (checkResult.exitCode === "ENOENT") {
+            runCmd = "python";
+        } else {
+            runCmd = "python3";
+        }
+        runArgs = [sourceFile];
+    } else if (lang === "javascript") {
+        runCmd = "node";
+        runArgs = [sourceFile];
+    } else {
+        return inputs.map(inp => {
+            const r = { verdict: "CE", stdout: "", stderr: `Unsupported language: ${lang}`, time: 0, exitCode: "CE", testNumber: inp.testNumber };
+            onTestComplete?.(inp.testNumber, r);
+            return r;
+        });
+    }
+
+    // === RUN EACH TEST ===
+    for (const inp of inputs) {
+        if (shouldStop?.()) break; // Early termination on failure
+        const startTime = Date.now();
+        const runResult = await runProcess(runCmd, runArgs, {
+            timeout: timeLimit * 1000 + 1000,
+            input: inp.input,
+        });
+        const result = { ...formatResult(runResult, startTime), testNumber: inp.testNumber };
+        results.push(result);
+        onTestComplete?.(inp.testNumber, result);
+    }
+
+    return results;
+}
+
+/**
+ * Batch execution with Docker — write source once, run docker per test.
+ * (Each docker run is isolated, so we can't easily share a compiled binary across containers,
+ * but we at least avoid re-creating temp dirs and re-writing source code.)
+ */
+async function executeBatchWithDocker({ lang, config, tmpDir, inputs, timeLimit, memoryLimit, onTestComplete, shouldStop }) {
+    const results = [];
+
+    for (const inp of inputs) {
+        if (shouldStop?.()) break; // Early termination on failure
+
+        // Write this test's input
+        fs.writeFileSync(path.join(tmpDir, "input.txt"), inp.input);
+
+        // Ensure clean output directory for each test
+        const outputDir = path.join(tmpDir, "output");
+        try { fs.rmSync(outputDir, { recursive: true, force: true }); } catch {}
+        fs.mkdirSync(outputDir, { recursive: true });
+
+        const dockerTimeout = Math.ceil(timeLimit * 2 + 10);
+        const args = [
+            "run", "--rm",
+            "--network=none",
+            `--memory=${memoryLimit}m`,
+            "--memory-swap=" + memoryLimit + "m",
+            "--cpus=1",
+            "--pids-limit=64",
+            "--read-only",
+            "--tmpfs", "/tmp:rw,size=64m,exec",
+            "-v", `${tmpDir}:/workspace:ro`,
+            "-v", `${outputDir}:/output:rw`,
+            config.image,
+            lang,
+            String(Math.ceil(timeLimit))
+        ];
+
+        const startTime = Date.now();
+
+        const result = await new Promise((resolve) => {
+            execFile("docker", args, {
+                timeout: dockerTimeout * 1000,
+                maxBuffer: 10 * 1024 * 1024,
+            }, (err) => {
+                const elapsed = Date.now() - startTime;
+
+                if (err && err.killed) {
+                    resolve({ verdict: "TLE", stdout: "", stderr: "Docker execution timed out", time: elapsed, exitCode: "TLE", testNumber: inp.testNumber });
+                    return;
+                }
+
+                let userStdout = "", userStderr = "", exitCode = "OK";
+                try { userStdout = fs.readFileSync(path.join(outputDir, "stdout.txt"), "utf-8"); } catch {}
+                try { userStderr = fs.readFileSync(path.join(outputDir, "stderr.txt"), "utf-8"); } catch {}
+                try { exitCode = fs.readFileSync(path.join(outputDir, "exitcode.txt"), "utf-8").trim(); } catch {}
+
+                let verdict;
+                switch (exitCode) {
+                    case "OK": verdict = "OK"; break;
+                    case "TLE": verdict = "TLE"; break;
+                    case "MLE": verdict = "MLE"; break;
+                    case "CE": verdict = "CE"; break;
+                    case "RE": verdict = "RE"; break;
+                    default: verdict = err ? "RE" : "OK";
+                }
+
+                resolve({ verdict, stdout: userStdout, stderr: userStderr, time: elapsed, exitCode, testNumber: inp.testNumber });
+            });
+        });
+
+        results.push(result);
+        onTestComplete?.(inp.testNumber, result);
+    }
+
+    return results;
+}
+
+/**
  * Compare user output with expected output.
  * Trims trailing whitespace/newlines from each line and end.
  *
@@ -287,4 +493,4 @@ export function compareOutput(userOutput, expectedOutput) {
     return normalize(userOutput) === normalize(expectedOutput);
 }
 
-export default { execute, compareOutput, isDockerAvailable };
+export default { execute, executeBatch, compareOutput, isDockerAvailable };
