@@ -14,6 +14,8 @@
     "host_permissions": [
         "https://leetcode.com/*",
         "https://codeforces.com/*",
+        "https://cod-play.tech/*",
+        "https://www.cod-play.tech/*",
         "https://code-editor-phi-two.vercel.app/*",
         "http://localhost/*",
         "http://127.0.0.1/*",
@@ -26,6 +28,8 @@
     "content_scripts": [
         {
             "matches": [
+                "https://cod-play.tech/*",
+                "https://www.cod-play.tech/*",
                 "https://code-editor-phi-two.vercel.app/*",
                 "http://localhost/*",
                 "http://127.0.0.1/*",

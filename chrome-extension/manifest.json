@@ -7,31 +7,22 @@
         "cookies",
         "storage",
         "notifications",
-        "webRequest",
-        "webRequestBlocking"
+        "webRequest"
     ],
     "host_permissions": [
         "https://leetcode.com/*",
         "https://codeforces.com/*",
-        "https://code-editor-phi-two.vercel.app/*",
-        "http://localhost/*",
-        "http://127.0.0.1/*",
-        "http://localhost:5173/*",
-        "http://127.0.0.1:5173/*"
+        "https://cod-play.tech/*",
+        "https://www.cod-play.tech/*"
     ],
     "background": {
-        "scripts": [
-            "background.js"
-        ]
+        "service_worker": "background.js"
     },
     "content_scripts": [
         {
             "matches": [
-                "https://code-editor-phi-two.vercel.app/*",
-                "http://localhost/*",
-                "http://127.0.0.1/*",
-                "http://localhost:5173/*",
-                "http://127.0.0.1:5173/*",
+                "https://cod-play.tech/*",
+                "https://www.cod-play.tech/*",
                 "https://codeforces.com/*"
             ],
             "js": [

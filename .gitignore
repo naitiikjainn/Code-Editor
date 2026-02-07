@@ -67,3 +67,36 @@ backend/*.png
 # Postman (auto-generated)
 # ===========================
 .postman/
+
+# ===========================
+# Chrome Extension (packed)
+# ===========================
+chrome-extension/*.crx
+chrome-extension/*.pem
+
+# ===========================
+# Test Coverage
+# ===========================
+coverage/
+.nyc_output/
+
+# ===========================
+# Cache
+# ===========================
+.cache/
+.parcel-cache/
+.eslintcache
+
+# ===========================
+# Package Locks (optional - keep one)
+# ===========================
+# package-lock.json
+# yarn.lock
+
+# ===========================
+# Misc Dev Files
+# ===========================
+*.bak
+*.tmp
+*.temp
+.gemini/
