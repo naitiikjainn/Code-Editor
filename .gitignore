@@ -42,6 +42,7 @@ Thumbs.db
 # Scraped Data (large files)
 # ===========================
 codeforces-problems/
+backend/scripts/
 
 # ===========================
 # CSES Test Cases (4GB+ downloaded via script)
