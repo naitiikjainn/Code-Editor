@@ -1,0 +1,57 @@
+{
+    "manifest_version": 3,
+    "name": "CodePlay Helper",
+    "version": "1.5",
+    "description": "Submit code to Codeforces and LeetCode directly from CodePlay Editor.",
+    "permissions": [
+        "cookies",
+        "storage",
+        "notifications"
+    ],
+    "host_permissions": [
+        "https://leetcode.com/*",
+        "https://codeforces.com/*",
+        "https://cod-play.tech/*",
+        "https://www.cod-play.tech/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://cod-play.tech/*",
+                "https://www.cod-play.tech/*",
+                "https://codeforces.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icon128.png",
+            "48": "icon128.png",
+            "128": "icon128.png"
+        }
+    },
+    "icons": {
+        "16": "icon128.png",
+        "48": "icon128.png",
+        "128": "icon128.png"
+    },
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "codeplay-helper@code-editor.com",
+            "strict_min_version": "100.0",
+            "data_collection_permissions": {
+                "required": [
+                    "none"
+                ]
+            }
+        }
+    }
+}

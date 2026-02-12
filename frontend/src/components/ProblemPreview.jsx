@@ -8,8 +8,9 @@ import { getEditorial, extractCodeBlocks } from "../utils/editorialService";
 // import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // --- MATH RENDERER ---
-const renderMath = (html) => {
+const renderMath = (html, options = {}) => {
     if (!html) return "";
+    const { skipDollarMath = false } = options;
     
     // Helper to clean LaTeX source (strip HTML tags, decode entities)
     const cleanTex = (tex) => {
@@ -89,7 +90,9 @@ const renderMath = (html) => {
     });
     
     // 1. Handle Codeforces $$$ ... $$$  (MUST come before single $)
-    result = result.replace(/\$\$\$([\s\S]*?)\$\$\$/g, (match, tex) => safeRender(tex, false));
+    if (!skipDollarMath) {
+        result = result.replace(/\$\$\$([\s\S]*?)\$\$\$/g, (match, tex) => safeRender(tex, false));
+    }
     
     // 2. Handle Legacy Codeforces <span class="tex-span">...</span>
     result = result.replace(/<span class="tex-span">([\s\S]*?)<\/span>/g, (match, tex) => safeRender(tex, false));
@@ -103,13 +106,15 @@ const renderMath = (html) => {
     // 5. Handle \begin{...} ... \end{...} blocks
     result = result.replace(/(\\begin\{([a-zA-Z0-9*]+)\}[\s\S]*?\\end\{\2\})/g, (match, tex) => safeRender(tex, true));
     
-    // 6. Handle display math $$ ... $$ (double dollar - MUST come before single)
-    result = result.replace(/\$\$([^\$]+?)\$\$/g, (match, tex) => safeRender(tex, true));
-    
-    // 7. Handle inline math $ ... $ (single dollar - must be careful not to match already processed $$)
-    result = result.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (match, tex) => {
-        return safeRender(tex, false);
-    });
+    if (!skipDollarMath) {
+        // 6. Handle display math $$ ... $$ (double dollar - MUST come before single)
+        result = result.replace(/\$\$([^\$]+?)\$\$/g, (match, tex) => safeRender(tex, true));
+        
+        // 7. Handle inline math $ ... $ (single dollar - must be careful not to match already processed $$)
+        result = result.replace(/(?<!\$)\$([^\$\n]+?)\$(?!\$)/g, (match, tex) => {
+            return safeRender(tex, false);
+        });
+    }
     
     // 8. Handle Codeforces <span class="tex-font-style-bf">...</span> (bold)
     result = result.replace(/<span\s+class="tex-font-style-bf">([^<]+)<\/span>/gi, (match, content) => {
@@ -285,13 +290,19 @@ export default function ProblemPreview({ problem, onCodeNow }) {
         return processed;
     };
 
+    const isLeetCode = problem.provider === "leetcode";
+    const mathOptions = { skipDollarMath: isLeetCode };
     const processedDescription = React.useMemo(
-        () => renderMath(wrapBareLatexOutsideMath(normalizeMathJaxHtml(problem.description))),
-        [problem.description]
+        () => isLeetCode 
+            ? renderMath(problem.description, mathOptions)
+            : renderMath(wrapBareLatexOutsideMath(normalizeMathJaxHtml(problem.description))),
+        [problem.description, problem.provider]
     );
     const processedNote = React.useMemo(
-        () => renderMath(wrapBareLatexOutsideMath(normalizeMathJaxHtml(problem.note))),
-        [problem.note]
+        () => isLeetCode
+            ? renderMath(problem.note, mathOptions)
+            : renderMath(wrapBareLatexOutsideMath(normalizeMathJaxHtml(problem.note))),
+        [problem.note, problem.provider]
     );
 
     if (!processedDescription && !processedNote && !problem.isSolved) {

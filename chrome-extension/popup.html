@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <style>
+    body {
+      width: 220px;
+      padding: 16px;
+      font-family: 'Segoe UI', sans-serif;
+      background: #18181b;
+      color: #fff;
+      margin: 0;
+    }
+
+    h3 {
+      font-size: 16px;
+      margin: 0 0 16px 0;
+      color: #a78bfa;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #52525b;
+      transition: 0.3s;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+    }
+
+    .status-text {
+      font-size: 13px;
+      color: #a1a1aa;
+      flex: 1;
+    }
+
+    .platform-icon {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #27272a;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: bold;
+      color: #aaa;
+    }
+
+    .footer {
+      border-top: 1px solid #27272a;
+      margin-top: 16px;
+      padding-top: 12px;
+      font-size: 11px;
+      color: #52525b;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+  <h3>
+    <span>⚡</span> CodePlay Helper
+  </h3>
+
+  <!-- Codeforces -->
+  <div class="status-row">
+    <div class="platform-icon">CF</div>
+    <div id="cf-text" class="status-text">Checking...</div>
+    <div id="cf-status" class="status-dot"></div>
+  </div>
+
+  <!-- LeetCode -->
+  <div class="status-row">
+    <div class="platform-icon">LC</div>
+    <div id="lc-text" class="status-text">Checking...</div>
+    <div id="lc-status" class="status-dot"></div>
+  </div>
+
+  <button id="clear-cache"
+    style="width: 100%; padding: 8px; margin-top: 10px; background: #27272a; color: #a1a1aa; border: 1px solid #3f3f46; border-radius: 4px; cursor: pointer; font-size: 11px; transition: 0.2s;">
+    🧹 Clear Local Cache
+  </button>
+
+  <div class="footer">
+    v1.3 • Speed Boost Active
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>
