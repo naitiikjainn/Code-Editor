@@ -177,7 +177,7 @@ const HeroSection = ({ handleCreateRoom, roomId, setRoomId, handleJoin }) => {
 };
 
 // --- EXTENSION CTA BANNER ---
-const EXTENSION_URL = "https://chromewebstore.google.com/detail/codeplay-helper/gnolnmfmmdpfdjilggmgkllbchhmdgpb";
+const EXTENSION_URL = "https://chromewebstore.google.com/detail/codeplay-helper/ldkpphfppokocibnlbdbkiohgocfgelb";
 
 const ExtensionBanner = () => (
   <section className="extension-banner">

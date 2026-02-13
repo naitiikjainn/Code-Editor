@@ -259,7 +259,7 @@ export const fetchCodeforcesProblem = async (contestId, index, options = {}) => 
                         Open on Codeforces
                     </a>
                     ${extensionMissing ? `
-                    <a href="https://github.com/naitiikjainn/Code-Editor#chrome-extension" target="_blank"
+                    <a href="https://chromewebstore.google.com/detail/codeplay-helper/ldkpphfppokocibnlbdbkiohgocfgelb" target="_blank"
                        style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: rgba(139, 92, 246, 0.15); color: #a78bfa; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 8px; border: 1px solid rgba(139, 92, 246, 0.3); transition: background 0.2s;"
                        onmouseover="this.style.background='rgba(139, 92, 246, 0.25)'" 
                        onmouseout="this.style.background='rgba(139, 92, 246, 0.15)'">

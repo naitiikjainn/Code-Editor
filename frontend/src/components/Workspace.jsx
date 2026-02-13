@@ -168,7 +168,7 @@ export default function Workspace() {
   const [csesResultModalSubmissionId, setCSESResultModalSubmissionId] = useState(null);
 
   // EXTENSION DETECTION
-  const EXTENSION_URL = "https://chromewebstore.google.com/detail/codeplay-helper/gnolnmfmmdpfdjilggmgkllbchhmdgpb";
+  const EXTENSION_URL = "https://chromewebstore.google.com/detail/codeplay-helper/ldkpphfppokocibnlbdbkiohgocfgelb";
   const [extensionDetected, setExtensionDetected] = useState(null); // null = checking, true/false
   const [extensionBannerDismissed, setExtensionBannerDismissed] = useState(() => {
     try { return sessionStorage.getItem("ext_banner_dismissed") === "1"; } catch { return false; }
