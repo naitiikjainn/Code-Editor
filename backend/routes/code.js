@@ -40,22 +40,41 @@ router.post("/execute", async (req, res) => {
   const sanitizedStdin = sanitizeCode(stdin || '', 10000); // 10KB max for stdin
 
   try {
-    const response = await fetch("https://emkc.org/api/v2/piston/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        language: runtime.language,
-        version: runtime.version,
-        files: [{
-          content: sanitizedCode,
-          name: language === "cpp" ? "main.cpp" : language === "java" ? "Solution.java" : language === "python" ? "main.py" : "index.js"
-        }],
-        stdin: sanitizedStdin,
-      }),
-    });
+    const pistonPayload = {
+      language: runtime.language,
+      version: runtime.version,
+      files: [{
+        content: sanitizedCode,
+        name: language === "cpp" ? "main.cpp" : language === "java" ? "Solution.java" : language === "python" ? "main.py" : "index.js"
+      }],
+      stdin: sanitizedStdin,
+    };
 
-    const data = await response.json();
-    res.json(data);
+    // Retry logic for Piston API rate limits
+    const MAX_RETRIES = 2;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pistonPayload),
+      });
+
+      if (response.status === 429) {
+        lastError = new Error("Piston API rate limit");
+        if (attempt < MAX_RETRIES) {
+          const delay = (attempt + 1) * 1000; // 1s, 2s
+          console.warn(`⚠️ Piston 429 - retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        return res.status(429).json({ error: "Code execution service is busy. Please try again in a few seconds." });
+      }
+
+      const data = await response.json();
+      return res.json(data);
+    }
 
   } catch (error) {
     console.error("Execution Error:", error);

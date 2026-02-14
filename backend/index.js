@@ -177,7 +177,7 @@ app.use("/api/code", authMiddleware);
 app.use("/api/livekit", authMiddleware);
 app.use("/api/leettools", authMiddleware);
 // Apply expensive operation rate limiting to code execution
-app.use("/api/code", rateLimiters.expensive);
+app.use("/api/code", rateLimiters.codeExecution);
 
 // Debug logging middleware
 app.use((req, res, next) => {
