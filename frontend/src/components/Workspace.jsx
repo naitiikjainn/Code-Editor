@@ -759,6 +759,10 @@ export default function Workspace() {
                     stdin: input 
                 }),
             });
+            if (!res.ok) {
+                const errBody = await res.json().catch(() => ({}));
+                throw new Error(errBody.error || `Server error (${res.status})`);
+            }
             data = await res.json();
         }
         const newLogs = [{ type: data.run?.code === 0 ? "log" : "error", message: data.run?.output || "Execution finished." }];
@@ -776,6 +780,7 @@ export default function Workspace() {
 
   const runTests = useCallback(async () => {
     if (!activeFile) return;
+    if (!user) { setAuthModalOpen(true); return; }
     setIsRunningTests(true);
     
     // AUTO RUNNER LOGIC - C++
@@ -791,6 +796,12 @@ export default function Workspace() {
              codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
          }
     }
+    // AUTO RUNNER LOGIC - Python
+    if (activeFile.language === "python" && codeToRun.includes("class Solution") && !codeToRun.includes("if __name__")) {
+         if (rightPanel?.data) {
+             codeToRun = generatePythonRunner(codeToRun, rightPanel.data);
+         }
+    }
     
     const newTestCases = [...testCases];
     
@@ -804,7 +815,7 @@ export default function Workspace() {
             if (activeFile.language === "javascript") {
                 data = await executeCode(codeToRun, test.input);
             } else {
-            const token = localStorage.getItem("codeplay_token");
+                const token = localStorage.getItem("codeplay_token");
                 const res = await fetch(`${API_URL}/api/code/execute`, {
                     method: "POST", 
                     headers: { 
@@ -817,6 +828,10 @@ export default function Workspace() {
                         stdin: test.input 
                     }),
                 });
+                if (!res.ok) {
+                    const errBody = await res.json().catch(() => ({}));
+                    throw new Error(errBody.error || `Server error (${res.status})`);
+                }
                 data = await res.json();
             }
             const output = data.run?.output?.trim() || "";
@@ -829,12 +844,12 @@ export default function Workspace() {
             }
         } catch (err) {
             newTestCases[i].status = "error";
-            newTestCases[i].actualOutput = "Execution Error";
+            newTestCases[i].actualOutput = err.message || "Execution Error";
         }
         setTestCases([...newTestCases]);
     }
     setIsRunningTests(false);
-  }, [activeFile, rightPanel, testCases]); // Removed activeCode dependency
+  }, [activeFile, rightPanel, testCases, user]);
 
   // Run a single test case by ID
   const runSingleTest = useCallback(async (testId) => {
@@ -858,6 +873,12 @@ export default function Workspace() {
     if (activeFile.language === "java" && codeToRun.includes("class Solution") && !codeToRun.includes("public static void main")) {
          if (rightPanel?.data) {
              codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
+         }
+    }
+    // AUTO RUNNER LOGIC - Python
+    if (activeFile.language === "python" && codeToRun.includes("class Solution") && !codeToRun.includes("if __name__")) {
+         if (rightPanel?.data) {
+             codeToRun = generatePythonRunner(codeToRun, rightPanel.data);
          }
     }
     
@@ -899,6 +920,10 @@ export default function Workspace() {
                     stdin: test.input 
                 }),
             });
+            if (!res.ok) {
+                const errBody = await res.json().catch(() => ({}));
+                throw new Error(errBody.error || `Server error (${res.status})`);
+            }
             data = await res.json();
         }
         
