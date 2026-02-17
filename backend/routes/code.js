@@ -2,12 +2,12 @@ import express from "express";
 
 const router = express.Router();
 
-// Map your frontend language names to Piston API versions
-const RUNTIMES = {
-  cpp: { language: "c++", version: "10.2.0" },
-  java: { language: "java", version: "15.0.2" },
-  python: { language: "python", version: "3.10.0" },
-  javascript: { language: "javascript", version: "18.15.0" },
+// Wandbox API compilers for each language
+const COMPILERS = {
+  cpp: { compiler: "gcc-13.2.0", options: "-std=c++17,-O2" },
+  java: { compiler: "openjdk-jdk-22+36" },
+  python: { compiler: "cpython-3.12.7" },
+  javascript: { compiler: "nodejs-20.17.0" },
 };
 
 // Input validation
@@ -17,7 +17,6 @@ const sanitizeCode = (code, maxLength = 100000) => {
 };
 
 router.post("/execute", async (req, res) => {
-  // 1. Accept 'stdin' from the request
   const { language, code, stdin } = req.body;
 
   // Validate inputs
@@ -31,49 +30,79 @@ router.post("/execute", async (req, res) => {
 
   console.log(`🚀 Executing ${language} code...`);
 
-  if (!RUNTIMES[language]) {
+  if (!COMPILERS[language]) {
     return res.status(400).json({ error: "Unsupported Language" });
   }
 
-  const runtime = RUNTIMES[language];
+  const compilerConfig = COMPILERS[language];
   const sanitizedCode = sanitizeCode(code);
   const sanitizedStdin = sanitizeCode(stdin || '', 10000); // 10KB max for stdin
 
   try {
-    const pistonPayload = {
-      language: runtime.language,
-      version: runtime.version,
-      files: [{
-        content: sanitizedCode,
-        name: language === "cpp" ? "main.cpp" : language === "java" ? "Solution.java" : language === "python" ? "main.py" : "index.js"
-      }],
+    const wandboxPayload = {
+      compiler: compilerConfig.compiler,
+      code: sanitizedCode,
       stdin: sanitizedStdin,
+      ...(compilerConfig.options ? { options: compilerConfig.options } : {}),
     };
 
-    // Retry logic for Piston API rate limits
+    // Retry logic for rate limits
     const MAX_RETRIES = 2;
-    let lastError = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+      const response = await fetch("https://wandbox.org/api/compile.json", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pistonPayload),
+        body: JSON.stringify(wandboxPayload),
       });
 
       if (response.status === 429) {
-        lastError = new Error("Piston API rate limit");
         if (attempt < MAX_RETRIES) {
-          const delay = (attempt + 1) * 1000; // 1s, 2s
-          console.warn(`⚠️ Piston 429 - retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          const delay = (attempt + 1) * 1000;
+          console.warn(`⚠️ Wandbox 429 - retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
         return res.status(429).json({ error: "Code execution service is busy. Please try again in a few seconds." });
       }
 
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "Unknown error");
+        console.error(`❌ Wandbox error (${response.status}):`, errText);
+        return res.status(500).json({ error: `Execution service error (${response.status})` });
+      }
+
       const data = await response.json();
-      return res.json(data);
+
+      // Log for debugging
+      console.log(`📋 Wandbox response for ${language}:`, JSON.stringify({
+        status: data.status,
+        compiler_error: data.compiler_error?.slice(0, 200) || "",
+        program_output: data.program_output?.slice(0, 200) || "",
+        program_error: data.program_error?.slice(0, 200) || "",
+      }));
+
+      // Translate Wandbox response to Piston-compatible format (frontend expects data.run.output)
+      const hasCompileError = data.compiler_error && data.compiler_error.trim().length > 0;
+      const output = hasCompileError
+        ? data.compiler_error  // Show compile errors
+        : (data.program_output || data.program_error || "");
+
+      const normalizedResponse = {
+        run: {
+          output: output,
+          stdout: data.program_output || "",
+          stderr: data.program_error || "",
+          code: data.status === "0" ? 0 : 1,
+        },
+        compile: {
+          output: data.compiler_output || "",
+          stderr: data.compiler_error || "",
+          code: hasCompileError ? 1 : 0,
+        },
+      };
+
+      return res.json(normalizedResponse);
     }
 
   } catch (error) {

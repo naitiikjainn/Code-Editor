@@ -765,7 +765,8 @@ export default function Workspace() {
             }
             data = await res.json();
         }
-        const newLogs = [{ type: data.run?.code === 0 ? "log" : "error", message: data.run?.output || "Execution finished." }];
+        const output = data.run?.output || data.compile?.output || data.run?.stderr || "";
+        const newLogs = [{ type: data.run?.code === 0 ? "log" : "error", message: output || "Execution finished." }];
         setLogs(prev => [...prev, ...newLogs]);
 
         if (id) socket.emit("sync_run_result", { roomId: id, logs: newLogs });
@@ -834,7 +835,7 @@ export default function Workspace() {
                 }
                 data = await res.json();
             }
-            const output = data.run?.output?.trim() || "";
+            const output = (data.run?.output || data.compile?.output || data.run?.stderr || "").trim();
             
             newTestCases[i].actualOutput = output;
             if (output === test.expectedOutput?.trim()) {
@@ -928,7 +929,7 @@ export default function Workspace() {
         }
         
         const executionTime = Date.now() - startTime;
-        const output = data.run?.output?.trim() || "";
+        const output = (data.run?.output || data.compile?.output || data.run?.stderr || "").trim();
         const isAccepted = output === test.expectedOutput?.trim();
         
         setTestCases(prev => prev.map(t => 
