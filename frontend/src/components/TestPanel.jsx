@@ -4,7 +4,7 @@ import { Play, X, FlaskConical, Plus, Trash2, CheckCircle, AlertCircle, Loader2,
 import HighlightedTextarea from "./HighlightedTextarea";
 
 const TestPanel = ({
-    testCases, setTestCases, runTests, runSingleTest, isRunningTests, onClose, language = "text"
+    testCases, setTestCases, runTests, runSingleTest, isRunningTests, handleCancel, onClose, language = "text"
 }) => {
 
   const [copiedId, setCopiedId] = useState(null);
@@ -403,35 +403,62 @@ const TestPanel = ({
 
         {/* ─── FOOTER ─── */}
         <div style={{ padding: "12px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "#0c0c0e" }}>
-             <button
-                onClick={runTests}
-                disabled={isDisabled}
-                className="tp-run-all-btn"
-                style={{
-                    width: "100%",
-                    background: isDisabled
-                        ? "#18181b"
-                        : "linear-gradient(135deg, #7c3aed 0%, #6366f1 50%, #7c3aed 100%)",
-                    backgroundSize: isDisabled ? "auto" : "200% 100%",
-                    color: isDisabled ? "#3f3f46" : "white",
-                    border: isDisabled ? "1px solid rgba(255,255,255,0.06)" : "none",
-                    padding: "12px",
-                    borderRadius: "10px",
-                    fontWeight: "700",
-                    fontSize: "13px",
-                    cursor: isDisabled ? "not-allowed" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "8px",
-                    boxShadow: isDisabled ? "none" : "0 4px 16px rgba(124, 58, 237, 0.3)",
-                    transition: "all 0.2s",
-                    letterSpacing: "0.3px"
-                }}
-              >
-                  {isRunningTests ? <Loader2 size={16} className="animate-spin"/> : <Play size={16} fill="white"/>}
-                  {isRunningTests ? "Running Tests..." : "Run All Tests"}
-              </button>
+             {isRunningTests ? (
+                 <button
+                    onClick={handleCancel}
+                    className="tp-run-all-btn"
+                    style={{
+                        width: "100%",
+                        background: "#ef5350",
+                        color: "white",
+                        border: "none",
+                        padding: "12px",
+                        borderRadius: "10px",
+                        fontWeight: "700",
+                        fontSize: "13px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "8px",
+                        boxShadow: "0 4px 16px rgba(239, 83, 80, 0.3)",
+                        transition: "all 0.2s"
+                    }}
+                  >
+                      <X size={16} color="white"/>
+                      Stop Tests
+                  </button>
+             ) : (
+                 <button
+                    onClick={runTests}
+                    disabled={isDisabled}
+                    className="tp-run-all-btn"
+                    style={{
+                        width: "100%",
+                        background: isDisabled
+                            ? "#18181b"
+                            : "linear-gradient(135deg, #7c3aed 0%, #6366f1 50%, #7c3aed 100%)",
+                        backgroundSize: isDisabled ? "auto" : "200% 100%",
+                        color: isDisabled ? "#3f3f46" : "white",
+                        border: isDisabled ? "1px solid rgba(255,255,255,0.06)" : "none",
+                        padding: "12px",
+                        borderRadius: "10px",
+                        fontWeight: "700",
+                        fontSize: "13px",
+                        cursor: isDisabled ? "not-allowed" : "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "8px",
+                        boxShadow: isDisabled ? "none" : "0 4px 16px rgba(124, 58, 237, 0.3)",
+                        transition: "all 0.2s",
+                        letterSpacing: "0.3px"
+                    }}
+                  >
+                      <Play size={16} fill="white"/>
+                      Run All Tests
+                  </button>
+             )}
         </div>
 
         {/* ─── STYLES ─── */}

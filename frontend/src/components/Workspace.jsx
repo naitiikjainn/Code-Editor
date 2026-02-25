@@ -26,6 +26,10 @@ import io from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
 import { Code2, Play, Share2, PanelBottom, Globe, FileCode, ShieldAlert, FlaskConical, X, Settings, Zap, Mic, MicOff, PhoneOff, Headphones, VolumeX, Download, ExternalLink, Puzzle } from "lucide-react"; 
 import { useVoiceChat } from "../hooks/useVoiceChat"; 
+import { useWorkspaceSocket } from "../hooks/useWorkspaceSocket";
+import { useWorkspaceFiles } from "../hooks/useWorkspaceFiles";
+import { useWorkspaceExecution } from "../hooks/useWorkspaceExecution";
+import WorkspaceHeader from "./WorkspaceHeader";
 import SettingsModal from "./SettingsModal";
 import SettingsPanel from "./SettingsPanel";
 import Whiteboard from "./Whiteboard"; 
@@ -36,50 +40,30 @@ import CSESResultModal from "./CSESResultModal";
 import { useScreenRecording } from "../hooks/useScreenRecording";
 import { stringToColor } from "../utils/colors";
 
-// Socket connection managed per-component lifecycle
-let socketInstance = null;
-const getSocket = () => {
-  if (!socketInstance) {
-    socketInstance = io(API_URL, {
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      transports: ['websocket', 'polling']
-    });
-  }
-  return socketInstance;
-};
 
-const socket = getSocket();
 
 export default function Workspace() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth(); 
 
-  // --- STATE ---
-  const [files, setFiles] = useState([]);
-  const [activeFile, setActiveFile] = useState(null);
-  const [activeCode, setActiveCode] = useState("");
-  const debouncedCode = useDebounce(activeCode, 1000); // Autosave delay
-  
-  // REF for optimization (Stable Callbacks)
-  const activeCodeRef = useRef(activeCode);
-  useEffect(() => { activeCodeRef.current = activeCode; }, [activeCode]);
-  
-  // Persist Active File
-  useEffect(() => {
-    if (activeFile) {
-        localStorage.setItem("activeFileId", activeFile._id);
-        if (activeFile.type === "preview") {
-            // If it's a preview file (virtual), save the whole object
-            localStorage.setItem("activePreviewFile", JSON.stringify(activeFile));
-        } else {
-            localStorage.removeItem("activePreviewFile");
-        }
-    }
-  }, [activeFile]);
-  
+  const [logs, setLogs] = useState([]);
+  const [consoleOpen, setConsoleOpen] = useState(true);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  // --- HOOKS ---
+  const { 
+      socket, accessStatus, setAccessStatus, waitMessage, activeUsers, pendingGuests, 
+      hostUserId, isHost, hostOnline, isReadOnly, handleGrant, handleDeny, handleLeaveRoom 
+  } = useWorkspaceSocket({ id, user, authLoading, setAuthModalOpen, setLogs });
+
+  const { 
+      files, setFiles, activeFile, activeCodeRef, activeCode, setActiveCode, debouncedCode, 
+      handleFileSelect, handleFileCreate, handleFileDeleteRequest, handleFileDeleteConfirm, 
+      deleteConfirm, setDeleteConfirm 
+  } = useWorkspaceFiles({ id, user, socket, accessStatus, isHost, hostUserId, isReadOnly, setLogs, setAuthModalOpen });
+
+  // --- UI STATE ---
   const [input, setInput] = useState(""); 
   const [viewMode, setViewMode] = useState(() => localStorage.getItem("viewMode") || "editor"); // "editor" | "problem_full"
   
@@ -96,15 +80,11 @@ export default function Workspace() {
   useEffect(() => {
     localStorage.setItem("activeSidebar", activeSidebar || "");
   }, [activeSidebar]); 
-  const [consoleOpen, setConsoleOpen] = useState(true);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiPanelWidth, setAiPanelWidth] = useState(() => parseInt(localStorage.getItem("aiPanelWidth")) || 420);
   const [isAiPanelResizing, setIsAiPanelResizing] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
-  const [isRunning, setIsRunning] = useState(false);
-  const [logs, setLogs] = useState([]);
   // LAYOUT PERSISTENCE
   const [consoleHeight, setConsoleHeight] = useState(() => parseInt(localStorage.getItem("consoleHeight")) || 250); 
   const [isResizing, setIsResizing] = useState(false); 
@@ -127,41 +107,38 @@ export default function Workspace() {
   useEffect(() => { localStorage.setItem("sidebarWidth", sidebarWidth); }, [sidebarWidth]);
   useEffect(() => { localStorage.setItem("rightPanelWidth", rightPanelWidth); }, [rightPanelWidth]);
 
-
-  // COLLAB STATE
-  const [activeUsers, setActiveUsers] = useState([]); 
-  const [hoveredUser, setHoveredUser] = useState(null);
-  const [pendingGuests, setPendingGuests] = useState([]);
-  
-  // Track recent leave events to deduplicate (prevents spam from socket reconnections)
-  const recentLeaveEventsRef = useRef(new Map());
-  const [hostUserId, setHostUserId] = useState(null); // Host's user ID for fetching their files
-  const [isHost, setIsHost] = useState(false); // Am I the host of this room?
-  const [hostOnline, setHostOnline] = useState(true); // Is host currently connected?
-  const [isReadOnly, setIsReadOnly] = useState(false); // Read-only mode when host is offline
-
-  // TEST CASE STATE
-  // TEST CASE STATE
-  const [testCases, setTestCases] = useState(() => {
-    try {
-        const saved = localStorage.getItem("testCases");
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            // Ensure all test cases have unique IDs (for backwards compatibility)
-            return parsed.map((tc, i) => ({
-                ...tc,
-                id: tc.id || Date.now() + i
-            }));
-        }
-        return [];
-    } catch { return []; }
-  });
-  
-  // Persist Test Cases
+  // GLOBAL RESIZE HANDLER (Restored)
   useEffect(() => {
-    localStorage.setItem("testCases", JSON.stringify(testCases));
-  }, [testCases]);
-  const [isRunningTests, setIsRunningTests] = useState(false);
+    const handleMouseMove = (e) => {
+      if (isResizing) {
+          const newHeight = window.innerHeight - e.clientY;
+          setConsoleHeight(Math.max(100, Math.min(newHeight, window.innerHeight * 0.8)));
+      } else if (isSidebarResizing) {
+          setSidebarWidth(Math.max(200, Math.min(e.clientX, window.innerWidth * 0.4)));
+      } else if (isRightPanelResizing) {
+          const newWidth = window.innerWidth - e.clientX;
+          setRightPanelWidth(Math.max(300, Math.min(newWidth, window.innerWidth * 0.6)));
+      }
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      setIsSidebarResizing(false);
+      setIsRightPanelResizing(false);
+      document.body.style.cursor = "default";
+    };
+
+    if (isResizing || isSidebarResizing || isRightPanelResizing) {
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", handleMouseUp);
+    }
+
+    return () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing, isSidebarResizing, isRightPanelResizing]);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [csesResultModalOpen, setCSESResultModalOpen] = useState(false);
   const [csesResultModalData, setCSESResultModalData] = useState(null);
@@ -199,9 +176,6 @@ export default function Workspace() {
     };
   }, []);
 
-  // ACCESS STATE
-  const [accessStatus, setAccessStatus] = useState("loading"); // loading, waiting, granted, denied, login_required
-  const [waitMessage, setWaitMessage] = useState("Connecting to room...");
 
 
   // Persist Right Panel
@@ -298,559 +272,12 @@ export default function Workspace() {
       return () => window.removeEventListener("auth:expired", handleAuthExpired);
   }, []);
 
-  // --- SOCKET CONFIG ---
-  useEffect(() => {
-	  if (!id || authLoading) return; 
-
-	  if (!user) {
-		  setAccessStatus("login_required");
-		  setWaitMessage("Please sign in to join this room.");
-		  setAuthModalOpen(true); 
-		  return;
-	  }
-	  
-	  if (accessStatus === "login_required") {
-		  setAccessStatus("loading");
-	  }
-
-	  const joinRoom = () => {
-		  console.log("Joining room:", id, "as", user.username, "userId:", user.id);
-		  socket.emit("join_room", { roomId: id, username: user.username, userId: user.id });
-	  };
-
-	  joinRoom();
-	  socket.on("connect", joinRoom);
-
-	  // Room state with host info
-	  socket.on("room_state", ({ users, hostOnline: isHostOnline, hostUserId: hostId, readOnly }) => {
-		  setActiveUsers(users);
-		  setHostOnline(isHostOnline);
-		  setHostUserId(hostId);
-		  setIsReadOnly(readOnly);
-		  console.log(`[Room] State updated - hostOnline: ${isHostOnline}, readOnly: ${readOnly}`);
-	  });
-	  
-	  socket.on("room_users", (users) => setActiveUsers(users));
-	  
-	  socket.on("status_update", ({ status, message }) => {
-		  setAccessStatus(status); 
-		  setWaitMessage(message);
-	  });
-
-	  socket.on("access_granted", ({ isHost: amHost, hostUserId: hostId }) => {
-		  setAccessStatus("granted");
-		  setWaitMessage("");
-		  setIsHost(amHost);
-		  if (hostId) setHostUserId(hostId);
-		  console.log(`[Room] Access granted - isHost: ${amHost}, hostId: ${hostId}`);
-	  });
-
-	  socket.on("access_denied", () => {
-		  setAccessStatus("denied");
-		  setWaitMessage("The host has declined your request to join this room.");
-	  });
-
-	  socket.on("host_left", ({ username }) => {
-		  // Deduplicate: Skip if we logged this event for this user recently
-		  const eventKey = `host_left:${username}`;
-		  const lastTime = recentLeaveEventsRef.current.get(eventKey);
-		  const now = Date.now();
-		  if (lastTime && now - lastTime < 5000) {
-			  console.log(`[Dedup] Skipping duplicate host_left for ${username}`);
-			  return;
-		  }
-		  recentLeaveEventsRef.current.set(eventKey, now);
-		  
-		  setHostOnline(false);
-		  setIsReadOnly(true);
-          setLogs(prev => [...prev, { type: "warning", message: `⚠️ Host ${username} has left. Files are now read-only.` }]);
-	  });
-
-	  socket.on("host_rejoined", ({ username }) => {
-		  // Clear any recent leave events for this user when they rejoin
-		  recentLeaveEventsRef.current.delete(`host_left:${username}`);
-		  recentLeaveEventsRef.current.delete(`user_left:${username}`);
-		  
-		  setHostOnline(true);
-		  setIsReadOnly(false);
-          setLogs(prev => [...prev, { type: "success", message: `✅ Host ${username} is back. Editing enabled.` }]);
-	  });
-
-	  socket.on("user_left", ({ username, isHost }) => {
-		  // Deduplicate: Skip if we logged this event for this user recently
-		  const eventKey = `user_left:${username}`;
-		  const lastTime = recentLeaveEventsRef.current.get(eventKey);
-		  const now = Date.now();
-		  if (lastTime && now - lastTime < 5000) {
-			  console.log(`[Dedup] Skipping duplicate user_left for ${username}`);
-			  return;
-		  }
-		  recentLeaveEventsRef.current.set(eventKey, now);
-		  
-          setLogs(prev => [...prev, { type: "info", message: `👋 ${username}${isHost ? " (Host)" : ""} has left the room.` }]);
-	  });
-
-	  socket.on("left_room", () => {
-		  // We successfully left the room - navigate away
-		  navigate("/dashboard");
-	  });
-
-	  // Clean disconnect on tab close
-	  const handleBeforeUnload = () => {
-		  socket.emit("leave_room");
-	  };
-	  window.addEventListener("beforeunload", handleBeforeUnload);
-
-	  socket.on("request_entry", ({ username, socketId }) => {
-		  setPendingGuests(prev => {
-			  if (prev.find(p => p.socketId === socketId)) return prev;
-			  return [...prev, { username, socketId }];
-		  });
-	  });
-
-	  socket.on("request_cancelled", ({ socketId }) => {
-		  setPendingGuests(prev => prev.filter(g => g.socketId !== socketId));
-	  });
-
-      // Old sync_problem_state removed - now using sync_problem directly
-
-      // --- FILE SYNC ---
-      socket.on("sync_file_created", ({ file }) => {
-          console.log(`[DEBUG] 📥 Socket received sync_file_created for: ${file?.name} (ID: ${file?._id})`);
-          setFiles(prev => {
-              if (prev.find(f => f._id === file._id)) {
-                  console.log(`[DEBUG] ⚠️ File already exists in state, skipping.`);
-                  return prev;
-              }
-              console.log(`[DEBUG] ✅ Adding file to state: ${file.name}`);
-              return [...prev, file];
-          });
-      });
-
-      socket.on("sync_file_deleted", ({ fileId }) => {
-          console.log(`[DEBUG] 📥 Socket received sync_file_deleted for ID: ${fileId}`);
-          setFiles(prev => {
-              const exists = prev.find(f => f._id === fileId);
-              console.log(`[DEBUG] ${exists ? "✅ Found file to delete" : "⚠️ File not found in state"} for deletion.`);
-              return prev.filter(f => f._id !== fileId);
-          });
-          setActiveFile(prev => prev?._id === fileId ? null : prev);
-      });
-
-      // --- ACTIVE FILE SYNC ---
-      socket.on("sync_active_file", ({ fileId }) => {
-          console.log(`📂 Active file synced: ${fileId}`);
-          if (fileId) {
-              // Find the file in our list and set it as active
-              setFiles(currentFiles => {
-                  const targetFile = currentFiles.find(f => f._id === fileId);
-                  if (targetFile) {
-                      setActiveFile(targetFile);
-                  }
-                  return currentFiles;
-              });
-          }
-      });
-
-      // Request active file state when joining
-      if (accessStatus === "granted") {
-          socket.emit("request_active_file", { roomId: id });
-      }
-
-	  return () => {
-		  window.removeEventListener("beforeunload", handleBeforeUnload);
-		  socket.off("connect", joinRoom);
-		  socket.off("room_state");
-		  socket.off("room_users");
-		  socket.off("status_update");
-		  socket.off("access_granted");
-		  socket.off("access_denied");
-		  socket.off("request_entry");
-		  socket.off("request_cancelled");
-		  socket.off("host_left");
-		  socket.off("host_rejoined");
-		  socket.off("user_left");
-		  socket.off("left_room");
-          socket.off("sync_file_created");
-          socket.off("sync_file_deleted");
-          socket.off("sync_active_file");
-	  };
-  }, [user, id, navigate, authLoading]);
+  // Socket listeners were extracted to custom hooks useWorkspaceSocket and useWorkspaceFiles
   
-  const handleGrant = (socketId) => {
-	  socket.emit("grant_access", { socketId });
-	  setPendingGuests(prev => prev.filter(g => g.socketId !== socketId));
-  };
-
-  const handleDeny = (socketId) => {
-	   socket.emit("deny_access", { socketId });
-	   setPendingGuests(prev => prev.filter(g => g.socketId !== socketId));
-  };
-  
-  // --- LEAVE ROOM ---
-  const handleLeaveRoom = () => {
-      console.log("[Room] Leaving room...");
-      socket.emit("leave_room");
-  };
-
-  // --- FETCH FILES ---
-  // Fetch host's files if guest, own files if host
-  const fetchFiles = async () => {
-      if (!user) return;
-      if (accessStatus !== "granted") return; // Wait for room access
-
-	  try {
-          const token = localStorage.getItem("codeplay_token");
-          
-          // Determine whose files to fetch
-          // Use explicit isHost flag from server, don't derive from hostUserId
-          const fileOwner = isHost ? null : hostUserId;
-          
-          const url = fileOwner 
-              ? `${API_URL}/api/files?hostId=${fileOwner}`
-              : `${API_URL}/api/files`;
-          
-          console.log(`[Files] Fetching files - isHost: ${isHost}, from: ${fileOwner || 'self'}`);
-          
-		  const res = await fetch(url, {
-              headers: { "Authorization": `Bearer ${token}` }
-          });
-		  const data = await res.json();
-          if (Array.isArray(data)) {
-		      setFiles(data);
-          } else {
-              setFiles([]);
-          }
-		  
-          // RESTORE ACTIVE FILE
-		  if (!activeFile) {
-              const lastId = localStorage.getItem("activeFileId");
-              const savedPreview = localStorage.getItem("activePreviewFile");
-
-              if (lastId && lastId.startsWith("preview-") && savedPreview) {
-                  // Restore Virtual Preview
-                  try {
-                      const pf = JSON.parse(savedPreview);
-                      setActiveFile(pf);
-                      // Don't set activeCode required for preview? Preview uses activeFile.data
-                  } catch (e) {}
-              } else if (lastId) {
-                  // Restore Real File
-                  const found = data.find(f => f._id === lastId);
-                  if (found) {
-                      setActiveFile(found);
-                      setActiveCode(found.content || "");
-                  } else if (data.length > 0) {
-                      // Fallback
-                      setActiveFile(data[0]);
-                      setActiveCode(data[0].content || "");
-                  }
-              } else if (data.length > 0) {
-				  setActiveFile(data[0]);
-				  setActiveCode(data[0].content || "");
-			  }
-		  }
-	  } catch (err) { console.error("Failed to fetch files", err); }
-  };
-
-  // Fetch files when access granted or host changes
-  useEffect(() => { 
-      if (accessStatus === "granted") {
-          fetchFiles(); 
-      }
-  }, [user, accessStatus, hostUserId]);
-
-  useEffect(() => {
-    // Backup content to localStorage (debounced, prevents freezing main thread)
-    if (!isReadOnly && activeFile && activeFile.type !== "preview" && debouncedCode !== activeFile.content) {
-        localStorage.setItem(`file_content_${activeFile._id}`, debouncedCode);
-    }
-  }, [debouncedCode]);
-
-  // --- RESIZE HANDLER ---
-  useEffect(() => {
-	  const handleMouseMove = (e) => {
-		  if (isResizing) {
-			  const newHeight = window.innerHeight - e.clientY;
-			  if (newHeight > 50 && newHeight < window.innerHeight - 100) {
-				  setConsoleHeight(newHeight);
-			  }
-		  }
-		  if (isSidebarResizing) {
-			  const newWidth = e.clientX - 48; // Subtract sidebar icon bar width
-			  if (newWidth > 150 && newWidth < 800) {
-				  setSidebarWidth(newWidth);
-			  }
-		  }
-		  if (isRightPanelResizing) {
-			  const newWidth = window.innerWidth - e.clientX;
-			  if (newWidth > 200 && newWidth < window.innerWidth - 300) {
-				  setRightPanelWidth(newWidth);
-			  }
-		  }
-	  };
-	  const handleMouseUp = () => {
-		  setIsResizing(false);
-		  setIsSidebarResizing(false);
-		  setIsRightPanelResizing(false);
-		  document.body.style.cursor = "default";
-	  };
-
-	  if (isResizing || isSidebarResizing || isRightPanelResizing) {
-		  window.addEventListener("mousemove", handleMouseMove);
-		  window.addEventListener("mouseup", handleMouseUp);
-	  }
-	  return () => {
-		  window.removeEventListener("mousemove", handleMouseMove);
-		  window.removeEventListener("mouseup", handleMouseUp);
-	  };
-  }, [isResizing, isSidebarResizing, isRightPanelResizing]);
-
-  // --- HANDLERS ---
-  const switchRightPanel = (type, data) => setRightPanel({ type, data });
-
-  const handleFileSelect = useCallback((file) => {
-	  setActiveFile(file);
-	  setActiveCode(file.content || "");
-      // Sync active file to room participants
-      if (id && file?._id) {
-          socket.emit("sync_active_file", { roomId: id, fileId: file._id });
-      }
-  }, [id]);
-
-  const handleFileCreate = useCallback(async (name) => {
-      if (!user) { setAuthModalOpen(true); return; }
-	  const ext = name.split('.').pop();
-	  const langMap = { js: "javascript", html: "html", css: "css", py: "python", java: "java", cpp: "cpp" };
-	  const language = langMap[ext] || "javascript";
-	  
-	  try {
-          const token = localStorage.getItem("codeplay_token");
-		  const res = await fetch(`${API_URL}/api/files`, {
-			 method: "POST",
-             headers: {
-                 "Content-Type": "application/json",
-                 "Authorization": `Bearer ${token}`
-             },
-			 body: JSON.stringify({ name, language, folder: "/", roomId: id || "default" }) 
-		  });
-		  
-		  if (!res.ok) {
-		      const errorData = await res.json().catch(() => ({}));
-		      console.error("File creation failed:", errorData);
-		      setLogs(prev => [...prev, { type: "error", message: `Failed to create file: ${errorData.error || res.statusText}` }]);
-		      return;
-		  }
-		  
-		  const newFile = await res.json();
-		  setFiles(prev => [...prev, newFile]);
-		  setActiveFile(newFile);
-		  setActiveCode("");
-		  // Sync file creation to other room participants
-		  if (id) {
-              console.log(`[DEBUG] 📤 Emitting sync_file_created for: ${newFile.name}`);
-              socket.emit("sync_file_created", { roomId: id, file: newFile });
-          } else {
-              console.log(`[DEBUG] ⚠️ No roomId (id is null), cannot emit sync_file_created`);
-          }
-	  } catch (err) { 
-	      console.error("File creation error:", err); 
-	      setLogs(prev => [...prev, { type: "error", message: `File creation error: ${err.message}` }]);
-	  }
-  }, [user, id]);
-
-  // Delete confirmation modal state
-  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, fileId: null, fileName: "" });
-
-  const handleFileDeleteRequest = useCallback((fileId) => {
-      if (!user) return;
-      const fileToDelete = files.find(f => f._id === fileId);
-      setDeleteConfirm({ isOpen: true, fileId, fileName: fileToDelete?.name || "this file" });
-  }, [user, files]);
-
-  const handleFileDeleteConfirm = useCallback(async () => {
-      const fileId = deleteConfirm.fileId;
-      setDeleteConfirm({ isOpen: false, fileId: null, fileName: "" });
-      
-	  try {
-          const token = localStorage.getItem("codeplay_token");
-		  const res = await fetch(`${API_URL}/api/files/${fileId}${hostUserId ? `?hostId=${hostUserId}` : ''}`, {
-              method: "DELETE",
-              headers: { "Authorization": `Bearer ${token}` }
-          });
-          
-          if (!res.ok) {
-              const data = await res.json().catch(() => ({}));
-              console.error("Delete failed:", data.error || res.statusText);
-              return; // Don't remove from UI if server delete failed
-          }
-          
-		  setFiles(prev => prev.filter(f => f._id !== fileId));
-		  setActiveFile(prev => prev?._id === fileId ? null : prev);
-		  if (activeFile?._id === fileId) {
-			  setActiveCode("");
-		  }
-		  // Sync file deletion to other room participants
-		  if (id) {
-              console.log(`[DEBUG] 📤 Emitting sync_file_deleted for ID: ${fileId}`);
-              socket.emit("sync_file_deleted", { roomId: id, fileId });
-          }
-	  } catch (err) { console.error(err); }
-  }, [deleteConfirm.fileId, activeFile, id, hostUserId]);
-
-  // --- EXECUTION & TESTS ---
-  // --- EXECUTION & TESTS ---
-  const handleRun = useCallback(async () => {
-    if (!user) { setAuthModalOpen(true); return; }
-    if (!activeFile) return;
-
-    setConsoleOpen(true);
-    setIsRunning(true);
-    setLogs([{ type: "info", message: "Compiling..." }]);
-
-    if (id) socket.emit("sync_run_trigger", { roomId: id, username: user.username });
-
-    // AUTO RUNNER LOGIC - C++ - Use Ref for stable callback
-    let codeToRun = activeCodeRef.current;
-    if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
-         if (rightPanel?.data) {
-             console.log("Injecting C++ Auto-Runner...");
-             codeToRun = generateCppRunner(codeToRun, rightPanel.data);
-         } else {
-             setLogs(prev => [...prev, { type: "warning", message: "Warning: Problem description (Right Panel) is closed. Auto-runner might fail." }]);
-         }
-    }
-    // AUTO RUNNER LOGIC - Java
-    if (activeFile.language === "java" && codeToRun.includes("class Solution") && !codeToRun.includes("public static void main")) {
-         if (rightPanel?.data) {
-             console.log("Injecting Java Auto-Runner...");
-             codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
-         } else {
-             setLogs(prev => [...prev, { type: "warning", message: "Warning: Problem description (Right Panel) is closed. Auto-runner might fail." }]);
-         }
-    }
-    // AUTO RUNNER LOGIC - Python
-    if (activeFile.language === "python" && codeToRun.includes("class Solution") && !codeToRun.includes("if __name__")) {
-         if (rightPanel?.data) {
-             console.log("Injecting Python Auto-Runner...");
-             codeToRun = generatePythonRunner(codeToRun, rightPanel.data);
-         } else {
-             setLogs(prev => [...prev, { type: "warning", message: "Warning: Problem description (Right Panel) is closed. Auto-runner might fail." }]);
-         }
-    }
-
-    try {
-        let data;
-        // CLIENT-SIDE EXECUTION FOR JS (Web Worker with TLE)
-        if (activeFile.language === "javascript") {
-            setLogs(prev => [...prev, { type: "info", message: "Running in browser (Web Worker)..." }]);
-            data = await executeCode(codeToRun, input);
-        } else {
-            const token = localStorage.getItem("codeplay_token");
-            const res = await fetch(`${API_URL}/api/code/execute`, {
-                method: "POST", 
-                headers: { 
-                    "Content-Type": "application/json",
-                    ...(token ? { Authorization: `Bearer ${token}` } : {})
-                },
-                body: JSON.stringify({ 
-                    language: activeFile.language, 
-                    code: codeToRun, 
-                    stdin: input 
-                }),
-            });
-            if (!res.ok) {
-                const errBody = await res.json().catch(() => ({}));
-                throw new Error(errBody.error || `Server error (${res.status})`);
-            }
-            data = await res.json();
-        }
-        const output = data.run?.output || data.compile?.output || data.run?.stderr || "";
-        const newLogs = [{ type: data.run?.code === 0 ? "log" : "error", message: output || "Execution finished." }];
-        setLogs(prev => [...prev, ...newLogs]);
-
-        if (id) socket.emit("sync_run_result", { roomId: id, logs: newLogs });
-
-    } catch (err) { 
-        const errorLog = [{ type: "error", message: "Server Error." }];
-        setLogs(prev => [...prev, ...errorLog]);
-        if (id) socket.emit("sync_run_result", { roomId: id, logs: errorLog });
-    }
-    finally { setIsRunning(false); }
-  }, [user, activeFile, id, rightPanel, input]); // Dependencies (input still needed for console typing)
-
-  const runTests = useCallback(async () => {
-    if (!activeFile) return;
-    if (!user) { setAuthModalOpen(true); return; }
-    setIsRunningTests(true);
-    
-    // AUTO RUNNER LOGIC - C++
-    let codeToRun = activeCodeRef.current; // Use Ref
-    if (activeFile.language === "cpp" && codeToRun.includes("class Solution") && !codeToRun.includes("int main")) {
-         if (rightPanel?.data) {
-             codeToRun = generateCppRunner(codeToRun, rightPanel.data);
-         }
-    }
-    // AUTO RUNNER LOGIC - Java
-    if (activeFile.language === "java" && codeToRun.includes("class Solution") && !codeToRun.includes("public static void main")) {
-         if (rightPanel?.data) {
-             codeToRun = generateJavaRunner(codeToRun, rightPanel.data);
-         }
-    }
-    // AUTO RUNNER LOGIC - Python
-    if (activeFile.language === "python" && codeToRun.includes("class Solution") && !codeToRun.includes("if __name__")) {
-         if (rightPanel?.data) {
-             codeToRun = generatePythonRunner(codeToRun, rightPanel.data);
-         }
-    }
-    
-    const newTestCases = [...testCases];
-    
-    for (let i = 0; i < newTestCases.length; i++) {
-        const test = newTestCases[i];
-        newTestCases[i] = { ...test, status: "running", actualOutput: "" };
-        setTestCases([...newTestCases]); 
-
-        try {
-            let data;
-            if (activeFile.language === "javascript") {
-                data = await executeCode(codeToRun, test.input);
-            } else {
-                const token = localStorage.getItem("codeplay_token");
-                const res = await fetch(`${API_URL}/api/code/execute`, {
-                    method: "POST", 
-                    headers: { 
-                        "Content-Type": "application/json",
-                        ...(token ? { Authorization: `Bearer ${token}` } : {})
-                    },
-                    body: JSON.stringify({ 
-                        language: activeFile.language, 
-                        code: codeToRun, 
-                        stdin: test.input 
-                    }),
-                });
-                if (!res.ok) {
-                    const errBody = await res.json().catch(() => ({}));
-                    throw new Error(errBody.error || `Server error (${res.status})`);
-                }
-                data = await res.json();
-            }
-            const output = (data.run?.output || data.compile?.output || data.run?.stderr || "").trim();
-            
-            newTestCases[i].actualOutput = output;
-            if (output === test.expectedOutput?.trim()) {
-                newTestCases[i].status = "accepted";
-            } else {
-                newTestCases[i].status = "wrong_answer";
-            }
-        } catch (err) {
-            newTestCases[i].status = "error";
-            newTestCases[i].actualOutput = err.message || "Execution Error";
-        }
-        setTestCases([...newTestCases]);
-    }
-    setIsRunningTests(false);
-  }, [activeFile, rightPanel, testCases, user]);
+  const { 
+      isRunning, isRunningTests, testCases, setTestCases, 
+      handleRun, runTests, handleCancel 
+  } = useWorkspaceExecution({ user, activeFile, activeCodeRef, rightPanel, input, id, socket, setLogs, setAuthModalOpen, setConsoleOpen });
 
   // Run a single test case by ID
   const runSingleTest = useCallback(async (testId) => {
@@ -1849,246 +1276,33 @@ rl.on('line', (line) => {
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-dark)", color: "var(--text-main)" }}>
         
         {/* HEADER */}
-        <div style={{ height: "48px", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", background: "rgba(17,17,17,0.85)", backdropFilter: "blur(20px) saturate(180%)", borderBottom: "1px solid rgba(255,255,255,0.06)", WebkitAppRegion: "drag" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "14px", WebkitAppRegion: "no-drag" }}>
-                 <div onClick={() => navigate("/")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", transition: "opacity 0.2s" }} onMouseEnter={e => e.currentTarget.style.opacity = "0.7"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-                    <Code2 size={18} color="var(--accent-primary)" />
-                    <span style={{ fontWeight: "600", fontSize: "15px", letterSpacing: "-0.01em" }}>CodePlay</span>
-                </div>
-                {activeFile && activeFile.type !== "preview" && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", background: "rgba(255,255,255,0.04)", padding: "4px 10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.06)" }}>
-                        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: activeFile.language === "html" ? "#e34c26" : activeFile.language === "css" ? "#563d7c" : (activeFile.language === "javascript" ? "#f1e05a" : activeFile.language === "python" ? "#3572A5" : activeFile.language === "java" ? "#b07219" : activeFile.language === "cpp" ? "#f34b7d" : "var(--accent-primary)") }}></span>
-                        <span style={{ color: "var(--text-muted)", fontWeight: "500", textTransform: "uppercase", letterSpacing: "0.5px" }}>{activeFile.language}</span>
-                    </div>
-                )}
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                
-                <div style={{ display: "flex", alignItems: "center", paddingLeft: "8px" }}>
-                    {activeUsers.map((u, i) => (
-                        <div 
-                            key={i} 
-                            onMouseEnter={() => setHoveredUser(u.username)}
-                            onMouseLeave={() => setHoveredUser(null)}
-                            style={{ 
-                                width: "28px", height: "28px", borderRadius: "50%", 
-                                background: stringToColor(u.username || "User"), 
-                                color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", 
-                                fontSize: "12px", fontWeight: "600", 
-                                border: "2px solid rgba(17,17,17,0.9)", 
-                                marginLeft: i === 0 ? 0 : "-8px", 
-                                cursor: "pointer",
-                                position: "relative",
-                                zIndex: 10 + i,
-                                transition: "transform 0.15s ease"
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.transform = "scale(1.15)"}
-                            onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
-                        >
-                            {(u.username || "U")[0].toUpperCase()}
-                            {hoveredUser === u.username && (
-                                <div style={{
-                                    position: "absolute",
-                                    top: "36px", left: "50%", transform: "translateX(-50%)",
-                                    background: "rgba(28,28,30,0.95)", color: "white", padding: "5px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: "500", whiteSpace: "nowrap", zIndex: 1000, pointerEvents: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(12px)"
-                                }}>
-                                    {u.username}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-
-                <button onClick={handleRun} disabled={isRunning} className="btn-primary" style={{ padding: "6px 16px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
-                     {isRunning ? "..." : <><Play size={14} fill="white" /> Run</>}
-                </button>
-                {rightPanel?.data && (
-                    <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "4px" }}>
-                        <button onClick={handleSubmit} disabled={isSubmitting} className="btn-primary" title={extensionDetected === false ? "⚠️ Extension not detected — Install CodePlay Helper to submit" : "Submit code"} style={{ padding: "6px 16px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #16a34a, #15803d)" }}>
-                             {isSubmitting ? "..." : <><Zap size={14} fill="white" /> Submit</>}
-                        </button>
-                        {extensionDetected === false && (
-                            <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" title="Install CodePlay Helper Extension" style={{ width: "28px", height: "28px", borderRadius: "8px", background: "rgba(251,146,60,0.12)", border: "1px solid rgba(251,146,60,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s", textDecoration: "none" }} onMouseEnter={e => { e.currentTarget.style.background = "rgba(251,146,60,0.2)"; e.currentTarget.style.transform = "scale(1.05)"; }} onMouseLeave={e => { e.currentTarget.style.background = "rgba(251,146,60,0.12)"; e.currentTarget.style.transform = "scale(1)"; }}>
-                                <Puzzle size={13} style={{ color: "#fb923c" }} />
-                            </a>
-                        )}
-                    </div>
-                )}
-                <button onClick={handleCopyLink} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "13px" }}><Share2 size={14} /></button>
-                
-                {/* Gemini AI Button - Official Logo */}
-                <button 
-                  onClick={() => setAiPanelOpen(!aiPanelOpen)}
-                  title="Gemini AI"
-                  style={{ 
-                    width: "36px",
-                    height: "36px",
-                    padding: 0,
-                    display: "flex", 
-                    alignItems: "center", 
-                    justifyContent: "center",
-                    background: aiPanelOpen ? "rgba(66, 133, 244, 0.15)" : "transparent",
-                    border: "none",
-                    borderRadius: "50%",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    position: "relative"
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = "rgba(66, 133, 244, 0.15)"}
-                  onMouseLeave={e => { if(!aiPanelOpen) e.currentTarget.style.background = "transparent"; }}
-                >
-                  {/* Official Google Gemini Logo */}
-                  <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#geminiGradIcon)"/>
-                    <defs>
-                      <linearGradient id="geminiGradIcon" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
-                        <stop offset="0" stopColor="#1C7DFF"/>
-                        <stop offset="0.52" stopColor="#A87FFE"/>
-                        <stop offset="1" stopColor="#D96570"/>
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  {rightPanel?.data && (
-                    <span style={{ 
-                      position: "absolute", top: "2px", right: "2px",
-                      width: "8px", height: "8px", borderRadius: "50%", 
-                      background: "#4ade80", border: "2px solid #111" 
-                    }} />
-                  )}
-                </button>
-                
-                {!user && <button onClick={() => setAuthModalOpen(true)} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "13px" }}>Login</button>}
-            
-                {/* FORCE SEPARATOR */}
-                <div style={{ width: "1px", height: "24px", background: "var(--border-subtle)", margin: "0 4px" }}></div>
-
-                {/* VOICE CONTROLS */}
-                {!isConnected ? (
-                    <button 
-                        onClick={joinVoice} 
-                        className="btn-secondary" 
-                        style={{ padding: "6px 12px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px", borderColor: "var(--accent-primary)", color: "var(--accent-primary)" }}
-                        title="Join Voice Chat"
-                    >
-                        <MicOff size={14} /> Join Voice
-                    </button>
-                ) : (
-                    <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#333", borderRadius: "6px", padding: "2px", border: `1px solid ${isSpeaking ? '#22c55e' : '#444'}`, transition: "border-color 0.15s" }}>
-                         <button 
-                            onClick={toggleMute}
-                            style={{ 
-                                background: isMuted ? "#ef5350" : "#22c55e", 
-                                border: "none", borderRadius: "4px", 
-                                width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s",
-                                boxShadow: isSpeaking && !isMuted ? '0 0 8px rgba(34, 197, 94, 0.6)' : 'none'
-                            }}
-                            title={isMuted ? "Unmute" : "Mute"}
-                        >
-                            {isMuted ? <MicOff size={14} color="white" /> : <Mic size={14} color="white" />}
-                        </button>
-                        <button 
-                            onClick={toggleDeafen}
-                            style={{ 
-                                background: isDeafened ? "#ef5350" : "transparent", 
-                                border: "none", borderRadius: "4px", 
-                                width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.2s"
-                            }}
-                            title={isDeafened ? "Undeafen" : "Deafen (mute all audio)"}
-                        >
-                            {isDeafened ? <VolumeX size={14} color="white" /> : <Headphones size={14} color="#aaa" />}
-                        </button>
-                        <button 
-                            onClick={leaveVoice}
-                            style={{ 
-                                background: "transparent", 
-                                border: "none", borderRadius: "4px", 
-                                width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" 
-                            }}
-                            className="hover-bg-red"
-                            title="Disconnect Voice"
-                        >
-                            <PhoneOff size={14} color="#aaa" />
-                        </button>
-                        {/* Connection quality indicator */}
-                        <div style={{ 
-                            width: "8px", height: "8px", borderRadius: "50%", marginLeft: "4px",
-                            background: connectionQuality === 'good' ? '#22c55e' : connectionQuality === 'medium' ? '#f59e0b' : '#ef5350'
-                        }} title={`Connection: ${connectionQuality}`} />
-                    </div>
-                )}
-            </div>
-        </div>
-        </div>
-
-        {/* EXTENSION INSTALL BANNER */}
-        {extensionDetected === false && !extensionBannerDismissed && (
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "12px",
-            padding: "8px 16px",
-            background: "linear-gradient(90deg, rgba(251,146,60,0.08), rgba(249,115,22,0.12), rgba(251,146,60,0.08))",
-            borderBottom: "1px solid rgba(251,146,60,0.2)",
-            fontSize: "13px",
-            color: "#fbbf24",
-            fontWeight: 500,
-            flexShrink: 0,
-            animation: "fadeIn 0.3s ease"
-          }}>
-            <Puzzle size={15} style={{ color: "#fb923c", flexShrink: 0 }} />
-            <span style={{ color: "var(--text-muted)" }}>
-              <strong style={{ color: "#fb923c" }}>CodePlay Helper Extension</strong> is required to submit code to Codeforces &amp; LeetCode.
-            </span>
-            <a
-              href={EXTENSION_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                padding: "4px 14px",
-                background: "linear-gradient(135deg, #fb923c, #f97316)",
-                color: "#fff",
-                borderRadius: "8px",
-                fontSize: "12px",
-                fontWeight: 600,
-                textDecoration: "none",
-                transition: "all 0.2s",
-                whiteSpace: "nowrap",
-                boxShadow: "0 2px 8px rgba(251,146,60,0.25)"
-              }}
-              onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.03)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(251,146,60,0.35)"; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(251,146,60,0.25)"; }}
-            >
-              <Download size={12} />
-              Install Extension
-              <ExternalLink size={10} style={{ opacity: 0.7 }} />
-            </a>
-            <button
-              onClick={() => { setExtensionBannerDismissed(true); try { sessionStorage.setItem("ext_banner_dismissed", "1"); } catch {} }}
-              style={{
-                background: "none",
-                border: "none",
-                color: "rgba(255,255,255,0.3)",
-                cursor: "pointer",
-                padding: "2px",
-                display: "flex",
-                alignItems: "center",
-                transition: "color 0.2s"
-              }}
-              onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.6)"}
-              onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.3)"}
-              title="Dismiss"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        <WorkspaceHeader 
+            activeFile={activeFile}
+            activeUsers={activeUsers}
+            isRunning={isRunning}
+            handleRun={handleRun}
+            isSubmitting={isSubmitting}
+            handleSubmit={handleSubmit}
+            extensionDetected={extensionDetected}
+            EXTENSION_URL={EXTENSION_URL}
+            handleCopyLink={handleCopyLink}
+            aiPanelOpen={aiPanelOpen}
+            setAiPanelOpen={setAiPanelOpen}
+            rightPanel={rightPanel}
+            user={user}
+            setAuthModalOpen={setAuthModalOpen}
+            isConnected={isConnected}
+            joinVoice={joinVoice}
+            isSpeaking={isSpeaking}
+            isMuted={isMuted}
+            toggleMute={toggleMute}
+            isDeafened={isDeafened}
+            toggleDeafen={toggleDeafen}
+            leaveVoice={leaveVoice}
+            connectionQuality={connectionQuality}
+            extensionBannerDismissed={extensionBannerDismissed}
+            setExtensionBannerDismissed={setExtensionBannerDismissed}
+        />
 
         {/* WORKSPACE BODY */}
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -2569,7 +1783,7 @@ rl.on('line', (line) => {
             borderLeft: "1px solid var(--border-subtle)", 
             background: "var(--bg-panel)",
             boxShadow: "-4px 0 24px rgba(0,0,0,0.3)",
-            animation: isAiPanelResizing ? "none" : "slideInRight 0.25s ease-out",
+            animation: "slideInRight 0.25s ease-out",
             display: "flex",
             flexDirection: "row"
         }}>

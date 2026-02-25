@@ -28,6 +28,7 @@ export default function Whiteboard({ socket, roomId, username, onClose }) {
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
     const textInputRef = useRef(null);
+    const lastCursorEmitRef = useRef(0);
 
     // -- STATE --
     const [activeTool, setActiveTool] = useState("pen"); // pen, eraser, text
@@ -262,9 +263,13 @@ export default function Whiteboard({ socket, roomId, username, onClose }) {
 
         // Emit cursor
         if (socket && roomId && username) {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (rect) {
-                socket.emit("wb_cursor", { roomId, x: e.clientX - rect.left, y: e.clientY - rect.top, username, color });
+            const now = Date.now();
+            if (now - lastCursorEmitRef.current > 50) {
+                const rect = canvasRef.current?.getBoundingClientRect();
+                if (rect) {
+                    socket.emit("wb_cursor", { roomId, x: e.clientX - rect.left, y: e.clientY - rect.top, username, color });
+                }
+                lastCursorEmitRef.current = now;
             }
         }
 
@@ -276,6 +281,9 @@ export default function Whiteboard({ socket, roomId, username, onClose }) {
         }
 
         if (!isDrawing || activeTool === "text") return;
+
+        const dist = Math.hypot(wPos.x - prevPos.x, wPos.y - prevPos.y);
+        if (dist < 2) return;
 
         const itemType = activeTool === "eraser" ? "erase" : "line";
         const drawColor = activeTool === "eraser" ? "#1a1a1a" : color;

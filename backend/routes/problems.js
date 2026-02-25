@@ -171,7 +171,7 @@ router.get("/leetcode/daily", async (req, res) => {
                 "Referer": "https://leetcode.com"
             },
             body: JSON.stringify({ query }),
-            signal: AbortSignal.timeout(15000)
+            signal: AbortSignal.timeout(240000)
         });
 
         const data = await response.json();
@@ -281,7 +281,7 @@ router.get("/leetcode/list", async (req, res) => {
                     filters: Object.keys(filters).length > 0 ? filters : {}
                 }
             }),
-            signal: AbortSignal.timeout(15000) // 15 second timeout
+            signal: AbortSignal.timeout(240000) // 4 minute timeout
         });
 
         const data = await response.json();
@@ -510,7 +510,7 @@ router.get("/gfg/:slug", async (req, res) => {
                 "Accept-Language": "en-US,en;q=0.5",
                 "Referer": "https://www.geeksforgeeks.org/"
             },
-            signal: AbortSignal.timeout(20000) // 20 second timeout
+            signal: AbortSignal.timeout(240000) // 4 minute timeout
         });
 
         if (!pageRes.ok) {
@@ -693,11 +693,11 @@ router.get("/codeforces/list", async (req, res) => {
         let response;
         try {
             // Increased timeouts significantly as the problem set JSON is very large (~5-10MB)
-            response = await fetch("https://codeforces.com/api/problemset.problems", { signal: AbortSignal.timeout(15000) });
+            response = await fetch("https://codeforces.com/api/problemset.problems", { signal: AbortSignal.timeout(240000) });
         } catch (e) {
             console.warn("[Backend] Main API failed, trying mirror...", e.message);
             // Mirror might be slower, give it more time
-            response = await fetch("https://mirror.codeforces.com/api/problemset.problems", { signal: AbortSignal.timeout(30000) });
+            response = await fetch("https://mirror.codeforces.com/api/problemset.problems", { signal: AbortSignal.timeout(240000) });
         }
 
         if (!response || !response.ok) {
@@ -750,7 +750,7 @@ router.get("/codeforces/blog/:blogId", async (req, res) => {
     try {
         const { blogId } = req.params;
         // Fetch from Codeforces API server-side
-        const response = await fetch(`https://codeforces.com/api/blogEntry.view?blogEntryId=${blogId}`, { signal: AbortSignal.timeout(10000) });
+        const response = await fetch(`https://codeforces.com/api/blogEntry.view?blogEntryId=${blogId}`, { signal: AbortSignal.timeout(240000) });
         const data = await response.json();
 
         if (data.status === "OK") {
@@ -781,7 +781,7 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
         // First, get the round number from contest.list API (with smaller timeout)
         try {
             const contestInfoResponse = await fetch(`https://codeforces.com/api/contest.list?gym=false`, {
-                signal: AbortSignal.timeout(10000)
+                signal: AbortSignal.timeout(240000)
             });
             const contestInfoData = await contestInfoResponse.json();
 
@@ -803,7 +803,7 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
         // Step 1b: Try recentActions API first (fast, but only recent editorials)
         try {
             const recentResponse = await fetch(`https://codeforces.com/api/recentActions?maxCount=100`, {
-                signal: AbortSignal.timeout(10000)
+                signal: AbortSignal.timeout(240000)
             });
             const recentData = await recentResponse.json();
 
@@ -859,10 +859,10 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                 const page = await browser.newPage();
                 await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-                await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+                await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 240000 });
 
                 // Wait for search results (shorter timeout)
-                await page.waitForSelector('.datatable, .searchResultsList', { timeout: 5000 }).catch(() => { });
+                await page.waitForSelector('.datatable, .searchResultsList', { timeout: 240000 }).catch(() => { });
 
                 // Extract blog links from search results
                 const blogLinks = await page.evaluate((roundNum, contestNum) => {
@@ -935,10 +935,10 @@ router.get("/codeforces/editorial/:contestId", async (req, res) => {
                 const page = await browser.newPage();
                 await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-                await page.goto(blogUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+                await page.goto(blogUrl, { waitUntil: 'domcontentloaded', timeout: 240000 });
 
                 // Wait for content to load
-                await page.waitForSelector('.ttypography', { timeout: 8000 }).catch(() => { });
+                await page.waitForSelector('.ttypography', { timeout: 240000 }).catch(() => { });
 
                 // Extract the blog content
                 const content = await page.evaluate(() => {
