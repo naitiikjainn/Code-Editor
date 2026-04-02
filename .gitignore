@@ -93,9 +93,32 @@ coverage/
 # yarn.lock
 
 # ===========================
+# CP Practice Files (root level)
+# ===========================
+/*.cpp
+/*.exe
+/*.txt
+!README.txt
+
+# ===========================
+# Large Images
+# ===========================
+*.png
+!frontend/public/**/*.png
+!chrome-extension/**/*.png
+
+# ===========================
+# Build Artifacts
+# ===========================
+frontend/build_output.txt
+frontend/structure.txt
+scraper_log.txt
+
+# ===========================
 # Misc Dev Files
 # ===========================
 *.bak
 *.tmp
 *.temp
 .gemini/
+nul
