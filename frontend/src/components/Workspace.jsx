@@ -58,7 +58,7 @@ export default function Workspace() {
   } = useWorkspaceSocket({ id, user, authLoading, setAuthModalOpen, setLogs });
 
   const { 
-      files, setFiles, activeFile, activeCodeRef, activeCode, setActiveCode, debouncedCode, 
+      files, setFiles, activeFile, setActiveFile, activeCodeRef, activeCode, setActiveCode, debouncedCode, 
       handleFileSelect, handleFileCreate, handleFileDeleteRequest, handleFileDeleteConfirm, 
       deleteConfirm, setDeleteConfirm 
   } = useWorkspaceFiles({ id, user, socket, accessStatus, isHost, hostUserId, isReadOnly, setLogs, setAuthModalOpen });

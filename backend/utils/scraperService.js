@@ -832,24 +832,53 @@ const csesScraper = {
             description = content.html() || description;
         }
 
-        // Test Cases
+        // Test Cases - CSES uses "Example" heading followed by Input:/Output: with <pre> blocks
         const testCases = [];
-        const pres = content.find("pre");
-        const inputs = [];
-        const outputs = [];
-
-        pres.each((i, pre) => {
-            const text = $(pre).text().trim();
-            if (inputs.length === outputs.length) {
-                inputs.push(text);
-            } else {
-                outputs.push(text);
+        
+        // Find Example section - look for h1 or heading containing "Example"
+        const fullHtml = content.html() || "";
+        const exampleIdx = fullHtml.search(/<h1[^>]*>Example/i);
+        
+        if (exampleIdx !== -1) {
+            // Parse only the example section
+            const exampleHtml = fullHtml.substring(exampleIdx);
+            const $example = cheerio.load(exampleHtml);
+            const examplePres = $example("pre");
+            const inputs = [];
+            const outputs = [];
+            
+            examplePres.each((i, pre) => {
+                const text = $example(pre).text().trim();
+                if (inputs.length === outputs.length) {
+                    inputs.push(text);
+                } else {
+                    outputs.push(text);
+                }
+            });
+            
+            for (let i = 0; i < Math.min(inputs.length, outputs.length); i++) {
+                testCases.push({ input: inputs[i], expectedOutput: outputs[i] });
             }
-        });
+        } else {
+            // Fallback: try to find pre tags that follow "Input:" / "Output:" text
+            const pres = content.find("pre");
+            const inputs = [];
+            const outputs = [];
+            
+            pres.each((i, pre) => {
+                const text = $(pre).text().trim();
+                if (inputs.length === outputs.length) {
+                    inputs.push(text);
+                } else {
+                    outputs.push(text);
+                }
+            });
 
-        for (let i = 0; i < Math.min(inputs.length, outputs.length); i++) {
-            testCases.push({ input: inputs[i], expectedOutput: outputs[i] });
+            for (let i = 0; i < Math.min(inputs.length, outputs.length); i++) {
+                testCases.push({ input: inputs[i], expectedOutput: outputs[i] });
+            }
         }
+
 
         return {
             provider: "cses",
