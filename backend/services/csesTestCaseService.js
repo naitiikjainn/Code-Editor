@@ -15,6 +15,7 @@ let s3 = null;
 if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
     s3 = new S3Client({
         region: S3_REGION,
+        endpoint: process.env.AWS_ENDPOINT_URL_S3, // Enables Cloudflare R2, Backblaze B2, etc.
         credentials: {
             accessKeyId: process.env.AWS_ACCESS_KEY_ID,
             secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,

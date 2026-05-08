@@ -4,7 +4,9 @@ import redis from "../config/redis.js";
 // Connection configuration using existing Redis
 const connection = {
     host: process.env.REDIS_HOST || "127.0.0.1",
-    port: parseInt(process.env.REDIS_PORT) || 6379
+    port: parseInt(process.env.REDIS_PORT) || 6379,
+    maxRetriesPerRequest: null, // Critical for BullMQ
+    enableOfflineQueue: false // Fail fast if Redis is down
 };
 
 // If REDIS_URL is set, parse it
